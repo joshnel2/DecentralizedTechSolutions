@@ -398,7 +398,7 @@ class BackgroundTask extends EventEmitter {
       [ExecutionPhase.REVIEW]: 0,
     };
     // Structured plan that SURVIVES compaction (stored as object, not just in messages)
-    this.structuredPlan = null; // { goal, phases: [{name, steps: [string], status}], keyFindings: [] }
+    this.structuredPlan = null;
     
     // Rate limit tracking for adaptive token management
     this.rateLimitWaitMs = 0;
@@ -407,6 +407,19 @@ class BackgroundTask extends EventEmitter {
     
     // Track text-only responses more aggressively
     this.textOnlyStreak = 0;
+    
+    // ===== TOOL RESULT CACHE (prevent redundant API calls) =====
+    // Caches results from read-only tools so the agent doesn't re-fetch the same data
+    this.toolCache = new Map(); // key: "toolName:argHash" -> { result, timestamp }
+    this.CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache TTL
+    
+    // Tools that are safe to cache (read-only, no side effects)
+    this.CACHEABLE_TOOLS = new Set([
+      'get_matter', 'list_my_matters', 'search_matters', 'list_clients', 'get_client',
+      'list_documents', 'read_document_content', 'search_document_content',
+      'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
+      'list_team_members', 'get_upcoming_deadlines', 'lookup_cplr',
+    ]);
   }
 
   /**
@@ -668,6 +681,169 @@ Wrap up efficiently. You MUST call task_complete soon.`,
 
   isPlanMessage(message) {
     return message?.role === 'system' && message?.content?.startsWith(PLAN_MESSAGE_PREFIX);
+  }
+
+  // ===== TOOL RESULT CACHING =====
+  
+  /**
+   * Get a cache key for a tool call
+   */
+  getToolCacheKey(toolName, args) {
+    // Create a deterministic key from tool name + sorted args
+    const sortedArgs = Object.keys(args).sort().map(k => `${k}=${args[k]}`).join('&');
+    return `${toolName}:${sortedArgs}`;
+  }
+  
+  /**
+   * Check if a cached result exists and is still valid
+   */
+  getCachedResult(toolName, args) {
+    if (!this.CACHEABLE_TOOLS.has(toolName)) return null;
+    
+    const key = this.getToolCacheKey(toolName, args);
+    const cached = this.toolCache.get(key);
+    if (!cached) return null;
+    
+    // Check TTL
+    if (Date.now() - cached.timestamp > this.CACHE_TTL_MS) {
+      this.toolCache.delete(key);
+      return null;
+    }
+    
+    console.log(`[Amplifier] Cache HIT for ${toolName}`);
+    return cached.result;
+  }
+  
+  /**
+   * Store a tool result in the cache
+   */
+  cacheToolResult(toolName, args, result) {
+    if (!this.CACHEABLE_TOOLS.has(toolName)) return;
+    if (result?.error) return; // Don't cache errors
+    
+    const key = this.getToolCacheKey(toolName, args);
+    this.toolCache.set(key, { result, timestamp: Date.now() });
+  }
+
+  // ===== TOOL RESULT TRIMMING =====
+
+  /**
+   * Trim a tool result before adding to messages to prevent context window bloat.
+   * The full result is still returned to the tracking/history, but the message
+   * version is trimmed so it doesn't eat the entire context window.
+   */
+  trimToolResultForMessage(toolName, result) {
+    const MAX_RESULT_CHARS = 3000; // Hard cap for any single tool result in messages
+    
+    const resultStr = JSON.stringify(result);
+    
+    // If it's already small enough, return as-is
+    if (resultStr.length <= MAX_RESULT_CHARS) {
+      return resultStr;
+    }
+    
+    // Tool-specific trimming strategies
+    try {
+      if (toolName === 'read_document_content' && result?.content) {
+        // For document content, keep first 2000 chars + note it was trimmed
+        const trimmedContent = result.content.substring(0, 2000);
+        return JSON.stringify({
+          ...result,
+          content: trimmedContent + '\n\n[... CONTENT TRIMMED - full document is ' + result.content.length + ' chars. Focus on the key points from what you can see above.]',
+          trimmed: true,
+          originalLength: result.content.length,
+        });
+      }
+      
+      if ((toolName === 'list_documents' || toolName === 'list_my_matters' || toolName === 'list_clients') && Array.isArray(result?.documents || result?.matters || result?.clients)) {
+        // For list results, keep first 15 items with summary
+        const listKey = result.documents ? 'documents' : result.matters ? 'matters' : 'clients';
+        const fullList = result[listKey];
+        if (fullList.length > 15) {
+          return JSON.stringify({
+            ...result,
+            [listKey]: fullList.slice(0, 15),
+            trimmed: true,
+            totalCount: fullList.length,
+            message: `Showing 15 of ${fullList.length} ${listKey}. Use search to find specific items.`,
+          });
+        }
+      }
+      
+      if (toolName === 'search_document_content' && Array.isArray(result?.results)) {
+        // For search results, keep first 8 results with trimmed content
+        const trimmedResults = result.results.slice(0, 8).map(r => ({
+          ...r,
+          content: r.content ? r.content.substring(0, 300) + '...' : r.content,
+        }));
+        return JSON.stringify({
+          ...result,
+          results: trimmedResults,
+          trimmed: result.results.length > 8,
+          totalResults: result.results.length,
+        });
+      }
+      
+      if (toolName === 'get_matter' && result?.matter) {
+        // For matter details, trim the description and notes if too long
+        const matter = { ...result.matter };
+        if (matter.description && matter.description.length > 500) {
+          matter.description = matter.description.substring(0, 500) + '...';
+        }
+        return JSON.stringify({ ...result, matter });
+      }
+    } catch (e) {
+      // Fall through to generic trimming
+    }
+    
+    // Generic trimming: just cap the JSON string
+    return resultStr.substring(0, MAX_RESULT_CHARS) + '... [TRIMMED - result was ' + resultStr.length + ' chars]';
+  }
+
+  // ===== PRE-FLIGHT ARGUMENT VALIDATION =====
+
+  /**
+   * Validate tool arguments before execution to prevent wasted iterations.
+   * Returns null if valid, or an error message string if invalid.
+   */
+  validateToolArgs(toolName, args) {
+    // Check for obviously invalid UUIDs (common GPT hallucination)
+    const uuidFields = ['matter_id', 'client_id', 'document_id', 'invoice_id', 'task_id'];
+    for (const field of uuidFields) {
+      if (args[field] && typeof args[field] === 'string') {
+        // Valid UUID or valid-looking name (for flexible matching)
+        const val = args[field];
+        // If it looks like a made-up ID (not a UUID and not a plausible name), flag it
+        if (val.length < 3 && !val.match(/^[0-9a-f]{8}-/i)) {
+          return `Invalid ${field}: "${val}" is too short. Use the actual ID from a previous tool result, or use search_matters/list_clients to find the correct ID.`;
+        }
+      }
+    }
+    
+    // Tool-specific validation
+    if (toolName === 'create_document') {
+      if (!args.name && !args.title) return 'create_document requires a "name" parameter.';
+      if (!args.content && !args.body) return 'create_document requires "content" parameter with the actual document text. Do NOT use placeholders.';
+      const content = args.content || args.body || '';
+      if (content.includes('[INSERT') || content.includes('[TODO') || content.includes('[PLACEHOLDER')) {
+        return 'Document content contains placeholders like [INSERT]. Write the actual content based on your analysis. Do NOT use placeholders.';
+      }
+    }
+    
+    if (toolName === 'add_matter_note') {
+      if (!args.matter_id) return 'add_matter_note requires "matter_id". Use get_matter or search_matters first to find the matter ID.';
+      if (!args.content && !args.note) return 'add_matter_note requires "content" with the note text.';
+    }
+    
+    if (toolName === 'create_task') {
+      if (!args.title && !args.name) return 'create_task requires a "title" parameter.';
+    }
+    
+    if (toolName === 'log_time' || toolName === 'log_billable_work') {
+      return 'NEVER log time. Time entries are for humans to create manually. Skip this and continue with your other work.';
+    }
+    
+    return null; // Valid
   }
 
   /**
@@ -1290,212 +1466,46 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
    * This prompt enables FULLY AUTONOMOUS operation at JUNIOR ATTORNEY level
    */
   buildSystemPrompt() {
-    const extendedModeNote = this.isExtendedMode 
-      ? `\n**EXTENDED MODE ACTIVE**: You have ${Math.round(this.maxRuntimeMs/60000)} minutes and ${this.maxIterations} iterations available. Take your time to do thorough, comprehensive work.\n`
-      : '';
+    const totalMinutes = Math.round(this.maxRuntimeMs / 60000);
     
-    const complexityNote = `\n**TASK COMPLEXITY**: ${this.complexity.toUpperCase()} - Estimated ${this.estimatedSteps} steps, ~${this.estimatedMinutes} minutes.\n`;
-      
-    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS AI operating as a **JUNIOR ATTORNEY** (2-4 years experience) with COMPLETE ACCESS to the legal practice management platform.
+    // ===== LEAN SYSTEM PROMPT =====
+    // Only include what the model NEEDS. GPT already knows what legal matters, clients, etc. are.
+    // This saves ~2000 tokens per API call = dramatically fewer rate limits over 30 min.
+    
+    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS junior attorney AI with COMPLETE tool access to a legal practice management platform.
 
-${extendedModeNote}${complexityNote}
-${PLATFORM_CONTEXT}
+**Task:** ${this.goal}
+**Complexity:** ${this.complexity} | **Budget:** ~${totalMinutes} min, ${this.maxIterations} iterations
+**Phase:** ${this.executionPhase.toUpperCase()} - ${PHASE_CONFIG[this.executionPhase].description}
 
 ${this.userContext || ''}
-
-${this.learningContext || ''}
-
 ${this.matterContext || ''}
 
-## YOUR ROLE: JUNIOR ATTORNEY
+## CRITICAL RULES
+- You are FULLY AUTONOMOUS. Call tools immediately. NEVER just respond with text.
+- NEVER use log_time or log_billable_work. Time entries are for humans.
+- NO placeholders like [INSERT], [TODO] in documents. Write REAL content.
+- Before task_complete: you MUST have ≥5 tool calls, ≥1 note, ≥1 task, ≥60s of work.
+- Use IRAC for legal analysis: Issue → Rule → Application → Conclusion.
 
-You are a **JUNIOR ATTORNEY** - smart, eager, thorough, and detail-oriented. You have 2-4 years of legal experience and work under partner supervision. You are:
+## TOOL QUICK REFERENCE
+**Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
+**Write:** add_matter_note (internal notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
+**Meta:** think_and_plan (make a plan first!), evaluate_progress, task_complete (when done)
 
-- **Thorough**: You check everything twice and document your work
-- **Eager to Learn**: You research when unsure rather than guessing
-- **Detail-Oriented**: You catch the small things others miss
-- **Proactive**: You anticipate what the partner will need next
-- **Professional**: Your work product is clean and ready for review
+**Document vs Note:** create_document = formal work product (memos, letters, briefs). add_matter_note = internal analysis notes, findings, observations.
+**Empty matters:** Create an assessment note, intake tasks, initial assessment doc, and flag for partner review.
 
-**Your mindset:**
-- "What would a thorough junior associate do here?"
-- "What would the supervising partner want to see?"
-- "Did I document everything properly?"
-- "What follow-up items should I flag?"
-
-## TOOL SELECTION GUIDE - CRITICAL
-
-Choose the RIGHT tool for each situation. Here's your decision tree:
-
-### WHEN TO USE EACH TOOL:
-
-**GATHERING INFORMATION:**
-| Goal | Tool to Use | Why |
-|------|-------------|-----|
-| Find a matter by name | \`get_matter\` or \`search_matters\` | Flexible name matching |
-| Get matter details + docs | \`get_matter\` | Returns comprehensive info |
-| Find a client | \`list_clients\` with search | Search by name |
-| Read a document's content | \`read_document_content\` | Pass document_id |
-| Search across all documents | \`search_document_content\` | Full-text search |
-| Get upcoming calendar | \`get_calendar_events\` | Shows next 7 days default |
-| Get my tasks | \`list_tasks\` | Filter by status/matter |
-
-**CREATING CONTENT:**
-| Goal | Tool to Use | Why |
-|------|-------------|-----|
-| Formal document (letter, memo, brief) | \`create_document\` | Creates .docx file |
-| Quick case note or update | \`add_matter_note\` | Goes to Notes tab |
-| Follow-up action item | \`create_task\` | Assigns to attorney |
-| Schedule meeting/deadline | \`create_calendar_event\` | Adds to calendar |
-| Professional legal document | \`draft_legal_document\` | Uses templates |
-
-**WHEN DOCUMENT vs NOTE:**
-- **create_document**: Contracts, letters, memos, briefs, legal analysis, reports, anything client-facing or formal
-- **add_matter_note**: Internal updates, research notes, meeting notes, observations, status updates, quick findings
-
-### COMMON MISTAKES TO AVOID:
-❌ Using \`list_documents\` when you need document content (use \`read_document_content\`)
-❌ Using \`create_document\` for quick notes (use \`add_matter_note\`)
-❌ Calling \`get_matter\` repeatedly - cache the result!
-❌ Searching when you already have the ID
-❌ Using \`log_time\` - NEVER log time, that's for humans
-
-## HANDLING EMPTY MATTERS - YOUR SPECIALTY
-
-When a matter has NO documents, NO notes, or sparse information, this is your chance to shine. An empty matter means OPPORTUNITY, not failure.
-
-**EMPTY MATTER PROTOCOL:**
-
-1. **Don't Panic** - Empty matters are common for new cases
-2. **Create Foundation** - Build what SHOULD be there:
-
-   a. **Initial Case Assessment Note** (use \`add_matter_note\`):
-      - Document what you know from the matter name/description
-      - List initial observations and potential issues
-      - Note what information is missing/needed
-   
-   b. **Case Intake Checklist** (use \`create_task\` for each):
-      - "Obtain signed engagement letter"
-      - "Collect relevant documents from client"
-      - "Identify key parties and contacts"
-      - "Research applicable deadlines/statutes"
-      - "Set up matter folder structure"
-   
-   c. **Initial Assessment Document** (use \`create_document\`):
-      - Matter overview based on available info
-      - Preliminary legal issues to investigate
-      - Recommended next steps
-      - Information needed from client
-   
-   d. **Calendar Critical Dates** (use \`create_calendar_event\`):
-      - "Review new matter status - [30 days out]"
-      - Any deadlines apparent from matter type
-
-3. **Flag for Attorney** - Create task: "Partner review needed - new matter setup complete"
-
-## AUTONOMOUS OPERATION MODE
-
-You are running as a BACKGROUND AGENT with NO HUMAN SUPERVISION:
-
-1. **WORK AUTONOMOUSLY** - Do NOT wait for human input
-2. **EXECUTE IMMEDIATELY** - When you know what to do, DO IT
-3. **CHAIN ACTIONS** - Complete multi-step workflows in sequence
-4. **VERIFY RESULTS** - Check each action's result before proceeding
-5. **RECOVER FROM ERRORS** - If something fails, try alternatives
-6. **COMPLETE THE GOAL** - Keep working until done
-
-## WORKFLOW PATTERN
-
-For each task, follow this EXACT pattern:
-
-**PHASE 1: DISCOVERY (First 2-3 actions)**
-1. Call \`think_and_plan\` to analyze the goal and create a plan
-2. Call \`get_matter\` or \`search_matters\` to load context
-3. If matter has documents, use \`read_document_content\` on key ones
-
-**PHASE 2: ANALYSIS (Variable based on complexity)**
-4. Review what you found
-5. Identify gaps, issues, or opportunities
-6. Document your findings with \`add_matter_note\`
-
-**PHASE 3: ACTION (Create deliverables)**
-7. Create any needed documents with \`create_document\`
-8. Create follow-up tasks with \`create_task\`
-9. Schedule any events/deadlines with \`create_calendar_event\`
-
-**PHASE 4: WRAP-UP**
-10. Use \`evaluate_progress\` to confirm completion
-11. Call \`task_complete\` with comprehensive summary
-
-## DOCUMENT READING BEST PRACTICES
-
-When reading documents:
-1. **Check format first** - PDFs, DOCX, TXT work best
-2. **Handle failures gracefully** - If read fails, note it and continue
-3. **Summarize key points** - Don't try to include entire documents
-4. **Note what you reviewed** - Document which files you analyzed
-
-If \`read_document_content\` returns an error:
-- The file may be scanned/image-based
-- The file may be in an unsupported format
-- Note this limitation and proceed with available information
-
-## LEGAL ANALYSIS FRAMEWORKS
-
-### THE IRAC METHOD (Use for every legal issue)
-1. **I**ssue - What is the specific legal question?
-2. **R**ule - What law governs this issue?
-3. **A**pplication - How do the facts apply to the rule?
-4. **C**onclusion - What is your conclusion?
-
-### RISK ANALYSIS (Always consider)
-1. **Legal Risks** - Liability exposure?
-2. **Timeline Risks** - Deadlines, limitations?
-3. **Financial Risks** - Costs, damages?
-4. **Next Steps** - What must happen?
+## PHASE INSTRUCTIONS
+You work in phases. Current phase: **${this.executionPhase.toUpperCase()}**
+- **DISCOVERY**: Gather info with get_matter, read_document_content, search. Don't create yet.
+- **ANALYSIS**: Document findings with add_matter_note. Identify issues and gaps.
+- **ACTION**: Create deliverables: create_document, create_task, create_calendar_event.
+- **REVIEW**: Verify with evaluate_progress, then call task_complete with full summary.
 
 ${getCPLRContextForPrompt()}
 
-## WORK PRODUCT STANDARDS
-
-### QUALITY REQUIREMENTS
-- **COMPLETE**: Full content, NO placeholders like "[INSERT]" or "TODO"
-- **SPECIFIC**: Use actual facts from the matter
-- **PROFESSIONAL**: Clean formatting, no typos
-- **ACTIONABLE**: Clear next steps
-
-### WHAT JUNIOR ATTORNEYS ALWAYS DO
-1. Document everything they reviewed
-2. Create task lists for follow-up
-3. Flag issues for partner review
-4. Err on the side of more documentation
-5. Note limitations and assumptions
-
-## ANTI-PATTERNS TO AVOID
-
-❌ Creating documents with "[insert here]" or "TODO"
-❌ Doing only 1-2 actions and calling it done
-❌ Giving generic advice not specific to the matter
-❌ Stopping because a matter is "empty"
-❌ Using \`log_time\` - NEVER (time entries are for humans)
-❌ Repeating failed tool calls without trying alternatives
-❌ Calling task_complete without substantive work
-
-## MINIMUM REQUIREMENTS (ENFORCED)
-
-Before calling \`task_complete\`, you MUST have:
-- ✅ At least 5 total tool calls
-- ✅ At least 1 note (via \`add_matter_note\`)
-- ✅ At least 1 task (via \`create_task\`)
-- ✅ At least 60 seconds of work time
-- ✅ Substantive content specific to this matter
-
-## CURRENT TASK
-
-**Goal:** ${this.goal}
-**Complexity:** ${this.complexity} (~${this.estimatedSteps} steps expected)
-
-START WORKING NOW. Begin with \`think_and_plan\`, then gather information, then create deliverables. You are a capable junior attorney - be thorough, be professional, be proactive.
+BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be thorough, specific, and professional.
 `;
 
     // Add user's document style profile (PRIVATE per-user learning)
@@ -1729,11 +1739,26 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               toolArgs = {};
             }
             
+            // ===== PRE-FLIGHT VALIDATION =====
+            const validationError = this.validateToolArgs(toolName, toolArgs);
+            if (validationError) {
+              console.log(`[Amplifier] Pre-flight validation failed for ${toolName}: ${validationError}`);
+              // Return the validation error directly without executing the tool
+              this.messages.push({
+                role: 'tool',
+                tool_call_id: toolCall.id,
+                content: JSON.stringify({ error: validationError, validation_failed: true })
+              });
+              this.streamEvent('tool_error', `⚠️ ${toolName}: ${validationError.substring(0, 80)}`, {
+                tool: toolName, icon: 'alert-triangle', color: 'yellow'
+              });
+              continue; // Skip to next tool call
+            }
+            
             console.log(`[Amplifier] Executing tool: ${toolName}`);
             this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
             this.emit('progress', this.getStatus());
             
-            // Stream tool start event to Glass Cockpit UI with PRECISE details
             const toolDescription = this.getDetailedToolDescription(toolName, toolArgs);
             this.streamEvent('tool_start', toolDescription, { 
               tool: toolName, 
@@ -1743,31 +1768,43 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             });
             this.streamProgress();
             
-            // Execute the tool with timeout protection (60 seconds max per tool)
-            const TOOL_TIMEOUT_MS = 60000;
-            let result;
-            try {
-              const toolPromise = executeTool(toolName, toolArgs, {
-                userId: this.userId,
-                firmId: this.firmId,
-                user: this.userRecord
+            // ===== CHECK CACHE FIRST =====
+            let result = this.getCachedResult(toolName, toolArgs);
+            
+            if (result) {
+              // Cache hit - skip execution entirely
+              this.streamEvent('tool_end', `⚡ ${toolName} (cached)`, {
+                tool: toolName, success: true, cached: true,
+                icon: 'zap', color: 'green'
               });
-              
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS)
-              );
-              
-              result = await Promise.race([toolPromise, timeoutPromise]);
-            } catch (toolError) {
-              console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
-              result = { error: toolError?.message || 'Tool execution failed' };
-              
-              // Stream error event
-              this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
-                tool: toolName,
-                icon: 'x-circle',
-                color: 'red'
-              });
+            } else {
+              // Execute the tool with timeout protection (60 seconds max)
+              const TOOL_TIMEOUT_MS = 60000;
+              try {
+                const toolPromise = executeTool(toolName, toolArgs, {
+                  userId: this.userId,
+                  firmId: this.firmId,
+                  user: this.userRecord
+                });
+                
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS)
+                );
+                
+                result = await Promise.race([toolPromise, timeoutPromise]);
+                
+                // Cache successful read-only results
+                this.cacheToolResult(toolName, toolArgs, result);
+              } catch (toolError) {
+                console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
+                result = { error: toolError?.message || 'Tool execution failed' };
+                
+                this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
+                  tool: toolName,
+                  icon: 'x-circle',
+                  color: 'red'
+                });
+              }
             }
             
             const toolSuccess = result.success !== undefined ? result.success : !result.error;
@@ -1814,11 +1851,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             // Update progress using new calculation
             this.progress.progressPercent = this.calculateProgressPercent();
             
-            // Add tool result to messages so AI knows what happened
+            // Add TRIMMED tool result to messages (prevents context window bloat)
             this.messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: JSON.stringify(result)
+              content: this.trimToolResultForMessage(toolName, result)
             });
 
             this.recentTools.push(toolName);
