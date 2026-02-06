@@ -695,4 +695,48 @@ router.get('/tools', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * Execute a tool on behalf of the Python background agent
+ * 
+ * This endpoint allows the Python agent to call the SAME tools
+ * that the Node.js Amplifier service uses, with real database-backed
+ * implementations. No mocks, no placeholders.
+ * 
+ * The Python agent sends: { toolName, params, userId, firmId }
+ * This endpoint loads the user context and delegates to executeTool()
+ * from toolBridge.js which has real implementations for every tool.
+ */
+router.post('/execute-tool', async (req, res) => {
+  try {
+    const { toolName, params, userId, firmId } = req.body;
+    
+    if (!toolName) {
+      return res.status(400).json({ error: 'toolName is required' });
+    }
+    
+    if (!userId || !firmId) {
+      return res.status(400).json({ error: 'userId and firmId are required for tool execution' });
+    }
+    
+    // Validate the tool name against known tools
+    const { executeTool } = await import('../services/amplifier/toolBridge.js');
+    
+    console.log(`[BackgroundAgent] Execute tool: ${toolName} for user=${userId}, firm=${firmId}`);
+    
+    const result = await executeTool(toolName, params || {}, {
+      userId,
+      firmId
+    });
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('[BackgroundAgent] Tool execution error:', error);
+    res.status(500).json({ 
+      error: `Tool execution failed: ${error.message}`,
+      tool: req.body?.toolName
+    });
+  }
+});
+
 export default router;
