@@ -460,6 +460,144 @@ router.get('/modules', authenticate, async (req, res) => {
 });
 
 /**
+ * Get rewind/recovery status for a task
+ * Returns checkpoint stack info, failed legal paths, and rewind history
+ */
+router.get('/tasks/:id/rewind-status', authenticate, async (req, res) => {
+  try {
+    const task = await amplifierService.getTask(req.params.id);
+    
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // For in-memory tasks, get the live rewind status
+    const liveTask = amplifierService.tasks?.get(req.params.id);
+    if (liveTask && liveTask.rewindManager) {
+      const rewindStatus = liveTask.rewindManager.getStatus();
+      const memoryStatus = liveTask.agentMemory ? {
+        longTermFacts: liveTask.agentMemory.longTerm.keyFacts,
+        midTermLayers: liveTask.agentMemory.midTerm.summaryLayers.length,
+        totalSummarized: liveTask.agentMemory.midTerm.totalMessagesSummarized,
+        cumulativeFindings: liveTask.agentMemory.midTerm.cumulativeFindings,
+        failedPaths: liveTask.agentMemory.longTerm.failedPaths
+      } : null;
+      
+      res.json({
+        taskId: req.params.id,
+        rewind: rewindStatus,
+        memory: memoryStatus,
+        live: true
+      });
+    } else {
+      res.json({
+        taskId: req.params.id,
+        rewind: task.rewind || null,
+        memory: task.memory || null,
+        live: false
+      });
+    }
+  } catch (error) {
+    console.error('[BackgroundAgent] Error getting rewind status:', error);
+    res.status(500).json({ error: 'Failed to get rewind status' });
+  }
+});
+
+/**
+ * Manually trigger a rewind on a running task
+ * This allows the user to force the agent to go back and try a different approach
+ */
+router.post('/tasks/:id/rewind', authenticate, async (req, res) => {
+  try {
+    const { reason } = req.body;
+    
+    const liveTask = amplifierService.tasks?.get(req.params.id);
+    if (!liveTask) {
+      return res.status(404).json({ error: 'Task not found or not currently running' });
+    }
+    
+    if (liveTask.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Not authorized to rewind this task' });
+    }
+    
+    if (!liveTask.rewindManager) {
+      return res.status(400).json({ error: 'Rewind system not available for this task' });
+    }
+    
+    const rewindResult = liveTask.rewindManager.rewind(
+      liveTask, 
+      reason || 'Manual rewind requested by user'
+    );
+    
+    if (rewindResult.success) {
+      // Also update agent memory with the failed path
+      if (liveTask.agentMemory) {
+        liveTask.agentMemory.addFailedPath(reason || 'User-triggered rewind');
+      }
+      
+      console.log(`[BackgroundAgent] Manual rewind on task ${req.params.id}: ${rewindResult.message}`);
+      
+      res.json({
+        success: true,
+        message: rewindResult.message,
+        rewindStatus: liveTask.rewindManager.getStatus()
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: rewindResult.message,
+        rewindStatus: liveTask.rewindManager.getStatus()
+      });
+    }
+  } catch (error) {
+    console.error('[BackgroundAgent] Error triggering rewind:', error);
+    res.status(500).json({ error: 'Failed to trigger rewind' });
+  }
+});
+
+/**
+ * Get memory status for a task
+ * Returns the agent's short-term, mid-term, and long-term memory state
+ */
+router.get('/tasks/:id/memory', authenticate, async (req, res) => {
+  try {
+    const liveTask = amplifierService.tasks?.get(req.params.id);
+    if (!liveTask) {
+      return res.status(404).json({ error: 'Task not found or not currently running' });
+    }
+    
+    if (!liveTask.agentMemory) {
+      return res.status(400).json({ error: 'Memory system not available for this task' });
+    }
+    
+    res.json({
+      taskId: req.params.id,
+      longTerm: {
+        missionGoal: liveTask.agentMemory.longTerm.missionGoal,
+        keyFacts: liveTask.agentMemory.longTerm.keyFacts,
+        constraints: liveTask.agentMemory.longTerm.constraints,
+        failedPaths: liveTask.agentMemory.longTerm.failedPaths,
+        elapsed: Math.round((Date.now() - liveTask.agentMemory.longTerm.startedAt) / 60000) + ' minutes'
+      },
+      midTerm: {
+        summaryLayers: liveTask.agentMemory.midTerm.summaryLayers.length,
+        totalMessagesSummarized: liveTask.agentMemory.midTerm.totalMessagesSummarized,
+        phaseReflections: liveTask.agentMemory.midTerm.phaseReflections,
+        cumulativeFindings: liveTask.agentMemory.midTerm.cumulativeFindings
+      },
+      shortTerm: {
+        currentMessages: liveTask.messages?.length || 0,
+        currentPhase: liveTask.executionPhase,
+        iteration: liveTask.progress?.iterations
+      }
+    });
+  } catch (error) {
+    console.error('[BackgroundAgent] Error getting memory status:', error);
+    res.status(500).json({ error: 'Failed to get memory status' });
+  }
+});
+
+/**
  * Get rate limit status
  * Returns current rate limiting state for the background agent
  */
