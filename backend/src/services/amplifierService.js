@@ -14,7 +14,7 @@
 
 import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
-import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
+import { getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
 import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
 import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/legalKnowledge/nyCPLR.js';
@@ -1480,6 +1480,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
 
 ${this.userContext || ''}
 ${this.matterContext || ''}
+${this.learningContext || ''}
 
 ## CRITICAL RULES
 - You are FULLY AUTONOMOUS. Call tools immediately. NEVER just respond with text.
