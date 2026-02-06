@@ -1,15 +1,29 @@
 /**
- * Enhanced Amplifier Background Agent Service
+ * Background Agent Service (internally nicknamed "Amplifier")
  * 
- * This service provides a powerful background agent powered by Microsoft Amplifier
- * with FULL access to all platform tools and learning capabilities.
+ * NOTE: Despite comments and folder names referencing "Microsoft Amplifier",
+ * there is NO external Amplifier product or SDK being used here.
+ * "Amplifier" is just an internal codename for this custom-built service.
+ * 
+ * What this service ACTUALLY does:
+ * - Calls Azure OpenAI Chat Completions API (the same endpoint as aiAgent.js)
+ * - Runs a custom agentic while-loop that calls tools autonomously
+ * - Manages its own memory, checkpointing, error recovery, and phase transitions
+ * - All orchestration logic is custom code in this file and the ./amplifier/ folder
+ * 
+ * There is no "Amplifier SDK", no "Amplifier API", no separate Microsoft service.
+ * The only external dependency is Azure OpenAI (chat/completions endpoint).
  * 
  * Features:
- * - Access to all tools the normal AI agent has
- * - Learning from user interactions
- * - Long-running autonomous task support
- * - Workflow templates for common operations
- * - Progress tracking and checkpointing
+ * - Access to all tools the normal AI agent has (via toolBridge.js)
+ * - Learning from user interactions (selfReinforcement.js, lawyerProfile.js)
+ * - Long-running autonomous task support (30-min tasks, 200+ iterations)
+ * - Junior Attorney Brief pre-execution reasoning (juniorAttorneyBrief.js)
+ * - Checkpoint & Rewind error recovery (checkpointRewind.js)
+ * - Recursive Summarization memory (recursiveSummarizer.js)
+ * - Phase-based execution (DISCOVERY -> ANALYSIS -> ACTION -> REVIEW)
+ * - Self-evaluation quality gates (taskEvaluator.js)
+ * - Progress tracking and SSE streaming to UI
  */
 
 import { EventEmitter } from 'events';
