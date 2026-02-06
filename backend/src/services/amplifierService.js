@@ -2422,6 +2422,7 @@ You have your brief above. Follow the approach order and time budget. Call think
               const hasTimeCheck = this.actionsHistory.some(a => 
                 ['get_my_time_entries', 'list_invoices', 'generate_report', 'get_firm_analytics'].includes(a.tool) && a.success !== false
               );
+              const hasSelfReview = this.actionsHistory.some(a => a.tool === 'review_created_documents' && a.success !== false);
               
               // Generic minimums
               const MIN_SECONDS = 120;
@@ -2435,6 +2436,48 @@ You have your brief above. Follow the approach order and time budget. Call think
               if (substantiveActions < MIN_SUBSTANTIVE) missing.push(`Substantive work: ${substantiveActions} / ${MIN_SUBSTANTIVE} minimum`);
               if (!hasNote) missing.push('MISSING: You must add at least 1 note using add_matter_note');
               if (!hasTask) missing.push('MISSING: You must create at least 1 task using create_task');
+              
+              // ===== ENFORCE REVIEW PHASE =====
+              // The agent MUST reach the REVIEW phase before completing.
+              // This prevents skipping the self-review step that catches quality issues.
+              if (this.executionPhase !== ExecutionPhase.REVIEW) {
+                missing.push(`MISSING: You are still in ${this.executionPhase.toUpperCase()} phase. You MUST reach the REVIEW phase before completing. Continue working through your phases.`);
+              }
+              
+              // ===== ENFORCE SELF-REVIEW (review_created_documents) =====
+              // If the agent created documents or notes, it MUST call review_created_documents
+              // to re-read its own work product and verify quality before completing.
+              // This closes the blind spot where the agent never verifies what it actually saved.
+              if ((hasDocument || this.substantiveActions.notes >= 1) && !hasSelfReview) {
+                missing.push('MISSING: You created documents/notes but did NOT call review_created_documents. You MUST review your own work product before completing. Call review_created_documents NOW to verify quality.');
+              }
+              
+              // ===== ENFORCE CITATION INTEGRITY =====
+              // If review_created_documents found citation issues, block completion until addressed.
+              // Check the most recent review_created_documents result for unresolved issues.
+              const lastReview = this.actionsHistory
+                .filter(a => a.tool === 'review_created_documents' && a.success !== false)
+                .slice(-1)[0];
+              if (lastReview?.result) {
+                const reviewResult = lastReview.result;
+                const allItems = [...(reviewResult.documents || []), ...(reviewResult.notes || [])];
+                const citationIssues = allItems
+                  .flatMap(item => (item.issues || []))
+                  .filter(issue => issue.toLowerCase().includes('citation'));
+                
+                // Only block if there are citation issues AND no subsequent document fix
+                if (citationIssues.length > 0) {
+                  const reviewTimestamp = lastReview.timestamp ? new Date(lastReview.timestamp).getTime() : 0;
+                  const fixedAfterReview = this.actionsHistory.some(a => 
+                    (a.tool === 'create_document' || a.tool === 'add_matter_note') && 
+                    a.success !== false &&
+                    new Date(a.timestamp).getTime() > reviewTimestamp
+                  );
+                  if (!fixedAfterReview) {
+                    missing.push(`CITATION INTEGRITY: Your self-review found ${citationIssues.length} citation issue(s): ${citationIssues.slice(0, 2).join('; ')}. You must either mark citations as [UNVERIFIED - VERIFY BEFORE FILING], remove them, or recreate the document with corrected citations before completing.`);
+                  }
+                }
+              }
               
               // ===== WORK-TYPE-SPECIFIC REQUIREMENTS =====
               // Import the requirements for the detected work type

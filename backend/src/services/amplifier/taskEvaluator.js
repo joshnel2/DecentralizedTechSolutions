@@ -110,6 +110,11 @@ const CITATION_PATTERNS = [
 /**
  * Evaluate a completed task by analyzing what was produced.
  * Returns a score object with dimension scores and an overall score.
+ * 
+ * IMPORTANT: This now reads ACTUAL saved content from the database,
+ * not just what the agent passed as tool arguments. This closes the gap
+ * where the agent could claim to have created good content but what
+ * was actually saved was different (truncated, errored, etc.).
  */
 export async function evaluateTask(task) {
   try {
@@ -127,6 +132,11 @@ export async function evaluateTask(task) {
     const successfulActions = actions.filter(a => a.success !== false);
     const substantive = task.substantiveActions || {};
     
+    // ===== REAL CONTENT VERIFICATION (NEW) =====
+    // Query the database for what was ACTUALLY saved, not just what the agent claimed.
+    // This is the "trust but verify" step that catches silent failures.
+    const savedContent = await _fetchSavedContent(task);
+    
     // ===== COMPLETENESS =====
     // Did the agent address the full goal?
     let completenessScore = 0;
@@ -143,6 +153,19 @@ export async function evaluateTask(task) {
     const hasPlanning = actions.some(a => a.tool === 'think_and_plan');
     if (hasPlanning) completenessScore += 5;
     
+    // ===== VERIFY SAVED CONTENT MATCHES CLAIMED DELIVERABLES =====
+    // If agent says it created 2 documents but DB only has 1, that's a problem
+    if (savedContent.verified) {
+      if (substantive.documents > 0 && savedContent.documents.length === 0) {
+        completenessScore -= 20;
+        evaluation.issues.push('Agent claimed to create document(s) but none found in database. Document creation may have silently failed.');
+      }
+      if (substantive.notes > 0 && savedContent.notes.length === 0) {
+        completenessScore -= 15;
+        evaluation.issues.push('Agent claimed to create note(s) but none found in database. Note creation may have silently failed.');
+      }
+    }
+    
     completenessScore = Math.min(100, completenessScore);
     evaluation.dimensions[EVAL_DIMENSIONS.COMPLETENESS] = completenessScore;
     
@@ -153,7 +176,7 @@ export async function evaluateTask(task) {
     }
     
     // ===== SPECIFICITY =====
-    // Check if notes and documents reference actual matter data
+    // Check SAVED content (not just tool args) for quality signals
     let specificityScore = 0;
     const noteActions = actions.filter(a => a.tool === 'add_matter_note' && a.success);
     const docActions = actions.filter(a => a.tool === 'create_document' && a.success);
@@ -165,13 +188,39 @@ export async function evaluateTask(task) {
     if (readActions.length > 0) specificityScore += 30;
     if (readActions.length >= 3) specificityScore += 20;
     
-    // Check if documents have substantial content (not just templates)
-    for (const doc of docActions) {
-      const content = doc.args?.content || doc.args?.body || '';
-      if (content.length > 500) specificityScore += 15;
-      if (content.includes('[INSERT') || content.includes('[TODO') || content.includes('PLACEHOLDER')) {
-        specificityScore -= 20;
-        evaluation.issues.push('Document contains placeholder content');
+    // Check REAL saved documents for quality (not just tool args)
+    if (savedContent.verified && savedContent.documents.length > 0) {
+      for (const doc of savedContent.documents) {
+        if (doc.contentLength > 500) specificityScore += 15;
+        if (doc.contentLength > 1000) specificityScore += 10;
+        if (doc.hasPlaceholders) {
+          specificityScore -= 20;
+          evaluation.issues.push(`Saved document "${doc.name}" contains placeholder text ([INSERT], [TODO], etc.)`);
+        }
+        if (doc.contentLength < 200 && doc.contentLength > 0) {
+          specificityScore -= 10;
+          evaluation.issues.push(`Saved document "${doc.name}" is very short (${doc.contentLength} chars)`);
+        }
+      }
+    } else {
+      // Fallback to checking tool args if DB verification wasn't possible
+      for (const doc of docActions) {
+        const content = doc.args?.content || doc.args?.body || '';
+        if (content.length > 500) specificityScore += 15;
+        if (content.includes('[INSERT') || content.includes('[TODO') || content.includes('PLACEHOLDER')) {
+          specificityScore -= 20;
+          evaluation.issues.push('Document contains placeholder content');
+        }
+      }
+    }
+    
+    // Check saved notes for substance
+    if (savedContent.verified && savedContent.notes.length > 0) {
+      for (const note of savedContent.notes) {
+        if (note.contentLength > 200) specificityScore += 10;
+        if (note.contentLength < 50 && note.contentLength > 0) {
+          evaluation.issues.push(`Saved note is very thin (${note.contentLength} chars) - may lack substance`);
+        }
       }
     }
     
@@ -263,7 +312,8 @@ export async function evaluateTask(task) {
     evaluation.strengths.push(...workTypeFitResult.strengths);
     
     // ===== CITATION INTEGRITY =====
-    const citationResult = evaluateCitationIntegrity(task, actions, docActions, noteActions);
+    // Uses DB-verified content when available for more accurate citation checking
+    const citationResult = evaluateCitationIntegrity(task, actions, docActions, noteActions, savedContent);
     evaluation.dimensions[EVAL_DIMENSIONS.CITATION_INTEGRITY] = citationResult.score;
     evaluation.citationFlags = citationResult.flags;
     evaluation.issues.push(...citationResult.issues);
@@ -457,7 +507,7 @@ function evaluateWorkTypeFit(task, actions, substantive, noteActions, docActions
  * This is critical because a fabricated legal citation is a professional
  * ethics violation. Better to flag it than let it through.
  */
-function evaluateCitationIntegrity(task, actions, docActions, noteActions) {
+function evaluateCitationIntegrity(task, actions, docActions, noteActions, savedContent = null) {
   const result = {
     score: 100, // Start at 100, deduct for issues
     flags: [],
@@ -537,6 +587,32 @@ function evaluateCitationIntegrity(task, actions, docActions, noteActions) {
             context: context.trim(),
             risk: 'Potentially unverified citation. May be from LLM training data, not a verified legal source.',
           });
+        }
+      }
+    }
+    
+    // ===== DB-VERIFIED CITATION CHECK (supplement tool-args check) =====
+    // If we have real saved content from the database, scan that too.
+    // This catches citations in content that may differ from what was in tool args
+    // (e.g., if the docx library modified content, or if content was generated server-side).
+    if (savedContent?.verified && savedContent.documents.length > 0) {
+      for (const doc of savedContent.documents) {
+        if (doc.unverifiedCitations > 0) {
+          // Only add flags we haven't already caught from tool args
+          const existingCitations = new Set(result.flags.map(f => f.citation));
+          for (const citation of doc.citationList) {
+            if (!existingCitations.has(citation)) {
+              result.totalCitations++;
+              result.unverifiedCitations++;
+              result.flags.push({
+                citation,
+                source: 'document (DB-verified)',
+                sourceName: doc.name,
+                context: `Found in saved document "${doc.name}" (${doc.contentLength} chars)`,
+                risk: 'Unverified citation found in SAVED document content (DB-verified). This citation was not flagged as [UNVERIFIED].',
+              });
+            }
+          }
         }
       }
     }
@@ -645,6 +721,113 @@ export function formatEvaluationForAgent(evaluation) {
   }
   
   return lines.join('\n');
+}
+
+// ===== DATABASE CONTENT VERIFICATION =====
+// Reads what was ACTUALLY saved to verify against what the agent claimed.
+// This is the "trust but verify" layer that catches silent failures,
+// placeholder content that slipped through, and fabricated citations.
+
+async function _fetchSavedContent(task) {
+  const result = {
+    verified: false,   // Whether we successfully queried the DB
+    documents: [],     // { id, name, contentLength, hasPlaceholders, hasCitations, citationList }
+    notes: [],         // { id, contentLength, content }
+    tasks: [],         // { id, title }
+  };
+  
+  try {
+    const userId = task.userId;
+    const firmId = task.firmId;
+    const taskStartTime = task.startTime || new Date(Date.now() - 3600000);
+    
+    // Fetch documents created during this task's runtime
+    const docResult = await query(
+      `SELECT id, original_name as name, content_text, file_size, created_at
+       FROM documents
+       WHERE firm_id = $1 AND uploaded_by = $2 AND created_at >= $3
+       ORDER BY created_at DESC LIMIT 15`,
+      [firmId, userId, taskStartTime]
+    );
+    
+    for (const doc of (docResult?.rows || [])) {
+      const contentText = doc.content_text || '';
+      const citationMatches = [];
+      
+      // Scan for legal citations in saved content
+      for (const pattern of CITATION_PATTERNS) {
+        pattern.lastIndex = 0;
+        const matches = contentText.match(pattern) || [];
+        citationMatches.push(...matches);
+      }
+      
+      // Check for unverified citations (not flagged with [UNVERIFIED])
+      const unverifiedCitations = citationMatches.filter(citation => {
+        const idx = contentText.indexOf(citation);
+        if (idx === -1) return true;
+        const context = contentText.substring(Math.max(0, idx - 40), Math.min(contentText.length, idx + citation.length + 40));
+        return !/\[UNVERIFIED|NEEDS? (?:CITE )?CHECK|NOT VERIFIED|VERIFY BEFORE/i.test(context);
+      });
+      
+      result.documents.push({
+        id: doc.id,
+        name: doc.name || 'untitled',
+        contentLength: contentText.length,
+        hasPlaceholders: /\[INSERT|TODO|PLACEHOLDER|TBD\]/i.test(contentText),
+        hasCitations: citationMatches.length > 0,
+        totalCitations: citationMatches.length,
+        unverifiedCitations: unverifiedCitations.length,
+        citationList: unverifiedCitations.slice(0, 5),
+      });
+    }
+    
+    // Fetch notes created during this task's runtime
+    // Need to join with matters to filter by firm_id
+    const noteResult = await query(
+      `SELECT mn.id, mn.content, mn.note_type, mn.created_at
+       FROM matter_notes mn
+       JOIN matters m ON mn.matter_id = m.id
+       WHERE m.firm_id = $1 AND mn.created_by = $2 AND mn.created_at >= $3
+       ORDER BY mn.created_at DESC LIMIT 15`,
+      [firmId, userId, taskStartTime]
+    );
+    
+    for (const note of (noteResult?.rows || [])) {
+      const content = note.content || '';
+      result.notes.push({
+        id: note.id,
+        contentLength: content.length,
+        type: note.note_type || 'general',
+        hasPlaceholders: /\[INSERT|TODO|PLACEHOLDER|TBD\]/i.test(content),
+      });
+    }
+    
+    // Fetch tasks created during this task's runtime
+    const taskResult = await query(
+      `SELECT id, title, created_at
+       FROM tasks
+       WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
+       ORDER BY created_at DESC LIMIT 15`,
+      [firmId, userId, taskStartTime]
+    );
+    
+    for (const t of (taskResult?.rows || [])) {
+      result.tasks.push({
+        id: t.id,
+        title: t.title || 'untitled',
+      });
+    }
+    
+    result.verified = true;
+    console.log(`[TaskEvaluator] DB verification: ${result.documents.length} docs, ${result.notes.length} notes, ${result.tasks.length} tasks found in DB`);
+    
+  } catch (error) {
+    // Non-fatal: if DB query fails, fall back to action-based evaluation
+    console.warn('[TaskEvaluator] DB content verification failed (non-fatal):', error.message);
+    result.verified = false;
+  }
+  
+  return result;
 }
 
 // Export the requirements for use in quality gates
