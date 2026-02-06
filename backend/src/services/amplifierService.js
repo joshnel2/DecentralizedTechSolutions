@@ -212,7 +212,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   if (tools.length > 0) {
     body.tools = tools;
     body.tool_choice = 'auto';
-    body.parallel_tool_calls = false; // Match aiAgent.js
+    body.parallel_tool_calls = true; // Enable parallel tool calls for speed
   }
   
   console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
@@ -505,7 +505,9 @@ class BackgroundTask extends EventEmitter {
   }
   
   /**
-   * Transition to the next execution phase
+   * Transition to the next execution phase with SELF-CRITIQUE (Reflexion pattern).
+   * Before moving on, the agent reflects on what it accomplished and what's missing.
+   * This is the key technique from the Reflexion paper that dramatically improves output quality.
    */
   transitionPhase() {
     const phases = [ExecutionPhase.DISCOVERY, ExecutionPhase.ANALYSIS, ExecutionPhase.ACTION, ExecutionPhase.REVIEW];
@@ -515,56 +517,84 @@ class BackgroundTask extends EventEmitter {
     const oldPhase = this.executionPhase;
     this.executionPhase = phases[currentIdx + 1];
     
-    console.log(`[Amplifier] Phase transition: ${oldPhase} → ${this.executionPhase}`);
+    console.log(`[Amplifier] Phase transition: ${oldPhase} → ${this.executionPhase} (with reflection)`);
     
-    this.streamEvent('phase_change', `📋 Moving to ${PHASE_CONFIG[this.executionPhase].description}`, {
+    this.streamEvent('phase_change', `🔄 Reflecting on ${oldPhase}, moving to ${PHASE_CONFIG[this.executionPhase].description}`, {
       from: oldPhase,
       to: this.executionPhase,
-      icon: 'arrow-right',
+      icon: 'refresh-cw',
       color: 'purple'
     });
     
-    // Inject phase transition guidance into messages
+    // Inject REFLECTION prompt + phase transition guidance
     this.messages.push({
       role: 'user',
-      content: this.getPhaseTransitionPrompt()
+      content: this.buildReflectionPrompt(oldPhase)
     });
   }
   
   /**
-   * Get phase-specific instruction prompt for the current phase
+   * Build a reflection/self-critique prompt for the phase transition.
+   * Forces the model to evaluate its own work before proceeding.
    */
-  getPhaseTransitionPrompt() {
+  buildReflectionPrompt(completedPhase) {
     const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
     const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
     
-    const phasePrompts = {
+    // Build a summary of what was done in the completed phase
+    const recentActions = this.actionsHistory.slice(-10).map(a => 
+      `- ${a.tool}${a.success ? '' : ' (FAILED)'}`
+    ).join('\n');
+    
+    const findings = (this.structuredPlan?.keyFindings || []).slice(-5).map(f => `- ${f}`).join('\n');
+    
+    const reflectionPrompts = {
+      [ExecutionPhase.DISCOVERY]: `
+== SELF-CRITIQUE: DISCOVERY phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
+
+**What you did:**
+${recentActions}
+
+**Key findings:**
+${findings || '(none recorded)'}
+
+**REFLECT before moving to ANALYSIS:**
+- Did I gather enough information to analyze this matter thoroughly?
+- What key documents or data did I NOT read that I should have?
+- Are there any gaps in my understanding?
+
+If critical info is missing, call one more tool to get it. Then proceed to ANALYSIS: use add_matter_note to document your findings and analysis using IRAC methodology.`,
+
       [ExecutionPhase.ANALYSIS]: `
-== PHASE TRANSITION: Now in ANALYSIS phase (~${remainingMin} min remaining) ==
-You've gathered information. Now ANALYZE what you found:
-1. Use add_matter_note to document your key findings and analysis
-2. Identify legal issues, risks, and gaps
-3. Prepare your analysis before creating deliverables
-Focus on THINKING and DOCUMENTING findings. Call add_matter_note with your analysis NOW.`,
+== SELF-CRITIQUE: ANALYSIS phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
+
+**What you documented:**
+Notes: ${this.substantiveActions.notes} | Research actions: ${this.substantiveActions.research}
+
+**REFLECT before moving to ACTION:**
+- Is my analysis specific to THIS matter (not generic)?
+- Did I identify all key legal issues?
+- Did I note risks and deadlines?
+- Is my analysis thorough enough for a supervising partner to rely on?
+
+If your analysis is thin, add one more note with deeper analysis. Then proceed to ACTION: create formal deliverables (documents, tasks, calendar events).`,
 
       [ExecutionPhase.ACTION]: `
-== PHASE TRANSITION: Now in ACTION phase (~${remainingMin} min remaining) ==
-Analysis is done. Now CREATE DELIVERABLES:
-1. Use create_document for formal work product (memos, letters, briefs)
-2. Use create_task for follow-up action items
-3. Use create_calendar_event for deadlines
-This is where you produce the actual work product. Create documents NOW.`,
+== SELF-CRITIQUE: ACTION phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
 
-      [ExecutionPhase.REVIEW]: `
-== PHASE TRANSITION: Now in REVIEW phase (~${remainingMin} min remaining) ==
-Work product created. Now FINALIZE:
-1. Use evaluate_progress to confirm all steps are done
-2. Create any remaining follow-up tasks
-3. Call task_complete with a comprehensive summary
-Wrap up efficiently. You MUST call task_complete soon.`,
+**What you created:**
+Documents: ${this.substantiveActions.documents} | Tasks: ${this.substantiveActions.tasks} | Events: ${this.substantiveActions.events}
+
+**QUALITY CHECK before REVIEW:**
+- Do my documents contain REAL content (no [INSERT] or [TODO] placeholders)?
+- Are my documents specific to this matter with actual facts?
+- Did I create actionable follow-up tasks?
+- Did I set any critical deadlines?
+
+If any deliverable is weak, fix it now with another tool call. Then proceed to REVIEW: verify everything and call task_complete.`,
     };
     
-    return phasePrompts[this.executionPhase] || `Continue working on: ${this.goal}`;
+    return reflectionPrompts[completedPhase] || `Phase ${completedPhase} complete. Continue with: ${this.goal}`;
   }
 
   /**
@@ -1726,25 +1756,101 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             color: 'purple'
           });
           
-          // Execute all tool calls
+          // ===== PARSE AND VALIDATE ALL TOOL CALLS =====
+          const parsedCalls = [];
           for (const toolCall of message.tool_calls) {
-            if (this.cancelled) break;
-            
             const toolName = toolCall.function.name;
             let toolArgs = {};
-            
             try {
               toolArgs = JSON.parse(toolCall.function.arguments || '{}');
             } catch (parseError) {
-              console.error(`[Amplifier] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments);
+              console.error(`[Amplifier] Failed to parse args for ${toolName}:`, toolCall.function.arguments);
               toolArgs = {};
             }
             
-            // ===== PRE-FLIGHT VALIDATION =====
             const validationError = this.validateToolArgs(toolName, toolArgs);
+            parsedCalls.push({ toolCall, toolName, toolArgs, validationError });
+          }
+          
+          // ===== PARALLEL EXECUTION for read-only tools =====
+          // If ALL tool calls are cacheable (read-only), execute them in parallel
+          const allReadOnly = parsedCalls.every(c => !c.validationError && this.CACHEABLE_TOOLS.has(c.toolName));
+          const TOOL_TIMEOUT_MS = 60000;
+          
+          if (allReadOnly && parsedCalls.length > 1) {
+            console.log(`[Amplifier] Executing ${parsedCalls.length} read-only tools in PARALLEL`);
+            this.streamEvent('parallel_exec', `⚡ Running ${parsedCalls.length} tools in parallel`, {
+              tools: parsedCalls.map(c => c.toolName), icon: 'zap', color: 'blue'
+            });
+            
+            const parallelResults = await Promise.all(parsedCalls.map(async (pc) => {
+              // Check cache first
+              let result = this.getCachedResult(pc.toolName, pc.toolArgs);
+              if (!result) {
+                try {
+                  const toolPromise = executeTool(pc.toolName, pc.toolArgs, {
+                    userId: this.userId, firmId: this.firmId, user: this.userRecord
+                  });
+                  result = await Promise.race([
+                    toolPromise,
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), TOOL_TIMEOUT_MS))
+                  ]);
+                  this.cacheToolResult(pc.toolName, pc.toolArgs, result);
+                } catch (err) {
+                  result = { error: err?.message || 'Tool execution failed' };
+                }
+              }
+              return { ...pc, result };
+            }));
+            
+            // Process all parallel results
+            for (const pr of parallelResults) {
+              if (this.cancelled) break;
+              const { toolCall: tc, toolName: tn, toolArgs: ta, result: res } = pr;
+              const success = res.success !== undefined ? res.success : !res.error;
+              
+              this.actionsHistory.push({ tool: tn, args: ta, result: res, timestamp: new Date(), success });
+              if (success && (tn === 'read_document_content' || tn === 'search_document_content')) {
+                this.substantiveActions.research++;
+              }
+              
+              // Add key findings from reads
+              if (success && tn === 'get_matter' && res?.matter) {
+                this.addKeyFinding(`Matter: ${res.matter.name} (${res.matter.status})`);
+              }
+              if (success && tn === 'read_document_content' && res?.name) {
+                this.addKeyFinding(`Read: ${res.name}`);
+                // Progressive context: extract key info from document
+                if (res.content) {
+                  const preview = res.content.substring(0, 500).replace(/\n+/g, ' ');
+                  this.addKeyFinding(`Doc summary (${res.name}): ${preview.substring(0, 200)}...`);
+                }
+              }
+              
+              if (success) this.markPlanStepProgress(tn);
+              
+              this.messages.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                content: this.trimToolResultForMessage(tn, res)
+              });
+              
+              this.streamEvent('tool_end', this.getDetailedCompletionMessage(tn, ta, res, success), {
+                tool: tn, success, icon: success ? 'check-circle' : 'x-circle', color: success ? 'green' : 'red'
+              });
+            }
+            
+            this.progress.progressPercent = this.calculateProgressPercent();
+            this.streamProgress();
+            await this.saveCheckpoint('periodic');
+            
+          } else {
+          // ===== SEQUENTIAL EXECUTION (for write tools or mixed batches) =====
+          for (const { toolCall, toolName, toolArgs, validationError } of parsedCalls) {
+            if (this.cancelled) break;
+            
             if (validationError) {
-              console.log(`[Amplifier] Pre-flight validation failed for ${toolName}: ${validationError}`);
-              // Return the validation error directly without executing the tool
+              console.log(`[Amplifier] Validation failed for ${toolName}: ${validationError}`);
               this.messages.push({
                 role: 'tool',
                 tool_call_id: toolCall.id,
@@ -1753,7 +1859,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               this.streamEvent('tool_error', `⚠️ ${toolName}: ${validationError.substring(0, 80)}`, {
                 tool: toolName, icon: 'alert-triangle', color: 'yellow'
               });
-              continue; // Skip to next tool call
+              continue;
             }
             
             console.log(`[Amplifier] Executing tool: ${toolName}`);
@@ -1762,48 +1868,32 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             
             const toolDescription = this.getDetailedToolDescription(toolName, toolArgs);
             this.streamEvent('tool_start', toolDescription, { 
-              tool: toolName, 
-              args: toolArgs,
-              icon: 'tool',
-              color: 'blue'
+              tool: toolName, args: toolArgs, icon: 'tool', color: 'blue'
             });
             this.streamProgress();
             
-            // ===== CHECK CACHE FIRST =====
+            // Check cache first
             let result = this.getCachedResult(toolName, toolArgs);
             
             if (result) {
-              // Cache hit - skip execution entirely
               this.streamEvent('tool_end', `⚡ ${toolName} (cached)`, {
-                tool: toolName, success: true, cached: true,
-                icon: 'zap', color: 'green'
+                tool: toolName, success: true, cached: true, icon: 'zap', color: 'green'
               });
             } else {
-              // Execute the tool with timeout protection (60 seconds max)
-              const TOOL_TIMEOUT_MS = 60000;
               try {
                 const toolPromise = executeTool(toolName, toolArgs, {
-                  userId: this.userId,
-                  firmId: this.firmId,
-                  user: this.userRecord
+                  userId: this.userId, firmId: this.firmId, user: this.userRecord
                 });
-                
-                const timeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS)
-                );
-                
-                result = await Promise.race([toolPromise, timeoutPromise]);
-                
-                // Cache successful read-only results
+                result = await Promise.race([
+                  toolPromise,
+                  new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS))
+                ]);
                 this.cacheToolResult(toolName, toolArgs, result);
               } catch (toolError) {
                 console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
                 result = { error: toolError?.message || 'Tool execution failed' };
-                
                 this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
-                  tool: toolName,
-                  icon: 'x-circle',
-                  color: 'red'
+                  tool: toolName, icon: 'x-circle', color: 'red'
                 });
               }
             }
@@ -2043,6 +2133,7 @@ Keep working on: "${this.goal}"`
 
             await this.saveCheckpoint('periodic');
           }
+          } // end else (sequential execution)
         } else {
           // No tool calls - AI just responded with text
           this.textOnlyStreak++;
