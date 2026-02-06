@@ -649,6 +649,11 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
     if (this.actionsHistory.length < 5) needed.push(`${5 - this.actionsHistory.length} more tool calls`);
     if (needed.length > 0) planText += `Still required: ${needed.join(', ')}\n`;
     
+    // Hard cap plan message at 2000 chars (~500 tokens)
+    if (planText.length > 2000) {
+      planText = planText.substring(0, 1900) + '\n[plan trimmed for efficiency]\n';
+    }
+    
     return { role: 'system', content: planText };
   }
   

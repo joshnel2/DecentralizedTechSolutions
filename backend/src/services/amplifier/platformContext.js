@@ -396,6 +396,12 @@ export async function getLearningContext(queryFn, firmId, userId) {
       context += '\n';
     }
     
+    // Hard cap on learning context to prevent unbounded prompt growth
+    // ~2000 chars ≈ ~500 tokens - keeps it useful without bloating the prompt
+    if (context.length > 2000) {
+      context = context.substring(0, 1900) + '\n\n[... additional patterns available but trimmed for efficiency]\n';
+    }
+    
     return hasContent ? context : '';
   } catch (e) {
     // Table may not exist yet - this is fine
