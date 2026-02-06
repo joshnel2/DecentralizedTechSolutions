@@ -33,11 +33,9 @@ const TaskStatus = {
   WAITING_INPUT: 'waiting_input'
 };
 
-// Azure OpenAI configuration - SAME as aiAgent.js
-// Read at top level just like aiAgent.js does
-const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT;
+// Azure OpenAI configuration - SAME env vars as aiAgent.js
+// Read at RUNTIME via getAzureConfig() to ensure Azure App Service env vars are available
+// (top-level reads can fail if module loads before platform injects env vars)
 const API_VERSION = '2024-12-01-preview';
 
 // Background agent runtime defaults (tuned for EXTENDED legal tasks)
@@ -132,9 +130,9 @@ function markPersistenceUnavailable(error) {
  */
 function getAzureConfig() {
   return {
-    endpoint: AZURE_ENDPOINT,
-    apiKey: AZURE_API_KEY,
-    deployment: AZURE_DEPLOYMENT
+    endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+    apiKey: process.env.AZURE_OPENAI_API_KEY,
+    deployment: process.env.AZURE_OPENAI_DEPLOYMENT
   };
 }
 
