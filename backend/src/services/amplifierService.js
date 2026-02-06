@@ -2805,19 +2805,31 @@ class AmplifierService {
   async configure() {
     if (this.configured) return true;
     
+    const available = await this.checkAvailability();
+    if (!available) {
+      const config = getAzureConfig();
+      console.warn('[AmplifierService] Azure OpenAI credentials not configured');
+      console.warn('[AmplifierService] AZURE_OPENAI_ENDPOINT:', config.endpoint ? `set (${config.endpoint})` : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_API_KEY:', config.apiKey ? `set (length: ${config.apiKey.length})` : 'MISSING');
+      console.warn('[AmplifierService] AZURE_OPENAI_DEPLOYMENT:', config.deployment ? `set (${config.deployment})` : 'MISSING');
+      return false;
+    }
+
     const config = getAzureConfig();
-    console.log('[AmplifierService] Configuring with Azure OpenAI...');
-    console.log('[AmplifierService] AZURE_OPENAI_ENDPOINT:', config.endpoint ? 'set' : 'not set');
-    console.log('[AmplifierService] AZURE_OPENAI_API_KEY:', config.apiKey ? `set (length: ${config.apiKey.length})` : 'not set');
-    console.log('[AmplifierService] AZURE_OPENAI_DEPLOYMENT:', config.deployment ? 'set' : 'not set');
     
-    // Get tools
+    // Verify tools are loaded correctly
     const tools = getOpenAITools();
-    console.log('[AmplifierService] Tools available:', tools?.length || 0);
+    if (!tools || tools.length === 0) {
+      console.error('[AmplifierService] No tools available - check import from aiAgent.js');
+      return false;
+    }
     
-    // Always mark as configured - actual API errors will be handled at runtime
     this.configured = true;
-    console.log('[AmplifierService] Service configured - API version:', API_VERSION);
+    console.log('[AmplifierService] Configured with Azure OpenAI (same as aiAgent.js)');
+    console.log('[AmplifierService] Using API version:', API_VERSION);
+    console.log('[AmplifierService] Endpoint:', config.endpoint);
+    console.log('[AmplifierService] Deployment:', config.deployment);
+    console.log('[AmplifierService] Tools available:', tools.length);
     
     // Automatically resume any pending tasks after server restart
     this.resumePendingTasks().catch(err => {
