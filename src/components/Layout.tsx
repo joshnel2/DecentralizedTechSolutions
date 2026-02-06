@@ -21,7 +21,7 @@ import {
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
   Play, Pause, Square, Mail, Cloud, FileText, Video, MessageSquare, 
-  Calculator, HardDrive, Share2, CreditCard
+  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -52,6 +52,7 @@ const navItems = [
   { path: '/app/document-automation', label: 'Document Automation', icon: FileStack },
   { path: '/app/reports', label: 'Reports', icon: BarChart3 },
   { path: '/app/analytics', label: 'Analytics', icon: TrendingUp },
+  { path: '/app/review-queue', label: 'Review Queue', icon: ClipboardCheck },
 ]
 
 const settingsItems = [

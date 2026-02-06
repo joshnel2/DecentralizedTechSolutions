@@ -23,6 +23,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { DocumentsPage } from './pages/DocumentsPage'
 import { AIAssistantPage } from './pages/AIAssistantPage'
 import { BackgroundAgentPage } from './pages/BackgroundAgentPage'
+import { ReviewQueuePage } from './pages/ReviewQueuePage'
 import { AgentConsolePage } from './pages/AgentConsolePage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SettingsHubPage } from './pages/SettingsHubPage'
@@ -227,6 +228,7 @@ function AppContent() {
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
         <Route path="background-agent" element={<BackgroundAgentPage />} />
+        <Route path="review-queue" element={<ReviewQueuePage />} />
         <Route path="agent-console/:taskId" element={<AgentConsolePage />} />
         <Route path="ai/redline" element={<RedlineAIPage />} />
         

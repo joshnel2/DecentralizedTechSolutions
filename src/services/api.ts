@@ -953,6 +953,33 @@ export const aiApi = {
     return fetchWithAuth('/v1/background-agent/tools');
   },
 
+  // ===== REVIEW QUEUE =====
+  
+  // Get review queue items (completed tasks with deliverables)
+  async getReviewQueue(status?: string, limit?: number) {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (limit) params.set('limit', String(limit));
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchWithAuth(`/v1/background-agent/review-queue${query}`);
+  },
+
+  // Approve a task in the review queue
+  async approveReviewItem(taskId: string, feedback?: string) {
+    return fetchWithAuth(`/v1/background-agent/review-queue/${taskId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ feedback }),
+    });
+  },
+
+  // Reject a task in the review queue with required feedback
+  async rejectReviewItem(taskId: string, feedback: string, issues?: string[]) {
+    return fetchWithAuth(`/v1/background-agent/review-queue/${taskId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ feedback, issues }),
+    });
+  },
+
   // Background task management
   async getActiveTask() {
     return fetchWithAuth('/v1/agent/tasks/active/current');

@@ -399,6 +399,295 @@ router.get('/history', authenticate, async (req, res) => {
   }
 });
 
+// =====================================================================
+// REVIEW QUEUE ENDPOINTS
+// The attorney review queue surfaces completed agent work for one-click
+// approve/reject. This is what makes the agent usable daily -- the attorney
+// sees what was created, what was flagged, and acts in seconds.
+// =====================================================================
+
+/**
+ * Get review queue - completed tasks with their deliverables
+ * Returns tasks that need attorney review, with actual content from DB
+ */
+router.get('/review-queue', authenticate, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const status = req.query.status || 'pending_review'; // pending_review, approved, rejected, all
+    const { query: dbQuery } = await import('../db/connection.js');
+    
+    // Fetch completed tasks that haven't been reviewed yet (or filter by status)
+    let statusFilter;
+    if (status === 'all') {
+      statusFilter = `AND t.status IN ('completed', 'approved', 'rejected')`;
+    } else if (status === 'approved') {
+      statusFilter = `AND t.review_status = 'approved'`;
+    } else if (status === 'rejected') {
+      statusFilter = `AND t.review_status = 'rejected'`;
+    } else {
+      // Default: pending review = completed but not yet reviewed
+      statusFilter = `AND t.status = 'completed' AND (t.review_status IS NULL OR t.review_status = 'pending')`;
+    }
+    
+    const tasksResult = await dbQuery(
+      `SELECT t.id, t.goal, t.status, t.result, t.progress, t.created_at, t.completed_at,
+              t.review_status, t.review_feedback, t.reviewed_at, t.reviewed_by,
+              u.first_name || ' ' || u.last_name as created_by_name
+       FROM ai_background_tasks t
+       LEFT JOIN users u ON t.user_id = u.id
+       WHERE t.firm_id = $1 AND (t.user_id = $2 OR $3 = 'admin')
+       ${statusFilter}
+       ORDER BY t.completed_at DESC NULLS LAST
+       LIMIT $4`,
+      [req.user.firmId, req.user.id, req.user.role, limit]
+    );
+    
+    // For each task, fetch the actual deliverables from the database
+    const reviewItems = [];
+    for (const task of tasksResult.rows) {
+      const item = {
+        id: task.id,
+        goal: task.goal,
+        status: task.status,
+        reviewStatus: task.review_status || 'pending',
+        reviewFeedback: task.review_feedback,
+        reviewedAt: task.reviewed_at,
+        createdAt: task.created_at,
+        completedAt: task.completed_at,
+        createdByName: task.created_by_name,
+        result: typeof task.result === 'string' ? JSON.parse(task.result) : task.result,
+        progress: typeof task.progress === 'string' ? JSON.parse(task.progress) : task.progress,
+        deliverables: { documents: [], notes: [], tasks: [], events: [] },
+        flags: [], // Issues the attorney should look at
+      };
+      
+      // Parse evaluation from result if present
+      const evaluation = item.result?.evaluation;
+      if (evaluation) {
+        item.evaluationScore = evaluation.score;
+        item.evaluationIssues = evaluation.issues || [];
+        item.evaluationStrengths = evaluation.strengths || [];
+      }
+      
+      // Fetch documents created by the agent during this task
+      try {
+        const docsResult = await dbQuery(
+          `SELECT id, original_name as name, content_text, file_size, created_at, matter_id
+           FROM documents
+           WHERE firm_id = $1 AND uploaded_by = $2
+             AND created_at >= $3 AND created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
+           ORDER BY created_at DESC LIMIT 10`,
+          [req.user.firmId, req.user.id, task.created_at, task.completed_at]
+        );
+        
+        for (const doc of docsResult.rows) {
+          const contentPreview = doc.content_text 
+            ? doc.content_text.substring(0, 500) + (doc.content_text.length > 500 ? '...' : '')
+            : null;
+          
+          const docFlags = [];
+          if (doc.content_text && /\[INSERT|TODO|PLACEHOLDER|TBD\]/i.test(doc.content_text)) {
+            docFlags.push('Contains placeholder text');
+          }
+          if (doc.content_text && doc.content_text.length < 200) {
+            docFlags.push('Document is very short');
+          }
+          // Check for unverified citations
+          const citationMatch = doc.content_text?.match(
+            /\d+\s+(?:F\.(?:2d|3d|4th|Supp\.(?:2d|3d)?)|U\.S\.|S\.Ct\.|N\.Y\.(?:2d|3d)?|A\.D\.(?:2d|3d)?)\s+\d+/g
+          );
+          if (citationMatch) {
+            const unverified = citationMatch.filter(c => {
+              const idx = doc.content_text.indexOf(c);
+              const ctx = doc.content_text.substring(Math.max(0, idx - 30), Math.min(doc.content_text.length, idx + c.length + 30));
+              return !/\[UNVERIFIED|NEEDS? (?:CITE )?CHECK\]/i.test(ctx);
+            });
+            if (unverified.length > 0) {
+              docFlags.push(`${unverified.length} citation(s) may need verification`);
+            }
+          }
+          
+          item.deliverables.documents.push({
+            id: doc.id,
+            name: doc.name,
+            contentPreview,
+            contentLength: doc.content_text?.length || 0,
+            fileSize: doc.file_size,
+            createdAt: doc.created_at,
+            matterId: doc.matter_id,
+            flags: docFlags,
+          });
+          item.flags.push(...docFlags.map(f => ({ type: 'document', name: doc.name, issue: f })));
+        }
+      } catch (e) {
+        // Non-fatal
+      }
+      
+      // Fetch notes created during the task
+      try {
+        const notesResult = await dbQuery(
+          `SELECT mn.id, mn.content, mn.note_type, mn.created_at, m.name as matter_name, mn.matter_id
+           FROM matter_notes mn
+           JOIN matters m ON mn.matter_id = m.id
+           WHERE m.firm_id = $1 AND mn.created_by = $2
+             AND mn.created_at >= $3 AND mn.created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
+           ORDER BY mn.created_at DESC LIMIT 10`,
+          [req.user.firmId, req.user.id, task.created_at, task.completed_at]
+        );
+        
+        for (const note of notesResult.rows) {
+          const contentPreview = note.content
+            ? note.content.substring(0, 400) + (note.content.length > 400 ? '...' : '')
+            : null;
+          
+          item.deliverables.notes.push({
+            id: note.id,
+            content: contentPreview,
+            contentLength: note.content?.length || 0,
+            type: note.note_type || 'general',
+            matterName: note.matter_name,
+            matterId: note.matter_id,
+            createdAt: note.created_at,
+          });
+        }
+      } catch (e) {
+        // Non-fatal
+      }
+      
+      // Fetch tasks created during the agent task
+      try {
+        const tasksCreated = await dbQuery(
+          `SELECT id, title, description, status, priority, due_date, created_at, matter_id
+           FROM tasks
+           WHERE firm_id = $1 AND created_by = $2
+             AND created_at >= $3 AND created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
+           ORDER BY created_at DESC LIMIT 15`,
+          [req.user.firmId, req.user.id, task.created_at, task.completed_at]
+        );
+        
+        for (const t of tasksCreated.rows) {
+          item.deliverables.tasks.push({
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            status: t.status,
+            priority: t.priority,
+            dueDate: t.due_date,
+            matterId: t.matter_id,
+            createdAt: t.created_at,
+          });
+        }
+      } catch (e) {
+        // Non-fatal
+      }
+      
+      // Count total deliverables
+      item.totalDeliverables = 
+        item.deliverables.documents.length + 
+        item.deliverables.notes.length + 
+        item.deliverables.tasks.length;
+      
+      reviewItems.push(item);
+    }
+    
+    res.json({
+      items: reviewItems,
+      count: reviewItems.length,
+      pendingCount: reviewItems.filter(i => i.reviewStatus === 'pending').length,
+    });
+  } catch (error) {
+    console.error('[ReviewQueue] Error getting review queue:', error);
+    res.status(500).json({ error: 'Failed to get review queue' });
+  }
+});
+
+/**
+ * Approve a task in the review queue
+ * Marks the task as approved and records attorney feedback
+ */
+router.post('/review-queue/:id/approve', authenticate, async (req, res) => {
+  try {
+    const { feedback } = req.body;
+    const { query: dbQuery } = await import('../db/connection.js');
+    
+    await dbQuery(
+      `UPDATE ai_background_tasks
+       SET review_status = 'approved',
+           review_feedback = $1,
+           reviewed_at = NOW(),
+           reviewed_by = $2,
+           updated_at = NOW()
+       WHERE id = $3 AND firm_id = $4`,
+      [feedback || null, req.user.id, req.params.id, req.user.firmId]
+    );
+    
+    // Record positive feedback for learning
+    try {
+      await amplifierService.recordFeedback(
+        req.params.id,
+        req.user.id,
+        req.user.firmId,
+        { rating: 4, feedback: feedback || 'Approved via review queue' }
+      );
+    } catch (e) {
+      // Non-fatal
+    }
+    
+    console.log(`[ReviewQueue] Task ${req.params.id} approved by user ${req.user.id}`);
+    
+    res.json({ success: true, message: 'Task approved' });
+  } catch (error) {
+    console.error('[ReviewQueue] Error approving task:', error);
+    res.status(500).json({ error: 'Failed to approve task' });
+  }
+});
+
+/**
+ * Reject a task in the review queue
+ * Records what was wrong so the agent can learn
+ */
+router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
+  try {
+    const { feedback, issues } = req.body;
+    
+    if (!feedback || feedback.trim().length === 0) {
+      return res.status(400).json({ error: 'Feedback is required when rejecting - tell the agent what was wrong' });
+    }
+    
+    const { query: dbQuery } = await import('../db/connection.js');
+    
+    await dbQuery(
+      `UPDATE ai_background_tasks
+       SET review_status = 'rejected',
+           review_feedback = $1,
+           reviewed_at = NOW(),
+           reviewed_by = $2,
+           updated_at = NOW()
+       WHERE id = $3 AND firm_id = $4`,
+      [feedback, req.user.id, req.params.id, req.user.firmId]
+    );
+    
+    // Record negative feedback for learning (critical for improvement)
+    try {
+      await amplifierService.recordFeedback(
+        req.params.id,
+        req.user.id,
+        req.user.firmId,
+        { rating: 2, feedback, correction: issues?.join('; ') || feedback }
+      );
+    } catch (e) {
+      // Non-fatal
+    }
+    
+    console.log(`[ReviewQueue] Task ${req.params.id} rejected by user ${req.user.id}: ${feedback.substring(0, 80)}`);
+    
+    res.json({ success: true, message: 'Task rejected - feedback recorded for learning' });
+  } catch (error) {
+    console.error('[ReviewQueue] Error rejecting task:', error);
+    res.status(500).json({ error: 'Failed to reject task' });
+  }
+});
+
 /**
  * Get learned patterns
  */
