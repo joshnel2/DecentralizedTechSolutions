@@ -13,6 +13,7 @@ import { EmailCompose } from './EmailCompose'
 import { EmailComposeProvider } from '../contexts/EmailComposeContext'
 import { ConnectionBanner } from './ConnectionStatus'
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts.tsx'
+import { useInteractionLearning } from '../hooks/useInteractionLearning'
 import { integrationsApi } from '../services/api'
 import { 
   LayoutDashboard, Briefcase, Users, Calendar, DollarSign, 
@@ -74,6 +75,11 @@ export function Layout() {
   
   // Enable keyboard shortcuts
   useKeyboardShortcuts()
+  
+  // Enable interaction learning - tracks page navigation and feature usage
+  // so the agent learns how this user works with the software
+  useInteractionLearning(!!user)
+  
   const [sidebarOpen, _setSidebarOpen] = useState(true)
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
