@@ -411,6 +411,9 @@ class BackgroundTask extends EventEmitter {
     // Track text-only responses more aggressively
     this.textOnlyStreak = 0;
     
+    // Track consecutive API errors for crash-proofing
+    this.consecutiveErrors = 0;
+    
     // ===== TOOL RESULT CACHE (prevent redundant API calls) =====
     // Caches results from read-only tools so the agent doesn't re-fetch the same data
     this.toolCache = new Map(); // key: "toolName:argHash" -> { result, timestamp }
@@ -1482,6 +1485,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     if (!persistenceAvailable) return;
     try {
       const storedError = status === TaskStatus.FAILED ? (this.error || errorMessage) : null;
+      const completedAt = this.endTime || new Date(); // Defensive guard against null endTime
       await query(
         `UPDATE ai_background_tasks
          SET status = $1,
@@ -1496,7 +1500,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
           this.progress,
           this.result,
           storedError,
-          this.endTime,
+          completedAt,
           this.id
         ]
       );
@@ -1673,10 +1677,6 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         this.progress.currentStep = 'Saving results...';
         this.streamProgress();
         
-        await this.saveTaskHistory();
-        await this.persistCompletion(TaskStatus.COMPLETED);
-        await sleep(400);
-        
         this.status = TaskStatus.COMPLETED;
         this.progress.progressPercent = 100;
         this.progress.currentStep = 'Completed (time limit reached)';
@@ -1685,6 +1685,10 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
           actions: this.actionsHistory.map(a => a.tool)
         };
         this.endTime = new Date();
+        
+        await this.saveTaskHistory();
+        await this.persistCompletion(TaskStatus.COMPLETED);
+        await sleep(400);
         
         this.streamEvent('task_complete', `✅ Task completed (time limit: ${Math.round(elapsedMs / 60000)}min)`, { 
           actions_count: this.actionsHistory.length,
@@ -2104,11 +2108,6 @@ Keep working on: "${this.goal}"`
               });
               this.streamProgress();
               
-              // Save to history and extract learnings
-              await this.saveTaskHistory();
-              await this.persistCompletion(TaskStatus.COMPLETED);
-              await sleep(500);
-              
               // Step 3: Show complete (100%)
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
@@ -2124,6 +2123,11 @@ Keep working on: "${this.goal}"`
                 }
               };
               this.endTime = new Date();
+              
+              // Save to history and extract learnings (endTime must be set first)
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
+              await sleep(500);
               
               // Stream completion event to Glass Cockpit UI
               this.streamEvent('task_complete', `✅ ${toolArgs.summary || 'Task completed successfully'}`, {
@@ -2226,9 +2230,6 @@ Keep working on: "${this.goal}"`
             this.streamProgress();
             await sleep(600);
             
-            await this.saveTaskHistory();
-            await this.persistCompletion(TaskStatus.COMPLETED);
-            
             this.status = TaskStatus.COMPLETED;
             this.progress.progressPercent = 100;
             this.progress.currentStep = 'Completed';
@@ -2237,6 +2238,9 @@ Keep working on: "${this.goal}"`
               actions: this.actionsHistory.map(a => a.tool)
             };
             this.endTime = new Date();
+            
+            await this.saveTaskHistory();
+            await this.persistCompletion(TaskStatus.COMPLETED);
             
             this.streamEvent('task_complete', `✅ Task completed`, { 
               actions_count: this.actionsHistory.length,
@@ -2421,10 +2425,6 @@ Keep working on: "${this.goal}"`
       this.progress.currentStep = 'Saving results...';
       this.streamProgress();
       
-      await this.saveTaskHistory();
-      await this.persistCompletion(TaskStatus.COMPLETED);
-      await sleep(400);
-      
       this.status = TaskStatus.COMPLETED;
       this.progress.progressPercent = 100;
       this.progress.currentStep = 'Completed (max iterations)';
@@ -2433,6 +2433,10 @@ Keep working on: "${this.goal}"`
         actions: this.actionsHistory.map(a => a.tool)
       };
       this.endTime = new Date();
+      
+      await this.saveTaskHistory();
+      await this.persistCompletion(TaskStatus.COMPLETED);
+      await sleep(400);
       
       this.streamEvent('task_complete', `✅ Task completed (${this.progress.iterations} iterations)`, { 
         actions_count: this.actionsHistory.length,
@@ -2451,6 +2455,10 @@ Keep working on: "${this.goal}"`
    */
   async saveTaskHistory() {
     try {
+      // Ensure endTime is set (defensive guard against null endTime)
+      const completedAt = this.endTime || new Date();
+      const durationSeconds = Math.max(0, Math.round((completedAt - this.startTime) / 1000));
+      
       // Save to task history
       await query(`
         INSERT INTO ai_task_history (
@@ -2465,8 +2473,8 @@ Keep working on: "${this.goal}"`
         this.goal,
         this.status,
         this.startTime,
-        this.endTime,
-        Math.round((this.endTime - this.startTime) / 1000),
+        completedAt,
+        durationSeconds,
         this.progress.iterations,
         this.result?.summary,
         JSON.stringify(this.actionsHistory.map(a => ({ tool: a.tool, args: a.args }))),
@@ -2735,7 +2743,9 @@ Keep working on: "${this.goal}"`
     this.endTime = new Date();
     
     console.log(`[Amplifier] Task ${this.id} cancelled`);
-    this.persistCompletion(TaskStatus.CANCELLED);
+    this.persistCompletion(TaskStatus.CANCELLED).catch(err => {
+      console.error(`[Amplifier] Failed to persist cancellation for task ${this.id}:`, err.message);
+    });
     this.emit('cancelled', this.getStatus());
     return true;
   }
