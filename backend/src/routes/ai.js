@@ -1129,4 +1129,103 @@ router.get('/user-learning-summary', authenticate, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/ai/interactions
+ * Record user interaction events for learning
+ * 
+ * The frontend sends batched interaction events (page views, feature usage,
+ * searches, filter/sort actions) which are processed into patterns.
+ * 
+ * Raw events are NOT stored - they are aggregated into anonymous patterns
+ * (page frequency, feature frequency, workflow sequences, etc.)
+ * 
+ * This allows the agent to understand HOW the user works with the software,
+ * not just what they create through the AI.
+ */
+router.post('/interactions', authenticate, async (req, res) => {
+  try {
+    const { events } = req.body;
+    
+    if (!Array.isArray(events) || events.length === 0) {
+      return res.status(400).json({ error: 'Events array is required' });
+    }
+    
+    // Cap at 100 events per request to prevent abuse
+    const cappedEvents = events.slice(0, 100);
+    
+    // Import interaction learning service
+    const { recordInteraction } = await import('../services/interactionLearning.js');
+    
+    // Record each event (buffered in memory, not immediate DB writes)
+    for (const event of cappedEvents) {
+      // Validate event structure
+      if (!event.type || typeof event.type !== 'string') continue;
+      
+      // Sanitize - strip any potentially sensitive data
+      const sanitizedEvent = {
+        type: event.type.substring(0, 50),
+        category: (event.category || '').substring(0, 50),
+        detail: (event.detail || '').substring(0, 100),
+        metadata: event.metadata ? sanitizeMetadata(event.metadata) : undefined,
+      };
+      
+      recordInteraction(req.user.firmId, req.user.id, sanitizedEvent);
+    }
+    
+    res.json({ 
+      success: true, 
+      recorded: cappedEvents.length,
+      message: 'Interactions recorded for learning'
+    });
+  } catch (error) {
+    console.error('Record interactions error:', error);
+    // Non-critical - don't fail with 500 for tracking
+    res.json({ success: false, error: 'Failed to record interactions' });
+  }
+});
+
+/**
+ * GET /api/ai/interaction-profile
+ * Get the user's interaction profile (for debugging/transparency)
+ * Shows what the agent has learned about how the user works
+ */
+router.get('/interaction-profile', authenticate, async (req, res) => {
+  try {
+    const { getUserInteractionProfile } = await import('../services/interactionLearning.js');
+    
+    const profile = await getUserInteractionProfile(req.user.firmId, req.user.id);
+    
+    res.json({
+      profile: profile || { message: 'No interaction data yet - the agent will learn as you use the software' },
+      privacy: 'This data is private to you and is used to personalize the agent\'s behavior'
+    });
+  } catch (error) {
+    console.error('Get interaction profile error:', error);
+    res.status(500).json({ error: 'Failed to get interaction profile' });
+  }
+});
+
+/**
+ * Sanitize metadata to prevent storing sensitive information
+ */
+function sanitizeMetadata(metadata) {
+  if (!metadata || typeof metadata !== 'object') return undefined;
+  
+  const safe = {};
+  const allowedKeys = ['page', 'section', 'action', 'count', 'duration', 'sortBy', 'filterBy', 'viewMode'];
+  
+  for (const key of allowedKeys) {
+    if (metadata[key] !== undefined) {
+      // Only allow short string values or numbers
+      if (typeof metadata[key] === 'number') {
+        safe[key] = metadata[key];
+      } else if (typeof metadata[key] === 'string' && metadata[key].length <= 100) {
+        safe[key] = metadata[key];
+      }
+    }
+  }
+  
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}
+
 export default router;

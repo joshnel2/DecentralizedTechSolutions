@@ -1048,6 +1048,24 @@ export const aiApi = {
   async getVoices(): Promise<{ voices: Array<{ name: string; locale: string; gender: string }> }> {
     return fetchWithAuth('/v1/agent/voice/voices');
   },
+
+  // ============================================
+  // INTERACTION LEARNING
+  // ============================================
+
+  // Send batched interaction events for learning
+  // The agent learns from how you use the software (not just AI tasks)
+  async trackInteractions(events: Array<{ type: string; category?: string; detail?: string; metadata?: Record<string, unknown> }>) {
+    return fetchWithAuth('/ai/interactions', {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+    });
+  },
+
+  // Get what the agent has learned about how you use the software
+  async getInteractionProfile() {
+    return fetchWithAuth('/ai/interaction-profile');
+  },
 };
 
 // ============================================
