@@ -21,6 +21,8 @@ import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifie
 import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
 import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/legalKnowledge/nyCPLR.js';
 import { getUserDocumentProfile, formatProfileForPrompt, onDocumentAccessed } from './amplifier/documentLearning.js';
+import { createCheckpointRewindManager } from './amplifier/checkpointRewind.js';
+import { createAgentMemory, recursiveCompact, AgentMemory } from './amplifier/recursiveSummarizer.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -419,6 +421,18 @@ class BackgroundTask extends EventEmitter {
     // Lawyer profile (grows smarter over time)
     this.lawyerProfile = null;
     
+    // ===== CHECKPOINT & REWIND SYSTEM =====
+    // Maintains a stack of known-good snapshots. When the agent hits a loop
+    // or consecutive errors, rewind() rolls back to the last good state and
+    // injects "tried paths" so the model takes a different Legal Path.
+    this.rewindManager = createCheckpointRewindManager();
+    
+    // ===== RECURSIVE SUMMARIZATION (Short-Term vs Long-Term Memory) =====
+    // Long-Term Memory: 30-minute mission goal + key facts (always in context)
+    // Mid-Term Memory: recursive summaries of old messages (compressed history)
+    // Short-Term Memory: recent messages only (current sub-task)
+    this.agentMemory = createAgentMemory(goal);
+    
     // Tools that are safe to cache (read-only, no side effects)
     this.CACHEABLE_TOOLS = new Set([
       'get_matter', 'list_my_matters', 'search_matters', 'list_clients', 'get_client',
@@ -531,6 +545,19 @@ class BackgroundTask extends EventEmitter {
       icon: 'refresh-cw',
       color: 'purple'
     });
+    
+    // ===== RECURSIVE SUMMARIZATION: Record phase reflection in mid-term memory =====
+    if (this.agentMemory) {
+      const completedActions = this.actionsHistory
+        .filter(a => a.success !== false)
+        .slice(-5)
+        .map(a => a.tool)
+        .join(', ');
+      this.agentMemory.addPhaseReflection(oldPhase, 
+        `Completed ${oldPhase} phase with actions: ${completedActions}. ` +
+        `Notes: ${this.substantiveActions.notes}, Docs: ${this.substantiveActions.documents}, Tasks: ${this.substantiveActions.tasks}`
+      );
+    }
     
     // Inject REFLECTION prompt + phase transition guidance
     this.messages.push({
@@ -1155,6 +1182,28 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
 
     console.log(`[Amplifier] Compacting messages: ${this.messages.length} messages, ${totalChars} chars`);
 
+    // ===== RECURSIVE SUMMARIZATION =====
+    // Instead of simply dropping old messages, fold them into compressed
+    // summaries that preserve information at decreasing fidelity.
+    // Long-Term Memory (mission goal) stays permanent in the context.
+    // Mid-Term Memory (recursive summaries) compresses old conversation.
+    // Short-Term Memory (recent messages) stays in full fidelity.
+    if (this.agentMemory) {
+      try {
+        const compactedMessages = recursiveCompact(this, this.agentMemory);
+        this.messages = this.normalizeMessages(compactedMessages);
+        
+        console.log(`[Amplifier] Recursive summarization: ${totalChars} chars -> ${this.messages.length} messages. ` +
+          `Memory layers: ${this.agentMemory.midTerm.summaryLayers.length}, ` +
+          `total summarized: ${this.agentMemory.midTerm.totalMessagesSummarized}`);
+        return;
+      } catch (summarizerError) {
+        console.warn(`[Amplifier] Recursive summarizer failed, falling back to basic compaction:`, summarizerError.message);
+        // Fall through to basic compaction below
+      }
+    }
+
+    // Fallback: basic compaction (original approach)
     // The system prompt is always first and always preserved
     const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message) && !this.isPlanMessage(message));
     
@@ -1176,7 +1225,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       ...recentMessages
     ].filter(Boolean));
     
-    console.log(`[Amplifier] Compacted to ${this.messages.length} messages (plan preserved)`);
+    console.log(`[Amplifier] Basic compaction: ${this.messages.length} messages (plan preserved)`);
   }
 
   normalizeMessages(messages) {
@@ -1409,6 +1458,10 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       substantiveActions: this.substantiveActions,
       systemPrompt: this.systemPrompt,
       lastCheckpointAt: new Date().toISOString(),
+      // Persist rewind system state (failed paths, rewind history)
+      rewindState: this.rewindManager ? this.rewindManager.getSerializableState() : null,
+      // Persist recursive summarization memory
+      agentMemoryState: this.agentMemory ? this.agentMemory.serialize() : null,
     };
   }
 
@@ -1476,6 +1529,16 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     this.phaseIterationCounts = checkpoint.phaseIterationCounts || this.phaseIterationCounts;
     this.substantiveActions = checkpoint.substantiveActions || this.substantiveActions;
     this.systemPrompt = checkpoint.systemPrompt || this.systemPrompt;
+    
+    // Restore rewind system state (failed paths survive restarts)
+    if (checkpoint.rewindState && this.rewindManager) {
+      this.rewindManager.loadSerializableState(checkpoint.rewindState);
+    }
+    
+    // Restore recursive summarization memory
+    if (checkpoint.agentMemoryState) {
+      this.agentMemory = AgentMemory.deserialize(checkpoint.agentMemoryState, this.goal);
+    }
   }
 
   async persistCompletion(status, errorMessage = null) {
@@ -1553,6 +1616,8 @@ You work in phases. Current phase: **${this.executionPhase.toUpperCase()}**
 
 ${getCPLRContextForPrompt()}
 
+${this.rewindManager && this.rewindManager.failedPaths.length > 0 ? this.rewindManager.getFailedPathsSummary() : ''}
+
 BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be thorough, specific, and professional.
 `;
 
@@ -1609,15 +1674,25 @@ BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be t
         // Build initial messages with a STRONG action prompt
         // The user message must clearly instruct the AI to take action immediately
         this.systemPrompt = this.buildSystemPrompt();
+        
+        // ===== RECURSIVE SUMMARIZATION: Inject Long-Term Memory header =====
+        // The mission goal header persists through the entire session, ensuring
+        // the agent never loses sight of its 30-minute objective even after
+        // many rounds of message compaction.
+        const longTermHeader = this.agentMemory 
+          ? { role: 'system', content: this.agentMemory.buildLongTermHeader() }
+          : null;
+        
         this.messages = [
           { role: 'system', content: this.systemPrompt },
+          longTermHeader, // Long-Term Memory: mission goal + key facts
           { 
             role: 'user', 
             content: `EXECUTE THIS TASK NOW: ${this.goal}
 
 Begin by calling think_and_plan to create your execution plan, then immediately start calling tools to complete each step. Do NOT respond with just text - you MUST call tools to take action.`
           }
-        ];
+        ].filter(Boolean);
       }
 
       await this.saveCheckpoint('start');
@@ -1945,6 +2020,9 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               success: toolSuccess
             });
             
+            // ===== REWIND SYSTEM: Record tool call for loop detection =====
+            this.rewindManager.recordToolCall(toolName, toolArgs, toolSuccess);
+            
             // Track substantive actions for quality assurance
             if (toolSuccess) {
               if (toolName === 'add_matter_note' || toolName === 'create_note') {
@@ -2163,6 +2241,20 @@ Keep working on: "${this.goal}"`
             // Mark plan steps as done
             if (toolSuccess) {
               this.markPlanStepProgress(toolName);
+              
+              // ===== REWIND SYSTEM: Take checkpoint after successful tool =====
+              this.rewindManager.takeCheckpoint(this, `success:${toolName}`);
+              
+              // ===== RECURSIVE SUMMARIZATION: Extract key facts for long-term memory =====
+              if (toolName === 'get_matter' && result?.matter?.name) {
+                this.agentMemory.addKeyFact(`Matter: "${result.matter.name}" (ID: ${result.matter?.id || 'unknown'})`);
+              }
+              if (toolName === 'read_document_content' && result?.name) {
+                this.agentMemory.addKeyFact(`Document: "${result.name}"`);
+              }
+              if (toolName === 'list_my_matters' && result?.matters?.length) {
+                this.agentMemory.addKeyFact(`Found ${result.matters.length} matters`);
+              }
             }
             
             if (toolName === 'evaluate_progress') {
@@ -2199,12 +2291,47 @@ Keep working on: "${this.goal}"`
             }
 
             await this.saveCheckpoint('periodic');
+            
+            // ===== REWIND SYSTEM: Detect loops and rewind if needed =====
+            const loopDetected = this.rewindManager.detectLoop(this);
+            if (loopDetected) {
+              console.warn(`[Amplifier] Loop detected in task ${this.id}: ${loopDetected.type} - ${loopDetected.details.message}`);
+              this.streamEvent('loop_detected', `🔄 Loop detected: ${loopDetected.details.message}. Attempting rewind...`, {
+                loop_type: loopDetected.type,
+                icon: 'rotate-ccw',
+                color: 'orange'
+              });
+              
+              const rewindResult = this.rewindManager.rewind(this, loopDetected);
+              if (rewindResult.success) {
+                this.agentMemory.addFailedPath(loopDetected.details.message);
+                this.agentMemory.addConstraint(`Do not repeat the approach that caused: ${loopDetected.details.message}`);
+                
+                this.streamEvent('rewind_success', `⏪ Rewound to checkpoint (iteration ${rewindResult.checkpoint.iteration}). Trying different approach...`, {
+                  rewind_number: this.rewindManager.rewindCount,
+                  icon: 'rotate-ccw',
+                  color: 'blue'
+                });
+                
+                // Break out of the tool execution loop to restart from the rewound state
+                break;
+              } else {
+                console.warn(`[Amplifier] Rewind failed: ${rewindResult.message}`);
+                this.streamEvent('rewind_failed', `⚠️ Could not rewind: ${rewindResult.message}`, {
+                  icon: 'alert-triangle',
+                  color: 'yellow'
+                });
+              }
+            }
           }
           } // end else (sequential execution)
         } else {
           // No tool calls - AI just responded with text
           this.textOnlyStreak++;
           console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (streak: ${this.textOnlyStreak})`);
+          
+          // ===== REWIND SYSTEM: Record text response for loop detection =====
+          this.rewindManager.recordTextResponse(message.content || '');
           
           const responsePreview = message.content ? message.content.substring(0, 80) : '';
           this.streamEvent('thought_response', `💭 "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
@@ -2366,6 +2493,33 @@ Keep working on: "${this.goal}"`
         // causes every subsequent API call to fail
         this.consecutiveErrors = (this.consecutiveErrors || 0) + 1;
         
+        // ===== REWIND SYSTEM: Try rewind before giving up =====
+        // At 3 consecutive errors, attempt a rewind to last known-good state
+        if (this.consecutiveErrors >= 3 && this.rewindManager.getStatus().canRewind) {
+          console.warn(`[Amplifier] Task ${this.id}: ${this.consecutiveErrors} consecutive errors, attempting rewind`);
+          this.streamEvent('error_rewind', `⏪ ${this.consecutiveErrors} errors in a row - rewinding to last good state...`, {
+            error_count: this.consecutiveErrors,
+            icon: 'rotate-ccw',
+            color: 'orange'
+          });
+          
+          const rewindResult = this.rewindManager.rewind(this, `${this.consecutiveErrors} consecutive errors: ${error.message?.substring(0, 100)}`);
+          if (rewindResult.success) {
+            this.consecutiveErrors = 0; // Reset error counter after rewind
+            this.agentMemory.addFailedPath(`Error cascade: ${error.message?.substring(0, 100)}`);
+            this.agentMemory.addConstraint(`Avoid approach that caused: ${error.message?.substring(0, 80)}`);
+            
+            this.streamEvent('rewind_success', `⏪ Rewound to checkpoint (iteration ${rewindResult.checkpoint.iteration}). Trying different approach...`, {
+              rewind_number: this.rewindManager.rewindCount,
+              icon: 'rotate-ccw',
+              color: 'blue'
+            });
+            
+            await this.saveCheckpoint('rewind');
+            continue; // Retry from the rewound state
+          }
+        }
+        
         if (this.consecutiveErrors >= 5) {
           // 5 consecutive errors = something is fundamentally broken, stop gracefully
           console.error(`[Amplifier] Task ${this.id} failed: ${this.consecutiveErrors} consecutive errors`);
@@ -2373,14 +2527,15 @@ Keep working on: "${this.goal}"`
           this.progress.progressPercent = 100;
           this.progress.currentStep = 'Completed (recovered from errors)';
           this.result = {
-            summary: `Task completed with partial results after encountering errors. ${this.actionsHistory.length} actions were completed successfully.`,
+            summary: `Task completed with partial results after encountering errors. ${this.actionsHistory.length} actions were completed successfully. ${this.rewindManager.rewindCount} recovery attempts were made.`,
             actions: this.actionsHistory.filter(a => a.success).map(a => a.tool),
-            partial: true
+            partial: true,
+            rewinds: this.rewindManager.rewindCount
           };
           this.endTime = new Date();
           await this.saveTaskHistory();
           await this.persistCompletion(TaskStatus.COMPLETED);
-          this.streamEvent('task_complete', `✅ Task completed (partial - recovered from errors)`, {
+          this.streamEvent('task_complete', `✅ Task completed (partial - recovered from errors, ${this.rewindManager.rewindCount} rewinds)`, {
             actions_count: this.actionsHistory.length, icon: 'check-circle', color: 'yellow'
           });
           this.streamProgress();
@@ -2791,7 +2946,16 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
       endTime: this.endTime,
       duration: this.endTime 
         ? (this.endTime - this.startTime) / 1000 
-        : (new Date() - this.startTime) / 1000
+        : (new Date() - this.startTime) / 1000,
+      // Rewind system status
+      rewind: this.rewindManager ? this.rewindManager.getStatus() : null,
+      // Memory system status
+      memory: this.agentMemory ? {
+        longTermFacts: this.agentMemory.longTerm.keyFacts.length,
+        midTermLayers: this.agentMemory.midTerm.summaryLayers.length,
+        totalSummarized: this.agentMemory.midTerm.totalMessagesSummarized,
+        failedPaths: this.agentMemory.longTerm.failedPaths.length
+      } : null
     };
   }
 }
