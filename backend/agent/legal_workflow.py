@@ -152,11 +152,11 @@ class AzureOpenAIClient:
         data = json.dumps(body).encode("utf-8")
         request = urllib.request.Request(url, data=data, headers=headers, method="POST")
         
-        max_retries = 3
+        max_retries = 6  # Up from 3: push through transient failures
         for attempt in range(max_retries):
             try:
                 ssl_context = self._get_session()
-                with urllib.request.urlopen(request, context=ssl_context, timeout=120) as response:
+                with urllib.request.urlopen(request, context=ssl_context, timeout=180) as response:
                     response_data = json.loads(response.read().decode("utf-8"))
                     return response_data
             except urllib.error.HTTPError as e:
@@ -652,8 +652,8 @@ BEGIN NOW. Start by calling create_plan."""}
                         "content": "Continue executing the task. Use the tools to make progress. Do not just describe what to do - actually call the tools."
                     })
                 
-                # Compact message history if too long
-                if len(self.messages) > 50:
+                # Compact message history if too long (raised threshold)
+                if len(self.messages) > 70:
                     self._compact_messages()
             
             # Reached limits without completing
@@ -676,12 +676,12 @@ BEGIN NOW. Start by calling create_plan."""}
             }
     
     def _compact_messages(self):
-        """Compact message history to prevent context overflow"""
-        # Keep system message, first user message, and last 30 messages
-        if len(self.messages) > 35:
+        """Compact message history to prevent context overflow - keep more context"""
+        # Keep system message, first user message, and last 50 messages
+        if len(self.messages) > 55:
             system_msg = self.messages[0]
             first_user = self.messages[1]
-            recent = self.messages[-30:]
+            recent = self.messages[-50:]
             
             # Create a summary message
             summary = {
