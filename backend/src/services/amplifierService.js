@@ -1782,7 +1782,7 @@ ${this.learningContext || ''}
 ## TOOL QUICK REFERENCE
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
 **Write:** add_matter_note (internal notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
-**Meta:** think_and_plan (make a plan first!), evaluate_progress, task_complete (when done)
+**Meta:** think_and_plan (make a plan first!), evaluate_progress, review_created_documents (verify your work in REVIEW phase), task_complete (when done)
 
 **Document vs Note:** create_document = formal work product (memos, letters, briefs). add_matter_note = internal analysis notes, findings, observations.
 **Empty matters:** Create an assessment note, intake tasks, initial assessment doc, and flag for partner review.
@@ -1792,7 +1792,7 @@ You work in phases. Current phase: **${this.executionPhase.toUpperCase()}**
 - **DISCOVERY**: Gather info with get_matter, read_document_content, search. Don't create yet.
 - **ANALYSIS**: Document findings with add_matter_note. Identify issues and gaps.
 - **ACTION**: Create deliverables: create_document, create_task, create_calendar_event.
-- **REVIEW**: Verify with evaluate_progress, then call task_complete with full summary.
+- **REVIEW**: Call review_created_documents to re-read your work product and verify quality. Fix any issues (placeholders, thin content, unverified citations). Then call task_complete with full summary.
 
 ${getCPLRContextForPrompt()}
 
@@ -1962,12 +1962,39 @@ You have your brief above. Follow the approach order and time budget. Call think
       if (elapsedMs > this.maxRuntimeMs) {
         console.warn(`[Amplifier] Task ${this.id} reached max runtime (${this.maxRuntimeMs}ms)`);
         
-        // SMOOTH COMPLETION SEQUENCE
+        // SMART COMPLETION SEQUENCE (time limit reached)
+        // Build a useful summary of what was accomplished and what remains
         this.progress.progressPercent = 95;
         this.progress.currentStep = 'Wrapping up (time limit)...';
-        this.streamEvent('finishing', `🎯 Reached time limit (${Math.round(elapsedMs / 60000)}min), finalizing...`, { icon: 'clock', color: 'yellow' });
+        this.streamEvent('finishing', `🎯 Reached time limit (${Math.round(elapsedMs / 60000)}min), building summary...`, { icon: 'clock', color: 'yellow' });
         this.streamProgress();
-        await sleep(600);
+        
+        // Build detailed completion summary
+        const elapsedMin = Math.round(elapsedMs / 60000);
+        const successActions = this.actionsHistory.filter(a => a.success !== false);
+        const createdDocs = successActions.filter(a => a.tool === 'create_document').map(a => a.args?.name || 'document');
+        const createdNotes = successActions.filter(a => a.tool === 'add_matter_note').length;
+        const createdTasks = successActions.filter(a => a.tool === 'create_task').map(a => a.args?.title || 'task');
+        const createdEvents = successActions.filter(a => a.tool === 'create_calendar_event').map(a => a.args?.title || 'event');
+        const keyFindings = (this.structuredPlan?.keyFindings || []).slice(-5);
+        
+        const summaryParts = [`Task ran for ${elapsedMin} minutes (${this.progress.iterations} iterations, phase: ${this.executionPhase}).`];
+        
+        if (createdDocs.length > 0) summaryParts.push(`Documents created: ${createdDocs.join(', ')}`);
+        if (createdNotes > 0) summaryParts.push(`Notes added: ${createdNotes}`);
+        if (createdTasks.length > 0) summaryParts.push(`Tasks created: ${createdTasks.join(', ')}`);
+        if (createdEvents.length > 0) summaryParts.push(`Events scheduled: ${createdEvents.join(', ')}`);
+        if (keyFindings.length > 0) summaryParts.push(`Key findings: ${keyFindings.join('; ')}`);
+        
+        // Identify what phases were NOT completed
+        const phases = ['discovery', 'analysis', 'action', 'review'];
+        const currentPhaseIdx = phases.indexOf(this.executionPhase);
+        if (currentPhaseIdx < phases.length - 1) {
+          const remaining = phases.slice(currentPhaseIdx + 1).join(', ');
+          summaryParts.push(`Note: Time ran out during ${this.executionPhase} phase. Phases not completed: ${remaining}. Consider running a follow-up task to finish.`);
+        }
+        
+        await sleep(400);
         
         this.progress.progressPercent = 98;
         this.progress.currentStep = 'Saving results...';
@@ -1977,8 +2004,22 @@ You have your brief above. Follow the approach order and time budget. Call think
         this.progress.progressPercent = 100;
         this.progress.currentStep = 'Completed (time limit reached)';
         this.result = {
-          summary: `Time limit reached after ${Math.round(elapsedMs / 60000)} minutes. Partial results saved.`,
-          actions: this.actionsHistory.map(a => a.tool)
+          summary: summaryParts.join(' '),
+          actions: this.actionsHistory.map(a => a.tool),
+          deliverables: {
+            documents: createdDocs,
+            notes: createdNotes,
+            tasks: createdTasks,
+            events: createdEvents,
+          },
+          phase_reached: this.executionPhase,
+          key_findings: keyFindings,
+          stats: {
+            duration_minutes: elapsedMin,
+            total_actions: this.actionsHistory.length,
+            successful_actions: successActions.length,
+            iterations: this.progress.iterations,
+          }
         };
         this.endTime = new Date();
         
@@ -1986,7 +2027,7 @@ You have your brief above. Follow the approach order and time budget. Call think
         await this.persistCompletion(TaskStatus.COMPLETED);
         await sleep(400);
         
-        this.streamEvent('task_complete', `✅ Task completed (time limit: ${Math.round(elapsedMs / 60000)}min)`, { 
+        this.streamEvent('task_complete', `✅ ${summaryParts[0]} ${createdDocs.length + createdNotes + createdTasks.length} deliverable(s) created.`, { 
           actions_count: this.actionsHistory.length,
           icon: 'check-circle', 
           color: 'green' 
@@ -2360,6 +2401,7 @@ You have your brief above. Follow the approach order and time budget. Call think
             // Check for explicit task completion
             if (toolName === 'task_complete') {
               // QUALITY GATE: Enforce minimum work requirements
+              // Uses BOTH generic minimums AND work-type-specific requirements
               const elapsedSeconds = (Date.now() - this.startTime.getTime()) / 1000;
               const actionCount = this.actionsHistory.length;
               const substantiveActions = this.actionsHistory.filter(a => 
@@ -2369,14 +2411,22 @@ You have your brief above. Follow the approach order and time budget. Call think
               ).length;
               
               // Check for specific required actions
-              const hasNote = this.actionsHistory.some(a => a.tool === 'add_matter_note');
-              const hasTask = this.actionsHistory.some(a => a.tool === 'create_task');
-              const hasDocument = this.actionsHistory.some(a => a.tool === 'create_document');
+              const hasNote = this.actionsHistory.some(a => a.tool === 'add_matter_note' && a.success !== false);
+              const hasTask = this.actionsHistory.some(a => a.tool === 'create_task' && a.success !== false);
+              const hasDocument = this.actionsHistory.some(a => a.tool === 'create_document' && a.success !== false);
+              const hasMatterRead = this.actionsHistory.some(a => a.tool === 'get_matter' && a.success !== false);
+              const hasDocRead = this.actionsHistory.some(a => 
+                (a.tool === 'read_document_content' || a.tool === 'find_and_read_document') && a.success !== false
+              );
+              const hasConflictCheck = this.actionsHistory.some(a => a.tool === 'check_conflicts' && a.success !== false);
+              const hasTimeCheck = this.actionsHistory.some(a => 
+                ['get_my_time_entries', 'list_invoices', 'generate_report', 'get_firm_analytics'].includes(a.tool) && a.success !== false
+              );
               
-              // Minimum requirements (raised to ensure thorough work)
-              const MIN_SECONDS = 120;    // Up from 60: at least 2 minutes of work
-              const MIN_ACTIONS = 8;      // Up from 5: more steps for thorough work
-              const MIN_SUBSTANTIVE = 3;  // Up from 2: create more deliverables
+              // Generic minimums
+              const MIN_SECONDS = 120;
+              const MIN_ACTIONS = 8;
+              const MIN_SUBSTANTIVE = 3;
               
               // Build missing requirements message
               const missing = [];
@@ -2386,8 +2436,50 @@ You have your brief above. Follow the approach order and time budget. Call think
               if (!hasNote) missing.push('MISSING: You must add at least 1 note using add_matter_note');
               if (!hasTask) missing.push('MISSING: You must create at least 1 task using create_task');
               
+              // ===== WORK-TYPE-SPECIFIC REQUIREMENTS =====
+              // Import the requirements for the detected work type
+              const workTypeId = this.workType?.id || 'general';
+              const WT_REQS = {
+                matter_review: () => {
+                  if (!hasMatterRead) missing.push('MISSING (matter_review): Must read the matter first with get_matter');
+                  if (!hasDocRead && this.substantiveActions.research < 2) missing.push('MISSING (matter_review): Should read documents or search for data');
+                },
+                document_drafting: () => {
+                  if (!hasMatterRead) missing.push('MISSING (document_drafting): Must read the matter before drafting');
+                  if (!hasDocument) missing.push('MISSING (document_drafting): Must create at least 1 document with create_document');
+                  // Check document content length
+                  const docs = this.actionsHistory.filter(a => a.tool === 'create_document' && a.success !== false);
+                  const maxLen = Math.max(0, ...docs.map(d => (d.args?.content || '').length));
+                  if (maxLen < 500 && docs.length > 0) missing.push(`MISSING (document_drafting): Document too short (${maxLen} chars). Need 500+ chars of real content.`);
+                },
+                legal_research: () => {
+                  if (!hasMatterRead) missing.push('MISSING (legal_research): Must read the matter for context');
+                  if (!hasDocument) missing.push('MISSING (legal_research): Must create a research memo with create_document');
+                },
+                client_communication: () => {
+                  if (!hasMatterRead) missing.push('MISSING (client_communication): Must read the matter before drafting communication');
+                  if (!hasDocument) missing.push('MISSING (client_communication): Must draft the communication with create_document');
+                },
+                intake_setup: () => {
+                  if (!hasMatterRead) missing.push('MISSING (intake): Must read the matter');
+                  if (!hasConflictCheck) missing.push('MISSING (intake): Must run check_conflicts for new matter intake');
+                  if (this.substantiveActions.tasks < 3) missing.push(`MISSING (intake): Need at least 3 intake tasks, created ${this.substantiveActions.tasks}`);
+                },
+                billing_review: () => {
+                  if (!hasTimeCheck) missing.push('MISSING (billing_review): Must check time entries/invoices with get_my_time_entries or list_invoices');
+                },
+                deadline_management: () => {
+                  if (!hasMatterRead) missing.push('MISSING (deadline_management): Must read matters to check deadlines');
+                  if (this.substantiveActions.events < 1) missing.push('MISSING (deadline_management): Must create or verify calendar events');
+                },
+              };
+              
+              if (WT_REQS[workTypeId]) {
+                WT_REQS[workTypeId]();
+              }
+              
               if (missing.length > 0) {
-                console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}`);
+                console.log(`[Amplifier] Task ${this.id} attempted early completion [${workTypeId}]: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}, hasMatterRead=${hasMatterRead}`);
                 
                 // Reject early completion - push message to continue
                 this.messages.push({
@@ -2395,15 +2487,10 @@ You have your brief above. Follow the approach order and time budget. Call think
                   tool_call_id: toolCall.id,
                   content: JSON.stringify({
                     rejected: true,
-                    reason: `Task completion rejected. Requirements not met:
+                    reason: `Task completion rejected. Requirements not met for "${workTypeId}" work:
 ${missing.map(m => '- ' + m).join('\n')}
 
-You MUST do the following before completing:
-1. Use add_matter_note to add notes about your findings to the matter's Notes tab
-2. Use create_task to create follow-up tasks for the attorney
-3. Use create_document if you need to create formal work product
-4. Spend adequate time on thorough analysis
-
+You MUST address the items above before completing. This is a "${workTypeId}" task.
 Keep working on: "${this.goal}"`
                   })
                 });
@@ -2412,7 +2499,7 @@ Keep working on: "${this.goal}"`
                 continue;
               }
               
-              console.log(`[Amplifier] Task ${this.id} passed quality gates (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
+              console.log(`[Amplifier] Task ${this.id} passed quality gates [${workTypeId}] (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
               
               // ===== POST-TASK SELF-EVALUATION (Generator-Critic pattern) =====
               this.progress.progressPercent = 92;
