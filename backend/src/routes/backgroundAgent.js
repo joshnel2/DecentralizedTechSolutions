@@ -1,9 +1,7 @@
 /**
  * Background Agent API Routes
  * 
- * These routes handle autonomous background agent tasks.
- * NOTE: "Amplifier" is an internal codename, not an external Microsoft product.
- * The agent is powered by Azure OpenAI Chat Completions + custom orchestration.
+ * These routes handle background agent tasks powered by Microsoft Amplifier.
  * They are completely separate from the normal AI agent to ensure no impact.
  * 
  * Endpoints:
