@@ -388,6 +388,14 @@ export class AgentMemory {
           const firstLine = msg.content.split('\n')[0];
           decisions.push(firstLine.substring(0, 150));
         }
+        // Capture follow-up instructions from the user (these are critical guidance)
+        if (msg.content.includes('FOLLOW-UP INSTRUCTION FROM USER')) {
+          // Extract the actual instruction (strip the prefix tag)
+          const match = msg.content.match(/\[FOLLOW-UP INSTRUCTION FROM USER\]:\s*(.+?)(?:\n|$)/);
+          if (match) {
+            decisions.push(`User follow-up: ${match[1].substring(0, 150)}`);
+          }
+        }
       }
     }
     
@@ -508,13 +516,28 @@ export function recursiveCompact(task, memory) {
   const toSummarize = conversationMessages.slice(0, -keepCount);
   const toKeep = conversationMessages.slice(-keepCount);
   
-  console.log(`[RecursiveSummarizer] Summarizing ${toSummarize.length} old messages, keeping ${toKeep.length} recent`);
+  // Rescue any follow-up instructions from the messages being summarized.
+  // Follow-ups contain critical user guidance that should survive compaction.
+  // They're already persisted in long-term memory via addKeyFact(), but we
+  // also move recent follow-ups to the keep list so the model sees them
+  // in full fidelity for at least one more cycle.
+  const rescuedFollowUps = [];
+  const remainingToSummarize = [];
+  for (const msg of toSummarize) {
+    if (msg?.role === 'user' && msg?.content?.includes('FOLLOW-UP INSTRUCTION FROM USER')) {
+      rescuedFollowUps.push(msg);
+    } else {
+      remainingToSummarize.push(msg);
+    }
+  }
+  
+  console.log(`[RecursiveSummarizer] Summarizing ${remainingToSummarize.length} old messages, keeping ${toKeep.length} recent + ${rescuedFollowUps.length} rescued follow-ups`);
   
   // Extract key facts from messages being summarized (for long-term memory)
-  _extractKeyFacts(toSummarize, memory);
+  _extractKeyFacts(remainingToSummarize, memory);
   
   // Summarize the old messages and fold into mid-term memory
-  memory.summarizeAndFold(toSummarize, {
+  memory.summarizeAndFold(remainingToSummarize, {
     phase: task.executionPhase,
     iteration: task.progress?.iterations,
     substantiveActions: task.substantiveActions
@@ -528,6 +551,7 @@ export function recursiveCompact(task, memory) {
     systemMessage,           // System prompt (always first)
     ...memoryMessages,       // Long-term + mid-term memory
     planMessage,             // Execution plan (if exists)
+    ...rescuedFollowUps,    // Rescued follow-up instructions (survive compaction)
     ...toKeep               // Short-term working context
   ].filter(Boolean);
   

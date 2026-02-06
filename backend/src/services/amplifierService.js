@@ -425,6 +425,13 @@ class BackgroundTask extends EventEmitter {
     // Lawyer profile (grows smarter over time)
     this.lawyerProfile = null;
     
+    // ===== FOLLOW-UP MESSAGE QUEUE =====
+    // Pending follow-ups are queued here and injected at the START of the next
+    // iteration, avoiding race conditions when addFollowUp() is called while
+    // the agent is mid-API-call.
+    this.pendingFollowUps = [];
+    this.followUps = [];
+    
     // ===== CHECKPOINT & REWIND SYSTEM =====
     // Maintains a stack of known-good snapshots. When the agent hits a loop
     // or consecutive errors, rewind() rolls back to the last good state and
@@ -1226,6 +1233,12 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       !this.isMemoryMessage(message) && !this.isPlanMessage(message)
     );
     
+    // Rescue follow-up messages from older messages that would be dropped
+    const olderMessages = this.messages.slice(0, -12);
+    const rescuedFollowUps = olderMessages.filter(message =>
+      message?.role === 'user' && message?.content?.includes('FOLLOW-UP INSTRUCTION FROM USER')
+    );
+    
     // Build fresh memory summary
     const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
     
@@ -1236,10 +1249,11 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       systemMessage, 
       memoryMessage, 
       planMessage,    // Plan ALWAYS re-injected after compaction
+      ...rescuedFollowUps, // Follow-up instructions survive compaction
       ...recentMessages
     ].filter(Boolean));
     
-    console.log(`[Amplifier] Basic compaction: ${this.messages.length} messages (plan preserved)`);
+    console.log(`[Amplifier] Basic compaction: ${this.messages.length} messages (plan preserved, ${rescuedFollowUps.length} follow-ups rescued)`);
   }
 
   normalizeMessages(messages) {
@@ -1822,6 +1836,11 @@ You have your brief above. Follow the approach order and time budget. Call think
       this.phaseIterationCounts[this.executionPhase]++;
       this.progress.currentStep = `${this.executionPhase.toUpperCase()}: step ${this.progress.iterations}`;
       this.emit('progress', this.getStatus());
+      
+      // ===== DRAIN FOLLOW-UP QUEUE =====
+      // Inject any pending follow-up messages BEFORE the API call so the
+      // model sees them in the correct chronological position.
+      this._drainFollowUpQueue();
       
       // ===== PHASE TRANSITION CHECK =====
       if (this.shouldTransitionPhase()) {
@@ -2947,36 +2966,63 @@ Keep working on: "${this.goal}"`
   }
 
   /**
-   * Add follow-up instructions to the task
-   * These will be processed in the next iteration of the agent loop
+   * Add follow-up instructions to the task.
+   * 
+   * Instead of pushing directly into this.messages (which can race with the
+   * agent loop mid-API-call), we queue the follow-up. The agent loop drains
+   * the queue at the TOP of each iteration, ensuring correct message ordering.
+   * 
+   * Follow-ups are also persisted in long-term memory so they survive
+   * message compaction/summarization.
    */
   addFollowUp(message) {
     if (!message || typeof message !== 'string') {
       throw new Error('Follow-up message must be a non-empty string');
     }
     
-    // Add a user message with the follow-up instructions
-    // This will be picked up in the next iteration of the agent loop
-    this.messages.push({
-      role: 'user',
-      content: `[FOLLOW-UP INSTRUCTION FROM USER]: ${message}
-
-Please acknowledge this follow-up and adjust your approach accordingly. Continue with the task while incorporating this new guidance.`
-    });
-    
-    // Store for tracking
-    if (!this.followUps) {
-      this.followUps = [];
-    }
-    this.followUps.push({
-      message,
+    const followUp = {
+      message: message.trim(),
       timestamp: new Date().toISOString()
-    });
+    };
     
-    console.log(`[Amplifier] Follow-up added to task ${this.id}: ${message.substring(0, 50)}...`);
+    // Queue for injection at the next iteration (avoids race condition)
+    this.pendingFollowUps.push(followUp);
+    
+    // Store for tracking / frontend display
+    this.followUps.push(followUp);
+    
+    // Persist the follow-up instruction in long-term memory so it survives
+    // any message compaction or recursive summarization
+    if (this.agentMemory) {
+      this.agentMemory.addKeyFact(`[USER FOLLOW-UP]: ${message.trim().substring(0, 200)}`);
+    }
+    
+    console.log(`[Amplifier] Follow-up queued for task ${this.id}: ${message.substring(0, 50)}...`);
     
     // Emit event for real-time updates
-    this.emit('followup', { message, timestamp: new Date().toISOString() });
+    this.emit('followup', followUp);
+  }
+
+  /**
+   * Drain pending follow-up queue into the message array.
+   * Called at the TOP of each agent loop iteration, before the API call,
+   * so the model always sees follow-ups in the correct position.
+   */
+  _drainFollowUpQueue() {
+    if (this.pendingFollowUps.length === 0) return;
+    
+    const pending = this.pendingFollowUps.splice(0); // atomically drain
+    
+    for (const followUp of pending) {
+      this.messages.push({
+        role: 'user',
+        content: `[FOLLOW-UP INSTRUCTION FROM USER]: ${followUp.message}
+
+Please acknowledge this follow-up and adjust your approach accordingly. Continue with the task while incorporating this new guidance.`
+      });
+      
+      console.log(`[Amplifier] Follow-up injected into messages for task ${this.id}: ${followUp.message.substring(0, 50)}...`);
+    }
   }
 
   /**
@@ -3008,7 +3054,10 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
         midTermLayers: this.agentMemory.midTerm.summaryLayers.length,
         totalSummarized: this.agentMemory.midTerm.totalMessagesSummarized,
         failedPaths: this.agentMemory.longTerm.failedPaths.length
-      } : null
+      } : null,
+      // Follow-up messages sent by the user
+      followUps: this.followUps || [],
+      pendingFollowUps: this.pendingFollowUps?.length || 0
     };
   }
 }
