@@ -14,13 +14,9 @@
 
 import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
-import { getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
-import { getLawyerProfile, formatProfileForPrompt as formatLawyerProfile, updateProfileAfterTask } from './amplifier/lawyerProfile.js';
-import { evaluateTask, storeEvaluation, formatEvaluationForAgent } from './amplifier/taskEvaluator.js';
+import { PLATFORM_CONTEXT, getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
 import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
-import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/legalKnowledge/nyCPLR.js';
-import { getUserDocumentProfile, formatProfileForPrompt, onDocumentAccessed } from './amplifier/documentLearning.js';
 
 // Store active tasks per user
 const activeTasks = new Map();
@@ -35,97 +31,21 @@ const TaskStatus = {
   WAITING_INPUT: 'waiting_input'
 };
 
-// Azure OpenAI configuration - model-agnostic, config-driven
-// Swap models by changing AZURE_OPENAI_DEPLOYMENT env var in Azure App Service
-// The harness works with any model that supports function calling:
-// GPT-4o, GPT-4o-mini, GPT-4.1, o1, o3, or any future Azure-hosted model
-const API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2024-12-01-preview';
+// Azure OpenAI configuration - use SAME API version as normal AI agent (aiAgent.js)
+// This MUST match the version in routes/aiAgent.js for consistency
+// Read at runtime to ensure dotenv has loaded
+const API_VERSION = '2024-12-01-preview';
 
-// Background agent runtime defaults (tuned for 30-MINUTE legal tasks)
+// Background agent runtime defaults (tuned for EXTENDED legal tasks)
+// Increased for complex matters that require thorough analysis
 const DEFAULT_MAX_ITERATIONS = 200;
-const DEFAULT_MAX_RUNTIME_MINUTES = 45; // 30 min target + 15 min buffer
+const DEFAULT_MAX_RUNTIME_MINUTES = 180; // 3 hours for comprehensive legal work
 const EXTENDED_MAX_ITERATIONS = 400;
-const EXTENDED_MAX_RUNTIME_MINUTES = 120; // 2 hours for major projects
+const EXTENDED_MAX_RUNTIME_MINUTES = 480; // 8 hours for major projects
 const CHECKPOINT_INTERVAL_MS = 15000;
-const MESSAGE_COMPACT_MAX_CHARS = 16000; // Tighter to compact sooner and preserve plan
-const MESSAGE_COMPACT_MAX_MESSAGES = 24; // Compact sooner to keep messages focused
+const MESSAGE_COMPACT_MAX_CHARS = 12000;
+const MESSAGE_COMPACT_MAX_MESSAGES = 24;
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
-const PLAN_MESSAGE_PREFIX = '## EXECUTION PLAN';
-
-// Execution phases for structured 30-minute task management
-const ExecutionPhase = {
-  DISCOVERY: 'discovery',   // Gather info, read docs, understand context (first ~20%)
-  ANALYSIS: 'analysis',     // Analyze findings, identify issues (next ~20%)
-  ACTION: 'action',         // Create deliverables: docs, notes, tasks (next ~40%)
-  REVIEW: 'review',         // Verify work, create follow-ups, finalize (last ~20%)
-};
-
-const PHASE_CONFIG = {
-  [ExecutionPhase.DISCOVERY]: {
-    maxIterationPercent: 25,  // spend at most 25% of iterations here
-    tokenBudget: 2000,       // shorter responses for info gathering
-    temperature: 0.3,
-    description: 'Gathering information and understanding context',
-    requiredBefore: null,
-  },
-  [ExecutionPhase.ANALYSIS]: {
-    maxIterationPercent: 25,
-    tokenBudget: 3000,
-    temperature: 0.4,
-    description: 'Analyzing findings and identifying issues',
-    requiredBefore: ExecutionPhase.DISCOVERY,
-  },
-  [ExecutionPhase.ACTION]: {
-    maxIterationPercent: 35,
-    tokenBudget: 4000,       // longer responses for document creation
-    temperature: 0.5,
-    description: 'Creating deliverables and work product',
-    requiredBefore: ExecutionPhase.ANALYSIS,
-  },
-  [ExecutionPhase.REVIEW]: {
-    maxIterationPercent: 15,
-    tokenBudget: 3000,
-    temperature: 0.3,
-    description: 'Reviewing work, creating follow-ups, finalizing',
-    requiredBefore: ExecutionPhase.ACTION,
-  },
-};
-
-// Task complexity estimation for better progress tracking
-const TASK_COMPLEXITY = {
-  simple: { estimatedSteps: 8, estimatedMinutes: 5 },
-  moderate: { estimatedSteps: 15, estimatedMinutes: 15 },
-  complex: { estimatedSteps: 30, estimatedMinutes: 25 },
-  major: { estimatedSteps: 50, estimatedMinutes: 35 }
-};
-
-/**
- * Estimate task complexity based on goal keywords
- */
-function estimateTaskComplexity(goal) {
-  const goalLower = goal.toLowerCase();
-  
-  // Major complexity indicators
-  const majorKeywords = ['comprehensive', 'full review', 'entire', 'all matters', 'audit', 'overhaul', 'complete analysis', 'deep dive'];
-  if (majorKeywords.some(k => goalLower.includes(k))) {
-    return 'major';
-  }
-  
-  // Complex indicators
-  const complexKeywords = ['research', 'analyze', 'review', 'prepare', 'draft memo', 'legal memo', 'case assessment', 'strategy', 'litigation'];
-  if (complexKeywords.some(k => goalLower.includes(k))) {
-    return 'complex';
-  }
-  
-  // Moderate indicators
-  const moderateKeywords = ['update', 'create document', 'draft letter', 'schedule', 'organize', 'summarize'];
-  if (moderateKeywords.some(k => goalLower.includes(k))) {
-    return 'moderate';
-  }
-  
-  // Default to simple
-  return 'simple';
-}
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -168,7 +88,7 @@ function markPersistenceUnavailable(error) {
 }
 
 /**
- * Get Azure OpenAI configuration - uses constants read at module load
+ * Get Azure OpenAI configuration (read at runtime to avoid timing issues)
  */
 function getAzureConfig() {
   return {
@@ -195,11 +115,6 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   
   // Validate configuration before making request
   if (!config.endpoint || !config.apiKey || !config.deployment) {
-    console.error('[Amplifier] FATAL: Azure OpenAI config missing at call time:');
-    console.error('[Amplifier]   AZURE_OPENAI_ENDPOINT:', config.endpoint ? 'SET' : 'MISSING');
-    console.error('[Amplifier]   AZURE_OPENAI_API_KEY:', config.apiKey ? `SET (len=${config.apiKey.length})` : 'MISSING');
-    console.error('[Amplifier]   AZURE_OPENAI_DEPLOYMENT:', config.deployment ? 'SET' : 'MISSING');
-    console.error('[Amplifier]   All env keys:', Object.keys(process.env).filter(k => k.includes('AZURE')).join(', '));
     throw new Error('Azure OpenAI not configured: missing endpoint, API key, or deployment');
   }
   
@@ -220,7 +135,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   if (tools.length > 0) {
     body.tools = tools;
     body.tool_choice = 'auto';
-    body.parallel_tool_calls = true; // Enable parallel tool calls for speed
+    body.parallel_tool_calls = false; // Match aiAgent.js
   }
   
   console.log(`[Amplifier] Calling Azure OpenAI: ${config.deployment} with ${tools.length} tools`);
@@ -272,14 +187,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
     
     const baseDelay = 1000 * Math.pow(2, attempt - 1);
     const delay = retryAfterMs ? Math.max(baseDelay, retryAfterMs) : baseDelay;
-    const delaySeconds = Math.round(delay / 1000);
     console.warn(`[Amplifier] Retryable error, retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})`);
-    
-    // Log rate limit specifically for monitoring
-    if (response.status === 429) {
-      console.warn(`[Amplifier] Rate limited by Azure OpenAI, waiting ${delaySeconds}s`);
-    }
-    
     await sleep(delay);
   }
 }
@@ -376,61 +284,6 @@ class BackgroundTask extends EventEmitter {
     this.learningContext = null;
     this.systemPrompt = null;
     this.userRecord = null;
-    
-    // Task complexity estimation for better progress tracking
-    this.complexity = estimateTaskComplexity(goal);
-    this.estimatedSteps = TASK_COMPLEXITY[this.complexity].estimatedSteps;
-    this.estimatedMinutes = TASK_COMPLEXITY[this.complexity].estimatedMinutes;
-    
-    // Track substantive actions for quality assurance
-    this.substantiveActions = {
-      notes: 0,
-      documents: 0,
-      tasks: 0,
-      events: 0,
-      research: 0
-    };
-    
-    // Track failed tools to avoid repeating failures
-    this.failedTools = new Map();
-    
-    // Matter context cache
-    this.matterContext = null;
-    
-    // ===== PHASE-BASED EXECUTION (for reliable 30-minute tasks) =====
-    this.executionPhase = ExecutionPhase.DISCOVERY;
-    this.phaseIterationCounts = {
-      [ExecutionPhase.DISCOVERY]: 0,
-      [ExecutionPhase.ANALYSIS]: 0,
-      [ExecutionPhase.ACTION]: 0,
-      [ExecutionPhase.REVIEW]: 0,
-    };
-    // Structured plan that SURVIVES compaction (stored as object, not just in messages)
-    this.structuredPlan = null;
-    
-    // Rate limit tracking for adaptive token management
-    this.rateLimitWaitMs = 0;
-    this.rateLimitCount = 0;
-    this.lastPlanInjectionIteration = 0;
-    
-    // Track text-only responses more aggressively
-    this.textOnlyStreak = 0;
-    
-    // ===== TOOL RESULT CACHE (prevent redundant API calls) =====
-    // Caches results from read-only tools so the agent doesn't re-fetch the same data
-    this.toolCache = new Map(); // key: "toolName:argHash" -> { result, timestamp }
-    this.CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache TTL
-    
-    // Lawyer profile (grows smarter over time)
-    this.lawyerProfile = null;
-    
-    // Tools that are safe to cache (read-only, no side effects)
-    this.CACHEABLE_TOOLS = new Set([
-      'get_matter', 'list_my_matters', 'search_matters', 'list_clients', 'get_client',
-      'list_documents', 'read_document_content', 'search_document_content',
-      'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
-      'list_team_members', 'get_upcoming_deadlines', 'lookup_cplr',
-    ]);
   }
 
   /**
@@ -469,429 +322,6 @@ class BackgroundTask extends EventEmitter {
     }
   }
 
-  // ===== PHASE MANAGEMENT METHODS =====
-
-  /**
-   * Determine if the agent should transition to the next phase.
-   * Called after each iteration to check phase boundaries.
-   */
-  shouldTransitionPhase() {
-    const phases = [ExecutionPhase.DISCOVERY, ExecutionPhase.ANALYSIS, ExecutionPhase.ACTION, ExecutionPhase.REVIEW];
-    const currentIdx = phases.indexOf(this.executionPhase);
-    if (currentIdx >= phases.length - 1) return false; // Already in REVIEW
-    
-    const config = PHASE_CONFIG[this.executionPhase];
-    const maxItersForPhase = Math.ceil(this.maxIterations * config.maxIterationPercent / 100);
-    const itersInPhase = this.phaseIterationCounts[this.executionPhase];
-    
-    // Time-based: if we've spent too long in this phase relative to total budget
-    const elapsedMs = Date.now() - this.startTime.getTime();
-    const elapsedPercent = (elapsedMs / this.maxRuntimeMs) * 100;
-    
-    // Force transition if we've exceeded the phase's iteration budget
-    if (itersInPhase >= maxItersForPhase) return true;
-    
-    // Force transition based on time pressure
-    if (this.executionPhase === ExecutionPhase.DISCOVERY && elapsedPercent > 30) return true;
-    if (this.executionPhase === ExecutionPhase.ANALYSIS && elapsedPercent > 50) return true;
-    if (this.executionPhase === ExecutionPhase.ACTION && elapsedPercent > 85) return true;
-    
-    // Auto-transition from DISCOVERY to ANALYSIS after getting matter info
-    if (this.executionPhase === ExecutionPhase.DISCOVERY && this.substantiveActions.research >= 2 && itersInPhase >= 3) {
-      return true;
-    }
-    
-    // Auto-transition from ANALYSIS to ACTION after creating at least 1 note
-    if (this.executionPhase === ExecutionPhase.ANALYSIS && this.substantiveActions.notes >= 1 && itersInPhase >= 2) {
-      return true;
-    }
-    
-    // Auto-transition from ACTION to REVIEW after creating substantive deliverables
-    if (this.executionPhase === ExecutionPhase.ACTION && 
-        (this.substantiveActions.documents >= 1 || this.substantiveActions.tasks >= 2) && itersInPhase >= 3) {
-      return true;
-    }
-    
-    return false;
-  }
-  
-  /**
-   * Transition to the next execution phase with SELF-CRITIQUE (Reflexion pattern).
-   * Before moving on, the agent reflects on what it accomplished and what's missing.
-   * This is the key technique from the Reflexion paper that dramatically improves output quality.
-   */
-  transitionPhase() {
-    const phases = [ExecutionPhase.DISCOVERY, ExecutionPhase.ANALYSIS, ExecutionPhase.ACTION, ExecutionPhase.REVIEW];
-    const currentIdx = phases.indexOf(this.executionPhase);
-    if (currentIdx >= phases.length - 1) return;
-    
-    const oldPhase = this.executionPhase;
-    this.executionPhase = phases[currentIdx + 1];
-    
-    console.log(`[Amplifier] Phase transition: ${oldPhase} → ${this.executionPhase} (with reflection)`);
-    
-    this.streamEvent('phase_change', `🔄 Reflecting on ${oldPhase}, moving to ${PHASE_CONFIG[this.executionPhase].description}`, {
-      from: oldPhase,
-      to: this.executionPhase,
-      icon: 'refresh-cw',
-      color: 'purple'
-    });
-    
-    // Inject REFLECTION prompt + phase transition guidance
-    this.messages.push({
-      role: 'user',
-      content: this.buildReflectionPrompt(oldPhase)
-    });
-  }
-  
-  /**
-   * Build a reflection/self-critique prompt for the phase transition.
-   * Forces the model to evaluate its own work before proceeding.
-   */
-  buildReflectionPrompt(completedPhase) {
-    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
-    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
-    
-    // Build a summary of what was done in the completed phase
-    const recentActions = this.actionsHistory.slice(-10).map(a => 
-      `- ${a.tool}${a.success ? '' : ' (FAILED)'}`
-    ).join('\n');
-    
-    const findings = (this.structuredPlan?.keyFindings || []).slice(-5).map(f => `- ${f}`).join('\n');
-    
-    const reflectionPrompts = {
-      [ExecutionPhase.DISCOVERY]: `
-== SELF-CRITIQUE: DISCOVERY phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
-
-**What you did:**
-${recentActions}
-
-**Key findings:**
-${findings || '(none recorded)'}
-
-**REFLECT before moving to ANALYSIS:**
-- Did I gather enough information to analyze this matter thoroughly?
-- What key documents or data did I NOT read that I should have?
-- Are there any gaps in my understanding?
-
-If critical info is missing, call one more tool to get it. Then proceed to ANALYSIS: use add_matter_note to document your findings and analysis using IRAC methodology.`,
-
-      [ExecutionPhase.ANALYSIS]: `
-== SELF-CRITIQUE: ANALYSIS phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
-
-**What you documented:**
-Notes: ${this.substantiveActions.notes} | Research actions: ${this.substantiveActions.research}
-
-**REFLECT before moving to ACTION:**
-- Is my analysis specific to THIS matter (not generic)?
-- Did I identify all key legal issues?
-- Did I note risks and deadlines?
-- Is my analysis thorough enough for a supervising partner to rely on?
-
-If your analysis is thin, add one more note with deeper analysis. Then proceed to ACTION: create formal deliverables (documents, tasks, calendar events).`,
-
-      [ExecutionPhase.ACTION]: `
-== SELF-CRITIQUE: ACTION phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
-
-**What you created:**
-Documents: ${this.substantiveActions.documents} | Tasks: ${this.substantiveActions.tasks} | Events: ${this.substantiveActions.events}
-
-**QUALITY CHECK before REVIEW:**
-- Do my documents contain REAL content (no [INSERT] or [TODO] placeholders)?
-- Are my documents specific to this matter with actual facts?
-- Did I create actionable follow-up tasks?
-- Did I set any critical deadlines?
-
-If any deliverable is weak, fix it now with another tool call. Then proceed to REVIEW: verify everything and call task_complete.`,
-    };
-    
-    return reflectionPrompts[completedPhase] || `Phase ${completedPhase} complete. Continue with: ${this.goal}`;
-  }
-
-  /**
-   * Build the persistent plan message that survives compaction.
-   * This is always re-injected after compaction so the agent never loses the thread.
-   */
-  buildPlanMessage() {
-    if (!this.structuredPlan) return null;
-    
-    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
-    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
-    
-    let planText = `${PLAN_MESSAGE_PREFIX}\n`;
-    planText += `Goal: ${this.structuredPlan.goal}\n`;
-    planText += `Phase: ${this.executionPhase.toUpperCase()} | Time: ${elapsedMin}min elapsed, ~${remainingMin}min remaining\n\n`;
-    
-    // Show plan steps with completion status
-    if (this.structuredPlan.steps && this.structuredPlan.steps.length > 0) {
-      planText += 'Steps:\n';
-      for (const step of this.structuredPlan.steps) {
-        const icon = step.done ? '✅' : (step.inProgress ? '🔄' : '⬜');
-        planText += `${icon} ${step.text}\n`;
-      }
-    }
-    
-    // Key findings that must persist
-    if (this.structuredPlan.keyFindings && this.structuredPlan.keyFindings.length > 0) {
-      planText += '\nKey findings:\n';
-      for (const finding of this.structuredPlan.keyFindings.slice(-8)) {
-        planText += `- ${finding}\n`;
-      }
-    }
-    
-    // What's been created
-    const created = [];
-    if (this.substantiveActions.documents > 0) created.push(`${this.substantiveActions.documents} document(s)`);
-    if (this.substantiveActions.notes > 0) created.push(`${this.substantiveActions.notes} note(s)`);
-    if (this.substantiveActions.tasks > 0) created.push(`${this.substantiveActions.tasks} task(s)`);
-    if (this.substantiveActions.events > 0) created.push(`${this.substantiveActions.events} event(s)`);
-    if (created.length > 0) planText += `\nCreated: ${created.join(', ')}\n`;
-    
-    // What's still needed (based on quality gates)
-    const needed = [];
-    if (this.substantiveActions.notes === 0) needed.push('at least 1 note (add_matter_note)');
-    if (this.substantiveActions.tasks === 0) needed.push('at least 1 task (create_task)');
-    if (this.actionsHistory.length < 5) needed.push(`${5 - this.actionsHistory.length} more tool calls`);
-    if (needed.length > 0) planText += `Still required: ${needed.join(', ')}\n`;
-    
-    // Hard cap plan message at 2000 chars (~500 tokens)
-    if (planText.length > 2000) {
-      planText = planText.substring(0, 1900) + '\n[plan trimmed for efficiency]\n';
-    }
-    
-    return { role: 'system', content: planText };
-  }
-  
-  /**
-   * Update the structured plan when think_and_plan is called
-   */
-  updateStructuredPlan(planArgs) {
-    const steps = (planArgs.steps || []).map(s => ({
-      text: typeof s === 'string' ? s : s.text || String(s),
-      done: false,
-      inProgress: false,
-    }));
-    
-    this.structuredPlan = {
-      goal: this.goal,
-      steps,
-      keyFindings: this.structuredPlan?.keyFindings || [],
-    };
-    
-    console.log(`[Amplifier] Structured plan created with ${steps.length} steps`);
-  }
-  
-  /**
-   * Record a key finding that should persist through compaction
-   */
-  addKeyFinding(finding) {
-    if (!this.structuredPlan) {
-      this.structuredPlan = { goal: this.goal, steps: [], keyFindings: [] };
-    }
-    this.structuredPlan.keyFindings.push(finding);
-    // Keep only the 12 most recent findings to prevent bloat
-    if (this.structuredPlan.keyFindings.length > 12) {
-      this.structuredPlan.keyFindings = this.structuredPlan.keyFindings.slice(-12);
-    }
-  }
-  
-  /**
-   * Mark a plan step as done based on the tool that was executed
-   */
-  markPlanStepProgress(toolName) {
-    if (!this.structuredPlan?.steps) return;
-    
-    // Find a step that matches this tool action and mark it done
-    for (const step of this.structuredPlan.steps) {
-      if (step.done) continue;
-      const stepLower = step.text.toLowerCase();
-      
-      const toolStepMap = {
-        'get_matter': ['gather', 'review', 'load', 'get matter', 'check matter'],
-        'read_document_content': ['read', 'review document', 'examine'],
-        'search_document_content': ['search', 'find'],
-        'add_matter_note': ['note', 'document finding', 'write note', 'analysis note'],
-        'create_document': ['create document', 'draft', 'memo', 'letter', 'brief', 'write'],
-        'create_task': ['task', 'follow-up', 'action item', 'checklist'],
-        'create_calendar_event': ['schedule', 'deadline', 'calendar', 'event'],
-        'evaluate_progress': ['evaluate', 'review progress', 'check progress'],
-      };
-      
-      const keywords = toolStepMap[toolName] || [];
-      if (keywords.some(k => stepLower.includes(k))) {
-        step.done = true;
-        break;
-      }
-    }
-  }
-
-  isPlanMessage(message) {
-    return message?.role === 'system' && message?.content?.startsWith(PLAN_MESSAGE_PREFIX);
-  }
-
-  // ===== TOOL RESULT CACHING =====
-  
-  /**
-   * Get a cache key for a tool call
-   */
-  getToolCacheKey(toolName, args) {
-    // Create a deterministic key from tool name + sorted args
-    const sortedArgs = Object.keys(args).sort().map(k => `${k}=${args[k]}`).join('&');
-    return `${toolName}:${sortedArgs}`;
-  }
-  
-  /**
-   * Check if a cached result exists and is still valid
-   */
-  getCachedResult(toolName, args) {
-    if (!this.CACHEABLE_TOOLS.has(toolName)) return null;
-    
-    const key = this.getToolCacheKey(toolName, args);
-    const cached = this.toolCache.get(key);
-    if (!cached) return null;
-    
-    // Check TTL
-    if (Date.now() - cached.timestamp > this.CACHE_TTL_MS) {
-      this.toolCache.delete(key);
-      return null;
-    }
-    
-    console.log(`[Amplifier] Cache HIT for ${toolName}`);
-    return cached.result;
-  }
-  
-  /**
-   * Store a tool result in the cache
-   */
-  cacheToolResult(toolName, args, result) {
-    if (!this.CACHEABLE_TOOLS.has(toolName)) return;
-    if (result?.error) return; // Don't cache errors
-    
-    const key = this.getToolCacheKey(toolName, args);
-    this.toolCache.set(key, { result, timestamp: Date.now() });
-  }
-
-  // ===== TOOL RESULT TRIMMING =====
-
-  /**
-   * Trim a tool result before adding to messages to prevent context window bloat.
-   * The full result is still returned to the tracking/history, but the message
-   * version is trimmed so it doesn't eat the entire context window.
-   */
-  trimToolResultForMessage(toolName, result) {
-    const MAX_RESULT_CHARS = 3000; // Hard cap for any single tool result in messages
-    
-    const resultStr = JSON.stringify(result);
-    
-    // If it's already small enough, return as-is
-    if (resultStr.length <= MAX_RESULT_CHARS) {
-      return resultStr;
-    }
-    
-    // Tool-specific trimming strategies
-    try {
-      if (toolName === 'read_document_content' && result?.content) {
-        // For document content, keep first 2000 chars + note it was trimmed
-        const trimmedContent = result.content.substring(0, 2000);
-        return JSON.stringify({
-          ...result,
-          content: trimmedContent + '\n\n[... CONTENT TRIMMED - full document is ' + result.content.length + ' chars. Focus on the key points from what you can see above.]',
-          trimmed: true,
-          originalLength: result.content.length,
-        });
-      }
-      
-      if ((toolName === 'list_documents' || toolName === 'list_my_matters' || toolName === 'list_clients') && Array.isArray(result?.documents || result?.matters || result?.clients)) {
-        // For list results, keep first 15 items with summary
-        const listKey = result.documents ? 'documents' : result.matters ? 'matters' : 'clients';
-        const fullList = result[listKey];
-        if (fullList.length > 15) {
-          return JSON.stringify({
-            ...result,
-            [listKey]: fullList.slice(0, 15),
-            trimmed: true,
-            totalCount: fullList.length,
-            message: `Showing 15 of ${fullList.length} ${listKey}. Use search to find specific items.`,
-          });
-        }
-      }
-      
-      if (toolName === 'search_document_content' && Array.isArray(result?.results)) {
-        // For search results, keep first 8 results with trimmed content
-        const trimmedResults = result.results.slice(0, 8).map(r => ({
-          ...r,
-          content: r.content ? r.content.substring(0, 300) + '...' : r.content,
-        }));
-        return JSON.stringify({
-          ...result,
-          results: trimmedResults,
-          trimmed: result.results.length > 8,
-          totalResults: result.results.length,
-        });
-      }
-      
-      if (toolName === 'get_matter' && result?.matter) {
-        // For matter details, trim the description and notes if too long
-        const matter = { ...result.matter };
-        if (matter.description && matter.description.length > 500) {
-          matter.description = matter.description.substring(0, 500) + '...';
-        }
-        return JSON.stringify({ ...result, matter });
-      }
-    } catch (e) {
-      // Fall through to generic trimming
-    }
-    
-    // Generic trimming: just cap the JSON string
-    return resultStr.substring(0, MAX_RESULT_CHARS) + '... [TRIMMED - result was ' + resultStr.length + ' chars]';
-  }
-
-  // ===== PRE-FLIGHT ARGUMENT VALIDATION =====
-
-  /**
-   * Validate tool arguments before execution to prevent wasted iterations.
-   * Returns null if valid, or an error message string if invalid.
-   */
-  validateToolArgs(toolName, args) {
-    // Check for obviously invalid UUIDs (common GPT hallucination)
-    const uuidFields = ['matter_id', 'client_id', 'document_id', 'invoice_id', 'task_id'];
-    for (const field of uuidFields) {
-      if (args[field] && typeof args[field] === 'string') {
-        // Valid UUID or valid-looking name (for flexible matching)
-        const val = args[field];
-        // If it looks like a made-up ID (not a UUID and not a plausible name), flag it
-        if (val.length < 3 && !val.match(/^[0-9a-f]{8}-/i)) {
-          return `Invalid ${field}: "${val}" is too short. Use the actual ID from a previous tool result, or use search_matters/list_clients to find the correct ID.`;
-        }
-      }
-    }
-    
-    // Tool-specific validation
-    if (toolName === 'create_document') {
-      if (!args.name && !args.title) return 'create_document requires a "name" parameter.';
-      if (!args.content && !args.body) return 'create_document requires "content" parameter with the actual document text. Do NOT use placeholders.';
-      const content = args.content || args.body || '';
-      if (content.includes('[INSERT') || content.includes('[TODO') || content.includes('[PLACEHOLDER')) {
-        return 'Document content contains placeholders like [INSERT]. Write the actual content based on your analysis. Do NOT use placeholders.';
-      }
-    }
-    
-    if (toolName === 'add_matter_note') {
-      if (!args.matter_id) return 'add_matter_note requires "matter_id". Use get_matter or search_matters first to find the matter ID.';
-      if (!args.content && !args.note) return 'add_matter_note requires "content" with the note text.';
-    }
-    
-    if (toolName === 'create_task') {
-      if (!args.title && !args.name) return 'create_task requires a "title" parameter.';
-    }
-    
-    if (toolName === 'log_time' || toolName === 'log_billable_work') {
-      return 'NEVER log time. Time entries are for humans to create manually. Skip this and continue with your other work.';
-    }
-    
-    return null; // Valid
-  }
-
   /**
    * Initialize context for the task
    */
@@ -918,28 +348,6 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       this.userContext = getUserContext(user, firm);
       this.learningContext = await getLearningContext(query, this.firmId, this.userId);
       
-      // Load user's document profile (PRIVATE per-user learnings from their documents)
-      try {
-        this.userDocumentProfile = await getUserDocumentProfile(this.userId, this.firmId);
-        if (this.userDocumentProfile) {
-          console.log(`[Amplifier] Loaded document profile for user ${this.userId}`);
-        }
-      } catch (profileError) {
-        console.log('[Amplifier] Document profile not available (new user or table pending)');
-        this.userDocumentProfile = null;
-      }
-      
-      // Load comprehensive lawyer profile (per-lawyer personalization)
-      try {
-        this.lawyerProfile = await getLawyerProfile(this.userId, this.firmId);
-        if (this.lawyerProfile) {
-          console.log(`[Amplifier] Loaded lawyer profile for ${this.lawyerProfile.lawyerName || this.userId} (${this.lawyerProfile.totalTasks} past tasks)`);
-        }
-      } catch (profileError) {
-        console.log('[Amplifier] Lawyer profile not available:', profileError.message);
-        this.lawyerProfile = null;
-      }
-      
       // Get workflow templates
       const workflowResult = await query(
         'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
@@ -947,142 +355,8 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       );
       
       this.workflowTemplates = workflowResult.rows;
-      
-      // Try to extract matter context from goal if mentioned
-      this.matterContext = await this.extractMatterContext();
-      
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
-    }
-  }
-  
-  /**
-   * Extract matter context from goal if a matter is mentioned
-   * This pre-loads relevant matter info so the agent starts with context
-   */
-  async extractMatterContext() {
-    try {
-      const goalLower = this.goal.toLowerCase();
-      
-      // Look for matter name patterns in the goal
-      // Common patterns: "for [matter]", "on [matter]", "matter [name]", "[name] matter"
-      const matterPatterns = [
-        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,]+)["']?/i,
-        /matter\s+(?:named?\s+)?["']?([^"'.,]+)["']?/i,
-        /["']([^"']+)["']\s+(?:matter|case)/i,
-      ];
-      
-      let potentialMatterName = null;
-      for (const pattern of matterPatterns) {
-        const match = this.goal.match(pattern);
-        if (match && match[1] && match[1].length > 2) {
-          potentialMatterName = match[1].trim();
-          break;
-        }
-      }
-      
-      if (!potentialMatterName) {
-        return null;
-      }
-      
-      // Search for the matter
-      const matterResult = await query(`
-        SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
-               m.created_at, m.open_date, c.display_name as client_name, c.email as client_email,
-               (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
-               (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
-               (SELECT COUNT(*) FROM matter_tasks mt WHERE mt.matter_id = m.id) as task_count
-        FROM matters m
-        LEFT JOIN clients c ON m.client_id = c.id
-        WHERE m.firm_id = $1 
-          AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
-        ORDER BY 
-          CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
-          m.created_at DESC
-        LIMIT 1
-      `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
-      
-      if (matterResult.rows.length === 0) {
-        return null;
-      }
-      
-      const matter = matterResult.rows[0];
-      const isEmpty = matter.doc_count === 0 && matter.note_count === 0;
-      
-      let contextStr = `
-## PRE-LOADED MATTER CONTEXT
-
-The goal mentions a matter. Here's what I found:
-
-**Matter:** ${matter.name} (${matter.number || 'No number'})
-**Status:** ${matter.status}
-**Type:** ${matter.type || 'General'}
-**Client:** ${matter.client_name || 'No client assigned'}
-**Created:** ${matter.created_at ? new Date(matter.created_at).toLocaleDateString() : 'Unknown'}
-
-**Current State:**
-- Documents: ${matter.doc_count}
-- Notes: ${matter.note_count}  
-- Tasks: ${matter.task_count}
-`;
-      
-      if (isEmpty) {
-        contextStr += `
-⚠️ **THIS IS AN EMPTY/NEW MATTER** - No documents or notes exist yet.
-Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
-`;
-      }
-      
-      // Add CPLR-specific guidance based on matter type
-      try {
-        const cplrGuidance = getCPLRGuidanceForMatter(matter.type, matter.description || matter.name);
-        if (cplrGuidance && (cplrGuidance.relevantArticles.length > 0 || cplrGuidance.keyDeadlines.length > 0)) {
-          contextStr += `
-### APPLICABLE NY CPLR GUIDANCE FOR THIS MATTER
-
-`;
-          if (cplrGuidance.relevantArticles.length > 0) {
-            contextStr += `**Relevant CPLR Articles:** ${cplrGuidance.relevantArticles.join(', ')}\n\n`;
-          }
-          if (cplrGuidance.keyDeadlines.length > 0) {
-            contextStr += `**Key Deadlines to Track:**\n`;
-            for (const deadline of cplrGuidance.keyDeadlines) {
-              contextStr += `- **${deadline.name}**: ${deadline.period} (${deadline.citation})\n`;
-            }
-            contextStr += '\n';
-          }
-          if (cplrGuidance.warnings.length > 0) {
-            contextStr += `**⚠️ WARNINGS:**\n`;
-            for (const warning of cplrGuidance.warnings) {
-              contextStr += `- ${warning}\n`;
-            }
-            contextStr += '\n';
-          }
-          if (cplrGuidance.discoveryNotes.length > 0) {
-            contextStr += `**Discovery Notes:**\n`;
-            for (const note of cplrGuidance.discoveryNotes) {
-              contextStr += `- ${note}\n`;
-            }
-            contextStr += '\n';
-          }
-          if (cplrGuidance.commonMotions.length > 0) {
-            contextStr += `**Common Motions:** ${cplrGuidance.commonMotions.join('; ')}\n`;
-          }
-        }
-      } catch (cplrError) {
-        console.error('[Amplifier] Error getting CPLR guidance:', cplrError.message);
-      }
-      
-      // Store matter ID for quick reference
-      this.preloadedMatterId = matter.id;
-      
-      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'})`);
-      
-      return contextStr;
-      
-    } catch (error) {
-      console.error('[Amplifier] Error extracting matter context:', error.message);
-      return null;
     }
   }
 
@@ -1091,65 +365,25 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
   }
 
   buildMemorySummary() {
-    const successfulActions = this.actionsHistory.filter(a => !a.result?.error);
-    const failedActions = this.actionsHistory.filter(a => a.result?.error);
-    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
-    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
-    
-    const createdItems = successfulActions
-      .filter(a => ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event'].includes(a.tool))
-      .map(a => {
-        if (a.tool === 'create_document') return `- Doc: ${a.args?.name || 'untitled'}`;
-        if (a.tool === 'add_matter_note') return `- Note added to matter`;
-        if (a.tool === 'create_task') return `- Task: ${a.args?.title || 'untitled'}`;
-        if (a.tool === 'create_calendar_event') return `- Event: ${a.args?.title || 'untitled'}`;
-        return null;
-      }).filter(Boolean);
-    
-    const keyFindings = (this.structuredPlan?.keyFindings || []).slice(-6);
+    const actionLines = this.actionsHistory.slice(-12).map(action => {
+      const status = action?.result?.error ? 'error' : 'ok';
+      return `- ${action.tool}: ${status}`;
+    });
+
+    const planLines = Array.isArray(this.plan?.steps)
+      ? this.plan.steps.map((step, index) => `${index + 1}. ${step}`)
+      : [];
 
     const summaryParts = [
       `${MEMORY_MESSAGE_PREFIX}`,
       `Goal: ${this.goal}`,
-      `Phase: ${this.executionPhase.toUpperCase()} | ${elapsedMin}min elapsed | ~${remainingMin}min remaining`,
-      `Stats: ${this.actionsHistory.length} actions | Notes: ${this.substantiveActions.notes} | Tasks: ${this.substantiveActions.tasks} | Docs: ${this.substantiveActions.documents}`,
-      keyFindings.length ? `\nKEY FINDINGS:\n${keyFindings.map(f => `- ${f}`).join('\n')}` : null,
-      createdItems.length ? `\nCREATED:\n${createdItems.join('\n')}` : null,
-      failedActions.length > 0 ? `\nFAILED (avoid): ${[...new Set(failedActions.map(a => a.tool))].join(', ')}` : null,
+      this.progress?.currentStep ? `Current step: ${this.progress.currentStep}` : null,
+      planLines.length ? `Plan:\n${planLines.join('\n')}` : null,
+      actionLines.length ? `Recent actions:\n${actionLines.join('\n')}` : null,
     ].filter(Boolean);
 
     const summary = summaryParts.join('\n');
-    return summary.length > 3000 ? `${summary.substring(0, 3000)}…` : summary;
-  }
-  
-  /**
-   * Calculate progress percentage based on task complexity and actions taken
-   */
-  calculateProgressPercent() {
-    // Phase-based progress: each phase maps to a range
-    const phaseRanges = {
-      [ExecutionPhase.DISCOVERY]: { min: 5, max: 20 },
-      [ExecutionPhase.ANALYSIS]: { min: 20, max: 40 },
-      [ExecutionPhase.ACTION]: { min: 40, max: 75 },
-      [ExecutionPhase.REVIEW]: { min: 75, max: 90 },
-    };
-    
-    const range = phaseRanges[this.executionPhase] || { min: 5, max: 90 };
-    const config = PHASE_CONFIG[this.executionPhase];
-    const maxItersForPhase = Math.ceil(this.maxIterations * config.maxIterationPercent / 100);
-    const itersInPhase = this.phaseIterationCounts[this.executionPhase];
-    const phaseProgress = Math.min(1, itersInPhase / Math.max(1, maxItersForPhase));
-    
-    const baseProgress = range.min + (range.max - range.min) * phaseProgress;
-    
-    // Milestone bonuses
-    let bonus = 0;
-    if (this.structuredPlan) bonus += 3;
-    if (this.substantiveActions.notes > 0) bonus += 3;
-    if (this.substantiveActions.tasks > 0) bonus += 2;
-    if (this.substantiveActions.documents > 0) bonus += 5;
-    
-    return Math.min(90, Math.max(5, Math.round(baseProgress + bonus)));
+    return summary.length > 4000 ? `${summary.substring(0, 4000)}…` : summary;
   }
 
   compactMessagesIfNeeded() {
@@ -1163,30 +397,11 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       return;
     }
 
-    console.log(`[Amplifier] Compacting messages: ${this.messages.length} messages, ${totalChars} chars`);
-
-    // The system prompt is always first and always preserved
-    const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message) && !this.isPlanMessage(message));
-    
-    // Keep recent messages (reduced from 16 to 12 to leave room for plan + memory)
-    const recentMessages = this.messages.slice(-12).filter(message => 
-      !this.isMemoryMessage(message) && !this.isPlanMessage(message)
-    );
-    
-    // Build fresh memory summary
+    const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message));
+    const recentMessages = this.messages.slice(-12).filter(message => !this.isMemoryMessage(message));
     const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
-    
-    // Build fresh plan message (this is the KEY improvement - plan always survives)
-    const planMessage = this.buildPlanMessage();
 
-    this.messages = this.normalizeMessages([
-      systemMessage, 
-      memoryMessage, 
-      planMessage,    // Plan ALWAYS re-injected after compaction
-      ...recentMessages
-    ].filter(Boolean));
-    
-    console.log(`[Amplifier] Compacted to ${this.messages.length} messages (plan preserved)`);
+    this.messages = this.normalizeMessages([systemMessage, memoryMessage, ...recentMessages].filter(Boolean));
   }
 
   normalizeMessages(messages) {
@@ -1413,12 +628,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       error: this.error,
       iterations: this.progress.iterations,
       plan: this.plan,
-      structuredPlan: this.structuredPlan,
-      executionPhase: this.executionPhase,
-      phaseIterationCounts: this.phaseIterationCounts,
-      substantiveActions: this.substantiveActions,
       systemPrompt: this.systemPrompt,
-      lastCheckpointAt: new Date().toISOString(),
     };
   }
 
@@ -1481,10 +691,6 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     this.result = checkpoint.result || this.result;
     this.error = checkpoint.error || this.error;
     this.plan = checkpoint.plan || this.plan;
-    this.structuredPlan = checkpoint.structuredPlan || this.structuredPlan;
-    this.executionPhase = checkpoint.executionPhase || this.executionPhase;
-    this.phaseIterationCounts = checkpoint.phaseIterationCounts || this.phaseIterationCounts;
-    this.substantiveActions = checkpoint.substantiveActions || this.substantiveActions;
     this.systemPrompt = checkpoint.systemPrompt || this.systemPrompt;
   }
 
@@ -1520,61 +726,224 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
 
   /**
    * Build the system prompt with full context
-   * This prompt enables FULLY AUTONOMOUS operation at JUNIOR ATTORNEY level
+   * This prompt enables FULLY AUTONOMOUS operation without human intervention
    */
   buildSystemPrompt() {
-    const totalMinutes = Math.round(this.maxRuntimeMs / 60000);
-    
-    // ===== LEAN SYSTEM PROMPT =====
-    // Only include what the model NEEDS. GPT already knows what legal matters, clients, etc. are.
-    // This saves ~2000 tokens per API call = dramatically fewer rate limits over 30 min.
-    
-    let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS junior attorney AI with COMPLETE tool access to a legal practice management platform.
-
-**Task:** ${this.goal}
-**Complexity:** ${this.complexity} | **Budget:** ~${totalMinutes} min, ${this.maxIterations} iterations
-**Phase:** ${this.executionPhase.toUpperCase()} - ${PHASE_CONFIG[this.executionPhase].description}
+    const extendedModeNote = this.isExtendedMode 
+      ? `\n**EXTENDED MODE ACTIVE**: You have ${Math.round(this.maxRuntimeMs/60000)} minutes and ${this.maxIterations} iterations available. Take your time to do thorough, comprehensive work.\n`
+      : '';
+      
+    let prompt = `You are the APEX LEGAL BACKGROUND AGENT (powered by Microsoft Amplifier) - a FULLY AUTONOMOUS AI attorney operating as a **SENIOR PARTNER** with COMPLETE ACCESS to the legal practice management platform.
+${extendedModeNote}
+${PLATFORM_CONTEXT}
 
 ${this.userContext || ''}
-${this.matterContext || ''}
+
 ${this.learningContext || ''}
 
-## CRITICAL RULES
-- You are FULLY AUTONOMOUS. Call tools immediately. NEVER just respond with text.
-- NEVER use log_time or log_billable_work. Time entries are for humans.
-- NO placeholders like [INSERT], [TODO] in documents. Write REAL content.
-- Before task_complete: you MUST have ≥5 tool calls, ≥1 note, ≥1 task, ≥60s of work.
-- Use IRAC for legal analysis: Issue → Rule → Application → Conclusion.
+## YOUR ROLE: SENIOR PARTNER ATTORNEY
 
-## TOOL QUICK REFERENCE
-**Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
-**Write:** add_matter_note (internal notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
-**Meta:** think_and_plan (make a plan first!), evaluate_progress, task_complete (when done)
+You are NOT an assistant. You are a **SENIOR PARTNER** at a prestigious law firm with 20+ years of experience. You think like a lawyer, write like a lawyer, and produce work product that meets the highest professional standards.
 
-**Document vs Note:** create_document = formal work product (memos, letters, briefs). add_matter_note = internal analysis notes, findings, observations.
-**Empty matters:** Create an assessment note, intake tasks, initial assessment doc, and flag for partner review.
+**Your mindset:**
+- "What would a $900/hour partner do here?"
+- "Would I sign my name to this work product?"
+- "What are ALL the legal issues and risks?"
+- "What does the client actually need to succeed?"
 
-## PHASE INSTRUCTIONS
-You work in phases. Current phase: **${this.executionPhase.toUpperCase()}**
-- **DISCOVERY**: Gather info with get_matter, read_document_content, search. Don't create yet.
-- **ANALYSIS**: Document findings with add_matter_note. Identify issues and gaps.
-- **ACTION**: Create deliverables: create_document, create_task, create_calendar_event.
-- **REVIEW**: Verify with evaluate_progress, then call task_complete with full summary.
+## YOUR CAPABILITIES
 
-${getCPLRContextForPrompt()}
+You have access to ALL platform tools and can:
+- Create, update, and manage clients and matters
+- Create professional Word documents (.docx) using \`create_document\`
+- Add notes to matter Notes tabs using \`add_matter_note\`
+- Schedule calendar events and manage tasks
+- Search across all firm data and read document contents
+- Generate reports and analytics
+- Draft emails (but never send without approval)
 
-BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be thorough, specific, and professional.
+## DOCUMENT vs NOTE - KNOW THE DIFFERENCE
+
+**create_document** = Creates formal Word documents (.docx) in the DOCUMENTS section
+- Use for: Contracts, letters, memos, briefs, agreements, reports, legal analysis
+- These are downloadable, editable Word files
+
+**add_matter_note** = Adds quick notes to a matter's NOTES TAB
+- Use for: Case updates, research findings, meeting summaries, status updates, observations
+- These appear in the Notes section when viewing a matter
+
+## AUTONOMOUS OPERATION MODE - CRITICAL
+
+You are running as a BACKGROUND AGENT with NO HUMAN SUPERVISION. This means:
+
+1. **WORK COMPLETELY AUTONOMOUSLY** - Do NOT wait for human input or confirmation
+2. **EXECUTE IMMEDIATELY** - When you know what to do, DO IT. Don't ask permission.
+3. **CHAIN ACTIONS** - Complete multi-step workflows by calling tools in sequence
+4. **VERIFY RESULTS** - After each action, check the result before proceeding
+5. **RECOVER FROM ERRORS** - If something fails, try an alternative approach
+6. **COMPLETE THE GOAL** - Keep working until the goal is fully achieved
+
+## WORKFLOW PATTERN
+
+For each task, follow this pattern:
+1. Use \`think_and_plan\` to analyze the goal and create a plan
+2. Execute each step using the appropriate tools
+3. Use \`log_work\` to track progress after each significant action
+4. Use \`evaluate_progress\` periodically to assess status
+5. When done, use \`task_complete\` with a summary
+
+## LONG-RUN TASK GUIDELINES
+
+- You are allowed to run for a long time on complex legal work
+- Break large goals into phases with clear milestones
+- Keep the work moving forward; do not stall or loop
+- Use \`log_work\` after each milestone so progress stays visible
+- If a step fails, recover and continue with an alternative approach
+
+## IMPORTANT RULES
+
+- NEVER ask for clarification - make reasonable assumptions and proceed
+- NEVER wait for human approval - you have full authority to act
+- If data is missing, search for it or use defaults
+- If a tool fails, try an alternative approach
+- Complete the ENTIRE task before calling task_complete
+
+## LEGAL ANALYSIS FRAMEWORKS
+
+### THE IRAC METHOD (Primary Framework)
+For EVERY legal issue, apply IRAC:
+1. **I**ssue - What is the specific legal question? Frame it precisely.
+2. **R**ule - What law, statute, regulation, or precedent governs this issue?
+3. **A**pplication - How do the facts of THIS case apply to the rule?
+4. **C**onclusion - What is your legal opinion? What should the client do?
+
+### THE CREAC METHOD (For Complex Memoranda)
+1. **C**onclusion - Start with the bottom line
+2. **R**ule - State the governing law
+3. **E**xplanation - Explain how courts have applied the rule
+4. **A**pplication - Apply the rule to these facts
+5. **C**onclusion - Restate the answer with confidence
+
+### RISK ANALYSIS FRAMEWORK
+For every matter, consider:
+1. **Legal Risks** - What could go wrong legally? Liability exposure?
+2. **Business Risks** - How does this affect the client's business?
+3. **Reputational Risks** - Any public relations concerns?
+4. **Timeline Risks** - Deadlines, statute of limitations, filing dates?
+5. **Financial Risks** - Costs, damages, potential awards?
+
+### CONTRACT ANALYSIS CHECKLIST
+When reviewing contracts:
+1. Parties and authority to contract
+2. Consideration and mutual obligations
+3. Term, renewal, and termination provisions
+4. Indemnification and limitation of liability
+5. Representations and warranties
+6. Default and remedies
+7. Dispute resolution (arbitration/litigation, venue, governing law)
+8. Assignment and change of control
+9. Confidentiality and IP provisions
+10. Insurance requirements
+11. Compliance with applicable law
+12. Boilerplate review (notices, amendments, entire agreement)
+
+### LITIGATION ASSESSMENT FRAMEWORK
+For litigation matters:
+1. **Merits Assessment** - Strength of legal claims/defenses (1-10 scale)
+2. **Evidence Inventory** - Documents, witnesses, expert needs
+3. **Damages Analysis** - Exposure/recovery potential
+4. **Timeline** - Key dates, statute of limitations, deadlines
+5. **Settlement Posture** - BATNA, ZOPA, negotiation strategy
+6. **Cost-Benefit Analysis** - Litigation costs vs. settlement value
+
+## ATTORNEY WORK PRODUCT STANDARDS
+
+### SUBSTANTIVE REQUIREMENTS
+- **COMPLETE**: Write full, ready-to-use content. NO placeholders.
+- **SPECIFIC**: Use specific facts from the matter. NO generic boilerplate.
+- **CITED**: Reference specific laws, statutes, cases when applicable.
+- **ACTIONABLE**: Every document should tell the reader what to DO.
+- **PROOFREAD**: No typos, no grammatical errors, proper formatting.
+
+### DOCUMENT QUALITY CHECKLIST
+Before finalizing any document, verify:
+- [ ] Client name and matter correctly identified
+- [ ] All facts are accurate to this specific matter
+- [ ] Legal conclusions are supported by analysis
+- [ ] Recommendations are clear and actionable
+- [ ] Format is professional and consistent
+- [ ] No placeholder text ("[INSERT]", "TODO", etc.)
+
+### COMMUNICATION STANDARDS
+- **Client Letters**: Professional, empathetic, clear on next steps
+- **Internal Memos**: Thorough analysis, strategic recommendations
+- **Status Updates**: What happened, what's next, any issues
+- **Court Filings**: Precise, properly formatted, deadline-aware
+
+## WHAT A TOP LAWYER DOES ON EVERY MATTER
+
+1. **Read Everything First** - Review ALL existing documents, notes, and case history
+2. **Understand the Client's Goals** - What outcome does the client actually want?
+3. **Identify ALL Issues** - Legal, factual, procedural, strategic
+4. **Research Thoroughly** - What law applies? Any recent developments?
+5. **Analyze Deeply** - Apply frameworks (IRAC, CREAC, risk analysis)
+6. **Document Everything** - Notes for the file, memos for the team
+7. **Create Work Product** - Documents that advance the matter
+8. **Plan Next Steps** - Tasks with clear deadlines and responsibilities
+9. **Consider the Endgame** - How does this matter resolve? Plan for it.
+
+## ANTI-PATTERNS TO AVOID (WILL CAUSE REJECTION)
+
+❌ Creating empty template documents with "[insert here]"
+❌ Writing "TODO", "[FILL IN]", or "[CLIENT NAME]" in content
+❌ Doing only 1-2 actions and calling it done
+❌ Generic advice that could apply to any matter
+❌ Stopping when a matter is "empty" - create what it needs
+❌ Copying facts incorrectly or making up facts
+❌ **NEVER USE log_time** - Time entries are for HUMANS, not AI agents
+❌ Calling task_complete without substantive work product
+
+## WHEN A MATTER IS NEW/EMPTY
+
+1. Add a case intake note with initial observations using \`add_matter_note\`
+2. Draft an initial case assessment document using \`create_document\`
+3. Identify and document all potential legal issues
+4. Create a task list with appropriate workflow items using \`create_task\`
+5. Identify and calendar critical deadlines using \`create_calendar_event\`
+6. Draft the engagement letter if not done
+7. Identify documents and information needed from the client
+8. Create follow-up tasks for the responsible attorney
+
+## MANDATORY ACTIONS FOR EVERY TASK
+
+You MUST complete ALL of these before calling task_complete:
+
+1. **ADD AT LEAST ONE SUBSTANTIVE NOTE** - Use \`add_matter_note\` to document your analysis, findings, or observations. The note must be specific to this matter.
+
+2. **CREATE AT LEAST ONE ACTIONABLE TASK** - Use \`create_task\` to create follow-up action items with clear descriptions and appropriate due dates.
+
+3. **CREATE A DOCUMENT (when appropriate)** - Use \`create_document\` for any formal work product. Documents should be complete and ready to use.
+
+### MINIMUM WORK REQUIREMENT (ENFORCED):
+- Minimum 60 seconds of active work
+- At least 5 total actions
+- At least 2 substantive actions (documents, notes, tasks)
+- **MUST include at least 1 note AND 1 task**
+- task_complete will be REJECTED if minimums not met
+
+### TAKE YOUR TIME - QUALITY OVER SPEED:
+- Read and understand before acting
+- Write thorough, detailed content
+- Think through risks and alternatives
+- A good task should take 2-5+ minutes of real work
+- Complex tasks may take 15-30+ minutes
+
+## CURRENT TASK
+
+Goal: ${this.goal}
+
+START WORKING NOW. Execute tools to complete this goal. Do not respond with text only - TAKE ACTION. Produce work product worthy of a senior partner at a top law firm.
 `;
-
-    // Add comprehensive lawyer profile (personalization that improves over time)
-    if (this.lawyerProfile) {
-      prompt += formatLawyerProfile(this.lawyerProfile);
-    }
-    
-    // Add user's document style profile (PRIVATE per-user learning)
-    if (this.userDocumentProfile) {
-      prompt += formatProfileForPrompt(this.userDocumentProfile);
-    }
 
     // Add workflow templates if relevant
     if (this.workflowTemplates && this.workflowTemplates.length > 0) {
@@ -1661,11 +1030,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = this.maxIterations;
-    const MAX_TEXT_ONLY_STREAK = 2; // Only 2 text-only responses before aggressive re-prompt
-    const PLAN_REINJECTION_INTERVAL = 8; // Re-inject plan every 8 iterations
+    const MAX_TEXT_ONLY_RESPONSES = 3; // Max times AI can respond with only text before we re-prompt
     const tools = getOpenAITools();
+    let textOnlyCount = 0;
     
-    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools, phase: ${this.executionPhase}`);
+    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
     
     while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
       const elapsedMs = Date.now() - this.startTime.getTime();
@@ -1709,43 +1078,21 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       }
 
       this.progress.iterations++;
-      this.phaseIterationCounts[this.executionPhase]++;
-      this.progress.currentStep = `${this.executionPhase.toUpperCase()}: step ${this.progress.iterations}`;
+      this.progress.currentStep = `Working... (step ${this.progress.iterations})`;
       this.emit('progress', this.getStatus());
       
-      // ===== PHASE TRANSITION CHECK =====
-      if (this.shouldTransitionPhase()) {
-        this.transitionPhase();
-      }
-      
-      // ===== PERIODIC PLAN RE-INJECTION =====
-      // Every N iterations, re-inject the plan so the agent never loses the thread
-      if (this.structuredPlan && 
-          (this.progress.iterations - this.lastPlanInjectionIteration) >= PLAN_REINJECTION_INTERVAL) {
-        const freshPlan = this.buildPlanMessage();
-        if (freshPlan) {
-          // Remove old plan messages and add fresh one
-          this.messages = this.messages.filter(m => !this.isPlanMessage(m));
-          // Insert after system message
-          const sysIdx = this.messages.findIndex(m => m.role === 'system');
-          this.messages.splice(sysIdx + 1, 0, freshPlan);
-          this.lastPlanInjectionIteration = this.progress.iterations;
-        }
-      }
-      
       try {
-        const phaseConfig = PHASE_CONFIG[this.executionPhase];
+        console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
         
-        console.log(`[Amplifier] Iteration ${this.progress.iterations} [${this.executionPhase}]: calling Azure OpenAI`);
-        
-        // Stream thinking event with phase context
+        // Stream thinking event to Glass Cockpit UI with context
         const thinkingContext = this.actionsHistory.length === 0 
           ? 'Analyzing task and creating plan...'
-          : `[${this.executionPhase.toUpperCase()}] ${phaseConfig.description}`;
+          : this.plan 
+            ? `Step ${this.progress.completedSteps + 1}: Planning next action...`
+            : 'Evaluating progress and deciding next steps...';
         
         this.streamEvent('thought_start', `🧠 ${thinkingContext}`, {
           iteration: this.progress.iterations,
-          phase: this.executionPhase,
           actions_so_far: this.actionsHistory.length,
           icon: 'brain',
           color: 'blue'
@@ -1754,19 +1101,10 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         this.messages = this.normalizeMessages(this.messages);
         this.compactMessagesIfNeeded();
         
-        // ===== ADAPTIVE TOKEN BUDGET =====
-        // Use phase-specific token budget, reduce if rate limited heavily
-        let tokenBudget = phaseConfig.tokenBudget;
-        let temperature = phaseConfig.temperature;
-        if (this.rateLimitCount > 3) {
-          tokenBudget = Math.max(1500, Math.round(tokenBudget * 0.7));
-          console.log(`[Amplifier] Reducing token budget to ${tokenBudget} due to ${this.rateLimitCount} rate limits`);
-        }
-        
-        // Call Azure OpenAI with phase-aware settings
+        // Call Azure OpenAI with tools
         const response = await callAzureOpenAI(this.messages, tools, {
-          temperature: this.options?.temperature ?? temperature,
-          max_tokens: this.options?.max_tokens ?? tokenBudget
+          temperature: this.options?.temperature ?? 0.3,
+          max_tokens: this.options?.max_tokens ?? 4000
         });
         const choice = response.choices[0];
         const message = choice.message;
@@ -1776,7 +1114,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         
         // Check for tool calls (this is what makes it an AGENT)
         if (message.tool_calls && message.tool_calls.length > 0) {
-          this.textOnlyStreak = 0; // Reset text-only counter
+          textOnlyCount = 0; // Reset text-only counter
           
           const toolNames = message.tool_calls.map(tc => tc.function?.name || 'unknown');
           console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute: ${toolNames.join(', ')}`);
@@ -1788,146 +1126,59 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
             color: 'purple'
           });
           
-          // ===== PARSE AND VALIDATE ALL TOOL CALLS =====
-          const parsedCalls = [];
+          // Execute all tool calls
           for (const toolCall of message.tool_calls) {
+            if (this.cancelled) break;
+            
             const toolName = toolCall.function.name;
             let toolArgs = {};
+            
             try {
               toolArgs = JSON.parse(toolCall.function.arguments || '{}');
             } catch (parseError) {
-              console.error(`[Amplifier] Failed to parse args for ${toolName}:`, toolCall.function.arguments);
+              console.error(`[Amplifier] Failed to parse tool arguments for ${toolName}:`, toolCall.function.arguments);
               toolArgs = {};
             }
             
-            const validationError = this.validateToolArgs(toolName, toolArgs);
-            parsedCalls.push({ toolCall, toolName, toolArgs, validationError });
-          }
-          
-          // ===== PARALLEL EXECUTION for read-only tools =====
-          // If ALL tool calls are cacheable (read-only), execute them in parallel
-          const allReadOnly = parsedCalls.every(c => !c.validationError && this.CACHEABLE_TOOLS.has(c.toolName));
-          const TOOL_TIMEOUT_MS = 60000;
-          
-          if (allReadOnly && parsedCalls.length > 1) {
-            console.log(`[Amplifier] Executing ${parsedCalls.length} read-only tools in PARALLEL`);
-            this.streamEvent('parallel_exec', `⚡ Running ${parsedCalls.length} tools in parallel`, {
-              tools: parsedCalls.map(c => c.toolName), icon: 'zap', color: 'blue'
-            });
-            
-            const parallelResults = await Promise.all(parsedCalls.map(async (pc) => {
-              // Check cache first
-              let result = this.getCachedResult(pc.toolName, pc.toolArgs);
-              if (!result) {
-                try {
-                  const toolPromise = executeTool(pc.toolName, pc.toolArgs, {
-                    userId: this.userId, firmId: this.firmId, user: this.userRecord
-                  });
-                  result = await Promise.race([
-                    toolPromise,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), TOOL_TIMEOUT_MS))
-                  ]);
-                  this.cacheToolResult(pc.toolName, pc.toolArgs, result);
-                } catch (err) {
-                  result = { error: err?.message || 'Tool execution failed' };
-                }
-              }
-              return { ...pc, result };
-            }));
-            
-            // Process all parallel results
-            for (const pr of parallelResults) {
-              if (this.cancelled) break;
-              const { toolCall: tc, toolName: tn, toolArgs: ta, result: res } = pr;
-              const success = res.success !== undefined ? res.success : !res.error;
-              
-              this.actionsHistory.push({ tool: tn, args: ta, result: res, timestamp: new Date(), success });
-              if (success && (tn === 'read_document_content' || tn === 'search_document_content')) {
-                this.substantiveActions.research++;
-              }
-              
-              // Add key findings from reads
-              if (success && tn === 'get_matter' && res?.matter) {
-                this.addKeyFinding(`Matter: ${res.matter.name} (${res.matter.status})`);
-              }
-              if (success && tn === 'read_document_content' && res?.name) {
-                this.addKeyFinding(`Read: ${res.name}`);
-                // Progressive context: extract key info from document
-                if (res.content) {
-                  const preview = res.content.substring(0, 500).replace(/\n+/g, ' ');
-                  this.addKeyFinding(`Doc summary (${res.name}): ${preview.substring(0, 200)}...`);
-                }
-              }
-              
-              if (success) this.markPlanStepProgress(tn);
-              
-              this.messages.push({
-                role: 'tool',
-                tool_call_id: tc.id,
-                content: this.trimToolResultForMessage(tn, res)
-              });
-              
-              this.streamEvent('tool_end', this.getDetailedCompletionMessage(tn, ta, res, success), {
-                tool: tn, success, icon: success ? 'check-circle' : 'x-circle', color: success ? 'green' : 'red'
-              });
-            }
-            
-            this.progress.progressPercent = this.calculateProgressPercent();
-            this.streamProgress();
-            await this.saveCheckpoint('periodic');
-            
-          } else {
-          // ===== SEQUENTIAL EXECUTION (for write tools or mixed batches) =====
-          for (const { toolCall, toolName, toolArgs, validationError } of parsedCalls) {
-            if (this.cancelled) break;
-            
-            if (validationError) {
-              console.log(`[Amplifier] Validation failed for ${toolName}: ${validationError}`);
-              this.messages.push({
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: JSON.stringify({ error: validationError, validation_failed: true })
-              });
-              this.streamEvent('tool_error', `⚠️ ${toolName}: ${validationError.substring(0, 80)}`, {
-                tool: toolName, icon: 'alert-triangle', color: 'yellow'
-              });
-              continue;
-            }
-            
             console.log(`[Amplifier] Executing tool: ${toolName}`);
-            this.progress.currentStep = `[${this.executionPhase.toUpperCase()}] ${this.getToolStepLabel(toolName, toolArgs)}`;
+            this.progress.currentStep = this.getToolStepLabel(toolName, toolArgs);
             this.emit('progress', this.getStatus());
             
+            // Stream tool start event to Glass Cockpit UI with PRECISE details
             const toolDescription = this.getDetailedToolDescription(toolName, toolArgs);
             this.streamEvent('tool_start', toolDescription, { 
-              tool: toolName, args: toolArgs, icon: 'tool', color: 'blue'
+              tool: toolName, 
+              args: toolArgs,
+              icon: 'tool',
+              color: 'blue'
             });
             this.streamProgress();
             
-            // Check cache first
-            let result = this.getCachedResult(toolName, toolArgs);
-            
-            if (result) {
-              this.streamEvent('tool_end', `⚡ ${toolName} (cached)`, {
-                tool: toolName, success: true, cached: true, icon: 'zap', color: 'green'
+            // Execute the tool with timeout protection (60 seconds max per tool)
+            const TOOL_TIMEOUT_MS = 60000;
+            let result;
+            try {
+              const toolPromise = executeTool(toolName, toolArgs, {
+                userId: this.userId,
+                firmId: this.firmId,
+                user: this.userRecord
               });
-            } else {
-              try {
-                const toolPromise = executeTool(toolName, toolArgs, {
-                  userId: this.userId, firmId: this.firmId, user: this.userRecord
-                });
-                result = await Promise.race([
-                  toolPromise,
-                  new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS))
-                ]);
-                this.cacheToolResult(toolName, toolArgs, result);
-              } catch (toolError) {
-                console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
-                result = { error: toolError?.message || 'Tool execution failed' };
-                this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
-                  tool: toolName, icon: 'x-circle', color: 'red'
-                });
-              }
+              
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS)
+              );
+              
+              result = await Promise.race([toolPromise, timeoutPromise]);
+            } catch (toolError) {
+              console.error(`[Amplifier] Tool ${toolName} execution failed:`, toolError);
+              result = { error: toolError?.message || 'Tool execution failed' };
+              
+              // Stream error event
+              this.streamEvent('tool_error', `❌ Error in ${toolName}: ${toolError?.message}`, {
+                tool: toolName,
+                icon: 'x-circle',
+                color: 'red'
+              });
             }
             
             const toolSuccess = result.success !== undefined ? result.success : !result.error;
@@ -1948,50 +1199,18 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
               tool: toolName,
               args: toolArgs,
               result: result,
-              timestamp: new Date(),
-              success: toolSuccess
+              timestamp: new Date()
             });
             
-            // Track substantive actions for quality assurance
-            if (toolSuccess) {
-              if (toolName === 'add_matter_note' || toolName === 'create_note') {
-                this.substantiveActions.notes++;
-              } else if (toolName === 'create_document' || toolName === 'draft_legal_document') {
-                this.substantiveActions.documents++;
-              } else if (toolName === 'create_task') {
-                this.substantiveActions.tasks++;
-              } else if (toolName === 'create_calendar_event') {
-                this.substantiveActions.events++;
-              } else if (toolName === 'read_document_content' || toolName === 'search_document_content') {
-                this.substantiveActions.research++;
-              }
-            } else {
-              // Track failed tools to avoid repeating
-              const failCount = this.failedTools.get(toolName) || 0;
-              this.failedTools.set(toolName, failCount + 1);
-            }
-            
-            // Update progress and push to UI
-            this.progress.progressPercent = this.calculateProgressPercent();
-            this.streamProgress();
-            
-            // Add TRIMMED tool result to messages (prevents context window bloat)
+            // Add tool result to messages so AI knows what happened
             this.messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: this.trimToolResultForMessage(toolName, result)
+              content: JSON.stringify(result)
             });
 
             this.recentTools.push(toolName);
             if (this.recentTools.length > 6) this.recentTools.shift();
-            
-            // If a tool has failed 3+ times, add guidance to avoid it
-            if (this.failedTools.get(toolName) >= 3) {
-              this.messages.push({
-                role: 'user',
-                content: `Note: The tool "${toolName}" has failed multiple times. Try an alternative approach or skip this step if possible.`
-              });
-            }
             
             // Check for explicit task completion
             if (toolName === 'task_complete') {
@@ -2048,51 +1267,10 @@ Keep working on: "${this.goal}"`
                 continue;
               }
               
-              console.log(`[Amplifier] Task ${this.id} passed quality gates (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
-              
-              // ===== POST-TASK SELF-EVALUATION (Generator-Critic pattern) =====
-              this.progress.progressPercent = 92;
-              this.progress.currentStep = 'Self-evaluating work quality...';
-              this.streamEvent('evaluating', '🔍 Running self-evaluation on work product...', {
-                icon: 'search', color: 'purple'
-              });
-              this.streamProgress();
-              
-              const evaluation = await evaluateTask(this);
-              await storeEvaluation(this.id, evaluation);
-              
-              // If evaluation says revision needed AND we have time, go back for fixes
-              const timeLeftMs = this.maxRuntimeMs - (Date.now() - this.startTime.getTime());
-              if (evaluation.revisionNeeded && timeLeftMs > 60000 && !this._revisionAttempted) {
-                this._revisionAttempted = true; // Only one revision pass
-                console.log(`[Amplifier] Task ${this.id} needs revision (score: ${evaluation.overallScore}/100)`);
-                
-                this.streamEvent('revision', `⚠️ Self-evaluation score: ${evaluation.overallScore}/100 - revising...`, {
-                  score: evaluation.overallScore, icon: 'edit', color: 'yellow'
-                });
-                
-                // Inject evaluation feedback and continue the loop
-                this.messages.push({
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: JSON.stringify({
-                    rejected: true,
-                    reason: `Self-evaluation scored ${evaluation.overallScore}/100. ${formatEvaluationForAgent(evaluation)}\n\nFix the issues listed above, then call task_complete again.`
-                  })
-                });
-                continue; // Go back to the agent loop for revision
-              }
-              
-              console.log(`[Amplifier] Task ${this.id} passed evaluation (score: ${evaluation.overallScore}/100)`);
-              
-              // ===== UPDATE LAWYER PROFILE (learn from this task) =====
-              try {
-                await updateProfileAfterTask(this.userId, this.firmId, this);
-              } catch (profileError) {
-                console.log('[Amplifier] Profile update note:', profileError.message);
-              }
+              console.log(`[Amplifier] Task ${this.id} marked as complete (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
               
               // SMOOTH COMPLETION SEQUENCE
+              // Step 1: Show wrapping up (95%)
               this.progress.progressPercent = 95;
               this.progress.currentStep = 'Wrapping up...';
               this.streamEvent('finishing', '🎯 Finalizing work product...', {
@@ -2149,27 +1327,11 @@ Keep working on: "${this.goal}"`
               return;
             }
             
-            // Update structured plan and progress based on tool results
+            // Update progress based on planning tools
             if (toolName === 'think_and_plan') {
               this.plan = toolArgs;
-              this.updateStructuredPlan(toolArgs);
               this.progress.totalSteps = (toolArgs.steps || []).length;
-            }
-            
-            // Track key findings from info-gathering tools
-            if (toolSuccess && toolName === 'get_matter' && result?.matter) {
-              this.addKeyFinding(`Matter: ${result.matter.name} (${result.matter.status}, type: ${result.matter.type || 'general'})`);
-            }
-            if (toolSuccess && toolName === 'read_document_content' && result?.name) {
-              this.addKeyFinding(`Read doc: ${result.name} (${result.truncated ? 'partial' : 'full'})`);
-            }
-            if (toolSuccess && toolName === 'search_document_content' && result?.results) {
-              this.addKeyFinding(`Search "${toolArgs.search_term}": ${result.results.length} results`);
-            }
-            
-            // Mark plan steps as done
-            if (toolSuccess) {
-              this.markPlanStepProgress(toolName);
+              this.progress.progressPercent = Math.min(15, this.progress.progressPercent + 10);
             }
             
             if (toolName === 'evaluate_progress') {
@@ -2207,90 +1369,79 @@ Keep working on: "${this.goal}"`
 
             await this.saveCheckpoint('periodic');
           }
-          } // end else (sequential execution)
         } else {
           // No tool calls - AI just responded with text
-          this.textOnlyStreak++;
-          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (streak: ${this.textOnlyStreak})`);
+          textOnlyCount++;
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount})`);
           
+          // Stream that we got a thinking/text response
           const responsePreview = message.content ? message.content.substring(0, 80) : '';
-          this.streamEvent('thought_response', `💭 "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
+          this.streamEvent('thought_response', `💭 Thinking: "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
             iteration: this.progress.iterations,
             icon: 'message-square',
             color: 'gray'
           });
           
-          // ===== AGGRESSIVE TEXT-ONLY RECOVERY =====
-          // The model is drifting - snap it back to tool usage
-          
-          if (choice.finish_reason === 'stop' && this.actionsHistory.length > 0 && this.executionPhase === ExecutionPhase.REVIEW) {
-            // In REVIEW phase with work done - allow completion
-            console.log(`[Amplifier] Task ${this.id} completing from REVIEW phase`);
-            
-            this.progress.progressPercent = 95;
-            this.progress.currentStep = 'Wrapping up...';
-            this.streamEvent('finishing', '🎯 Finalizing...', { icon: 'loader', color: 'purple' });
-            this.streamProgress();
-            await sleep(600);
-            
-            await this.saveTaskHistory();
-            await this.persistCompletion(TaskStatus.COMPLETED);
-            
-            this.status = TaskStatus.COMPLETED;
-            this.progress.progressPercent = 100;
-            this.progress.currentStep = 'Completed';
-            this.result = {
-              summary: message.content || `Completed: ${this.goal}`,
-              actions: this.actionsHistory.map(a => a.tool)
-            };
-            this.endTime = new Date();
-            
-            this.streamEvent('task_complete', `✅ Task completed`, { 
-              actions_count: this.actionsHistory.length,
-              icon: 'check-circle', 
-              color: 'green' 
-            });
-            this.streamProgress();
-            await sleep(300);
-            
-            this.emit('complete', this.getStatus());
-            return;
-          }
-          
-          // Text-only streak handling - escalating intervention
-          if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK) {
-            // Mild re-prompt
-            const phaseHint = {
-              [ExecutionPhase.DISCOVERY]: 'Call get_matter or search_matters to gather information.',
-              [ExecutionPhase.ANALYSIS]: 'Call add_matter_note to document your analysis.',
-              [ExecutionPhase.ACTION]: 'Call create_document or create_task to create deliverables.',
-              [ExecutionPhase.REVIEW]: 'Call evaluate_progress or task_complete to finalize.',
-            };
-            this.messages.push({
-              role: 'user',
-              content: `STOP writing text. You MUST call a tool NOW. ${phaseHint[this.executionPhase] || 'Call a tool immediately.'} Your goal: "${this.goal}"`
-            });
-          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 3) {
-            // Strong intervention - re-inject plan and force tool use
-            console.warn(`[Amplifier] Text-only streak ${this.textOnlyStreak} - forcing plan re-injection`);
-            const planMsg = this.buildPlanMessage();
-            if (planMsg) {
-              this.messages.push(planMsg);
+          // Check if finish_reason indicates completion
+          if (choice.finish_reason === 'stop') {
+            // If we've done some work and the AI seems done, complete the task
+            if (this.actionsHistory.length > 0) {
+              console.log(`[Amplifier] Task ${this.id} completed after ${this.actionsHistory.length} actions`);
+              
+              // SMOOTH COMPLETION SEQUENCE
+              this.progress.progressPercent = 95;
+              this.progress.currentStep = 'Wrapping up...';
+              this.streamEvent('finishing', '🎯 Finalizing...', { icon: 'loader', color: 'purple' });
+              this.streamProgress();
+              await sleep(600);
+              
+              this.progress.progressPercent = 98;
+              this.progress.currentStep = 'Saving results...';
+              this.streamProgress();
+              
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.COMPLETED);
+              await sleep(400);
+              
+              this.status = TaskStatus.COMPLETED;
+              this.progress.progressPercent = 100;
+              this.progress.currentStep = 'Completed';
+              this.result = {
+                summary: message.content || `Completed: ${this.goal}`,
+                actions: this.actionsHistory.map(a => a.tool)
+              };
+              this.endTime = new Date();
+              
+              this.streamEvent('task_complete', `✅ Task completed`, { 
+                actions_count: this.actionsHistory.length,
+                icon: 'check-circle', 
+                color: 'green' 
+              });
+              this.streamProgress();
+              await sleep(300);
+              
+              this.emit('complete', this.getStatus());
+              return;
             }
-            this.messages.push({
-              role: 'user',
-              content: `⚠️ CRITICAL: You have responded ${this.textOnlyStreak} times without calling any tool. This is UNACCEPTABLE. You are a tool-calling agent. Call think_and_plan RIGHT NOW if you're unsure what to do, then call action tools. DO NOT RESPOND WITH TEXT.`
-            });
-          } else {
-            // Terminal failure after many text-only responses
-            console.error(`[Amplifier] Task ${this.id} failed: ${this.textOnlyStreak} consecutive text-only responses`);
-            this.status = TaskStatus.FAILED;
-            this.error = `Agent stopped using tools after ${this.textOnlyStreak} text-only responses.`;
-            this.endTime = new Date();
-            await this.saveTaskHistory();
-            await this.persistCompletion(TaskStatus.FAILED);
-            this.emit('error', new Error(this.error));
-            return;
+            
+            // If no actions were taken and AI just responded with text, prompt it to take action
+            if (textOnlyCount < MAX_TEXT_ONLY_RESPONSES) {
+              console.log(`[Amplifier] Re-prompting AI to take action`);
+              this.messages.push({
+                role: 'user',
+                content: 'You must call tools to complete this task. Do NOT just respond with text. Start by calling think_and_plan, then execute the necessary tools. Call tools NOW.'
+              });
+            } else {
+              // AI keeps responding with text only - something is wrong
+              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools`);
+              this.status = TaskStatus.FAILED;
+              this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
+              this.endTime = new Date();
+              await this.saveTaskHistory();
+              await this.persistCompletion(TaskStatus.FAILED);
+              this.emit('error', new Error(this.error));
+              return;
+            }
           }
         }
         
@@ -2312,18 +1463,10 @@ Keep working on: "${this.goal}"`
           const retryAfterMs = rateLimitMatch ? Number.parseInt(rateLimitMatch[1], 10) * 1000 : 30000;
           const safeDelay = Number.isFinite(retryAfterMs) ? Math.max(5000, retryAfterMs) : 30000;
           const waitSeconds = Math.round(safeDelay / 1000);
+          this.progress.currentStep = `Rate limited - retrying in ${waitSeconds}s`;
           
-          // ===== RATE LIMIT TRACKING =====
-          this.rateLimitWaitMs += safeDelay;
-          this.rateLimitCount++;
-          const totalRLWaitSec = Math.round(this.rateLimitWaitMs / 1000);
-          console.warn(`[Amplifier] Rate limit #${this.rateLimitCount}, total wait: ${totalRLWaitSec}s`);
-          
-          this.progress.currentStep = `Rate limited - retrying in ${waitSeconds}s (total waits: ${totalRLWaitSec}s)`;
-          
-          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${waitSeconds}s (${this.rateLimitCount} total)`, {
+          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${waitSeconds}s before retry...`, {
             wait_seconds: waitSeconds,
-            total_rate_limits: this.rateLimitCount,
             icon: 'clock',
             color: 'yellow'
           });
@@ -2805,7 +1948,6 @@ class AmplifierService {
   /**
    * Configure the service
    * Uses the SAME Azure OpenAI configuration as the normal AI chat
-   * Always returns true - actual API errors will be handled at runtime
    */
   async configure() {
     if (this.configured) return true;
@@ -2846,10 +1988,6 @@ class AmplifierService {
 
   /**
    * Resume background tasks from checkpoints after restart
-   * 
-   * This is called at server startup to resume any tasks that were
-   * interrupted by a server restart. Tasks are resumed from their
-   * last checkpoint and continue where they left off.
    */
   async resumePendingTasks() {
     if (!persistenceAvailable) return;
@@ -2857,31 +1995,11 @@ class AmplifierService {
       const result = await query(
         `SELECT id, firm_id, user_id, goal, status, progress, result, error, iterations, max_iterations, options, checkpoint, started_at
          FROM ai_background_tasks
-         WHERE status IN ('running', 'pending') AND checkpoint IS NOT NULL
-         ORDER BY started_at DESC`
+         WHERE status IN ('running', 'pending') AND checkpoint IS NOT NULL`
       );
 
-      if (result.rows.length === 0) {
-        console.log('[AmplifierService] No interrupted tasks to resume');
-        return;
-      }
-
-      console.log(`[AmplifierService] Found ${result.rows.length} interrupted task(s) to resume`);
-
       for (const row of result.rows) {
-        if (this.tasks.has(row.id)) {
-          console.log(`[AmplifierService] Task ${row.id} already active, skipping`);
-          continue;
-        }
-        
-        // Calculate how long the task was interrupted
-        const interruptedAt = row.checkpoint?.lastCheckpointAt 
-          ? new Date(row.checkpoint.lastCheckpointAt) 
-          : row.started_at ? new Date(row.started_at) : new Date();
-        const interruptedMinutes = Math.round((Date.now() - interruptedAt.getTime()) / 60000);
-        
-        console.log(`[AmplifierService] Resuming task ${row.id}: "${row.goal.substring(0, 50)}..." (interrupted ${interruptedMinutes} min ago)`);
-        
+        if (this.tasks.has(row.id)) continue;
         const task = new BackgroundTask(row.id, row.user_id, row.firm_id, row.goal, row.options || {});
         task.progress = row.progress || task.progress;
         task.result = row.result || null;
@@ -2899,41 +2017,10 @@ class AmplifierService {
         task.on('error', () => activeTasks.delete(task.userId));
         task.on('cancelled', () => activeTasks.delete(task.userId));
 
-        // Create notification for the user that their task is resuming
-        try {
-          await query(
-            `INSERT INTO notifications (
-              firm_id, user_id, type, title, message, priority,
-              entity_type, entity_id, action_url, metadata
-            ) VALUES ($1, $2, 'ai_agent', $3, $4, 'normal', 'background_task', $5, $6, $7)`,
-            [
-              row.firm_id,
-              row.user_id,
-              'Background Task Resumed',
-              `Your task "${row.goal.substring(0, 50)}${row.goal.length > 50 ? '...' : ''}" is resuming after a server restart.`,
-              row.id,
-              '/app/background-agent',
-              JSON.stringify({
-                taskId: row.id,
-                resumedAt: new Date().toISOString(),
-                interruptedMinutes,
-                iteration: row.iterations || 0
-              })
-            ]
-          );
-        } catch (notifError) {
-          // Non-fatal - notification creation failed
-          console.warn(`[AmplifierService] Failed to create resume notification for task ${row.id}:`, notifError.message);
-        }
-
         task.start({ resumeFromCheckpoint: true }).catch(err => {
-          console.error(`[AmplifierService] Resumed task ${row.id} failed:`, err);
+          console.error(`[AmplifierService] Resumed task ${task.id} failed:`, err);
         });
-        
-        console.log(`[AmplifierService] Task ${row.id} resumed successfully`);
       }
-      
-      console.log(`[AmplifierService] Finished resuming ${result.rows.length} task(s)`);
     } catch (error) {
       markPersistenceUnavailable(error);
       if (persistenceAvailable) {
@@ -3451,44 +2538,6 @@ const amplifierService = new AmplifierService();
 setInterval(() => {
   amplifierService.cleanup();
 }, 60 * 60 * 1000); // Every hour
-
-// Graceful shutdown handler - save all running task checkpoints
-async function gracefulShutdown(signal) {
-  console.log(`[AmplifierService] Received ${signal}, saving task checkpoints...`);
-  
-  const runningTasks = Array.from(amplifierService.tasks.values()).filter(
-    task => task.status === TaskStatus.RUNNING
-  );
-  
-  if (runningTasks.length === 0) {
-    console.log('[AmplifierService] No running tasks to checkpoint');
-    return;
-  }
-  
-  console.log(`[AmplifierService] Saving ${runningTasks.length} running task(s)...`);
-  
-  // Save checkpoints in parallel
-  await Promise.allSettled(
-    runningTasks.map(async (task) => {
-      try {
-        task.streamEvent('shutdown', '⚠️ Server shutting down, saving progress...', {
-          icon: 'alert-triangle',
-          color: 'yellow'
-        });
-        await task.saveCheckpoint('shutdown');
-        console.log(`[AmplifierService] Saved checkpoint for task ${task.id}`);
-      } catch (error) {
-        console.error(`[AmplifierService] Failed to save checkpoint for ${task.id}:`, error.message);
-      }
-    })
-  );
-  
-  console.log('[AmplifierService] All checkpoints saved');
-}
-
-// Register shutdown handlers
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 export default amplifierService;
 export { AmplifierService, BackgroundTask, TaskStatus };
