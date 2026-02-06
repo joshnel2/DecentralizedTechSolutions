@@ -5,7 +5,7 @@ import { useDataStore } from '../stores/dataStore'
 import { useAIChat } from '../contexts/AIChatContext'
 import { useTimer, formatElapsedTime, secondsToHours } from '../contexts/TimerContext'
 import { analyticsApi } from '../services/api'
-import { OnboardingWizard, useOnboarding } from '../components/OnboardingWizard'
+// OnboardingWizard removed - not needed
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
   AlertCircle, ArrowRight, Sparkles, FileText,
@@ -37,8 +37,7 @@ export function DashboardPage() {
   // Attorney production data for billing analytics
   const [attorneyProduction, setAttorneyProduction] = useState<any>(null)
   
-  // Onboarding
-  const { shouldShow: showOnboarding, setShouldShow: setShowOnboarding } = useOnboarding()
+  // Onboarding removed
   const navigate = useNavigate()
 
   // Filter matters based on selected client
@@ -188,11 +187,6 @@ export function DashboardPage() {
 
   return (
     <div className={styles.dashboard}>
-      {/* Onboarding for new users */}
-      {showOnboarding && (
-        <OnboardingWizard onClose={() => setShowOnboarding(false)} />
-      )}
-      
       {/* Welcome Section */}
       <section className={styles.welcome}>
         <div>
