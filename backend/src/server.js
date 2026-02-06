@@ -58,7 +58,7 @@ import amplifierService from './services/amplifierService.js';
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
 
-dotenv.config();
+// Note: dotenv is loaded via 'import dotenv/config' at the top of this file
 
 const app = express();
 const PORT = process.env.PORT || 3001;

@@ -403,13 +403,6 @@ async function verifyMatterAccess(userId, matterId, firmId) {
 // VECTOR EMBEDDING ENDPOINTS
 // ============================================
 
-import {
-  storeDocumentEmbeddings,
-  semanticSearch,
-  deleteDocumentEmbeddings,
-  getEmbeddingStats
-} from '../services/embeddingService.js';
-
 /**
  * Generate and store embeddings for a document
  * Typically called after document upload or update
