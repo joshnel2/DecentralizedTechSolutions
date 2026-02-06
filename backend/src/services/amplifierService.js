@@ -15,6 +15,8 @@
 import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
 import { getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
+import { getLawyerProfile, formatProfileForPrompt as formatLawyerProfile, updateProfileAfterTask } from './amplifier/lawyerProfile.js';
+import { evaluateTask, storeEvaluation, formatEvaluationForAgent } from './amplifier/taskEvaluator.js';
 import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
 import { getCPLRContextForPrompt, getCPLRGuidanceForMatter } from './amplifier/legalKnowledge/nyCPLR.js';
@@ -33,10 +35,11 @@ const TaskStatus = {
   WAITING_INPUT: 'waiting_input'
 };
 
-// Azure OpenAI configuration - SAME env vars as aiAgent.js
-// Read at RUNTIME via getAzureConfig() to ensure Azure App Service env vars are available
-// (top-level reads can fail if module loads before platform injects env vars)
-const API_VERSION = '2024-12-01-preview';
+// Azure OpenAI configuration - model-agnostic, config-driven
+// Swap models by changing AZURE_OPENAI_DEPLOYMENT env var in Azure App Service
+// The harness works with any model that supports function calling:
+// GPT-4o, GPT-4o-mini, GPT-4.1, o1, o3, or any future Azure-hosted model
+const API_VERSION = process.env.AZURE_OPENAI_API_VERSION || '2024-12-01-preview';
 
 // Background agent runtime defaults (tuned for 30-MINUTE legal tasks)
 const DEFAULT_MAX_ITERATIONS = 200;
@@ -412,6 +415,9 @@ class BackgroundTask extends EventEmitter {
     // Caches results from read-only tools so the agent doesn't re-fetch the same data
     this.toolCache = new Map(); // key: "toolName:argHash" -> { result, timestamp }
     this.CACHE_TTL_MS = 5 * 60 * 1000; // 5 minute cache TTL
+    
+    // Lawyer profile (grows smarter over time)
+    this.lawyerProfile = null;
     
     // Tools that are safe to cache (read-only, no side effects)
     this.CACHEABLE_TOOLS = new Set([
@@ -911,6 +917,17 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       } catch (profileError) {
         console.log('[Amplifier] Document profile not available (new user or table pending)');
         this.userDocumentProfile = null;
+      }
+      
+      // Load comprehensive lawyer profile (per-lawyer personalization)
+      try {
+        this.lawyerProfile = await getLawyerProfile(this.userId, this.firmId);
+        if (this.lawyerProfile) {
+          console.log(`[Amplifier] Loaded lawyer profile for ${this.lawyerProfile.lawyerName || this.userId} (${this.lawyerProfile.totalTasks} past tasks)`);
+        }
+      } catch (profileError) {
+        console.log('[Amplifier] Lawyer profile not available:', profileError.message);
+        this.lawyerProfile = null;
       }
       
       // Get workflow templates
@@ -1539,6 +1556,11 @@ ${getCPLRContextForPrompt()}
 BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be thorough, specific, and professional.
 `;
 
+    // Add comprehensive lawyer profile (personalization that improves over time)
+    if (this.lawyerProfile) {
+      prompt += formatLawyerProfile(this.lawyerProfile);
+    }
+    
     // Add user's document style profile (PRIVATE per-user learning)
     if (this.userDocumentProfile) {
       prompt += formatProfileForPrompt(this.userDocumentProfile);
@@ -2016,10 +2038,51 @@ Keep working on: "${this.goal}"`
                 continue;
               }
               
-              console.log(`[Amplifier] Task ${this.id} marked as complete (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
+              console.log(`[Amplifier] Task ${this.id} passed quality gates (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
+              
+              // ===== POST-TASK SELF-EVALUATION (Generator-Critic pattern) =====
+              this.progress.progressPercent = 92;
+              this.progress.currentStep = 'Self-evaluating work quality...';
+              this.streamEvent('evaluating', '🔍 Running self-evaluation on work product...', {
+                icon: 'search', color: 'purple'
+              });
+              this.streamProgress();
+              
+              const evaluation = await evaluateTask(this);
+              await storeEvaluation(this.id, evaluation);
+              
+              // If evaluation says revision needed AND we have time, go back for fixes
+              const timeLeftMs = this.maxRuntimeMs - (Date.now() - this.startTime.getTime());
+              if (evaluation.revisionNeeded && timeLeftMs > 60000 && !this._revisionAttempted) {
+                this._revisionAttempted = true; // Only one revision pass
+                console.log(`[Amplifier] Task ${this.id} needs revision (score: ${evaluation.overallScore}/100)`);
+                
+                this.streamEvent('revision', `⚠️ Self-evaluation score: ${evaluation.overallScore}/100 - revising...`, {
+                  score: evaluation.overallScore, icon: 'edit', color: 'yellow'
+                });
+                
+                // Inject evaluation feedback and continue the loop
+                this.messages.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({
+                    rejected: true,
+                    reason: `Self-evaluation scored ${evaluation.overallScore}/100. ${formatEvaluationForAgent(evaluation)}\n\nFix the issues listed above, then call task_complete again.`
+                  })
+                });
+                continue; // Go back to the agent loop for revision
+              }
+              
+              console.log(`[Amplifier] Task ${this.id} passed evaluation (score: ${evaluation.overallScore}/100)`);
+              
+              // ===== UPDATE LAWYER PROFILE (learn from this task) =====
+              try {
+                await updateProfileAfterTask(this.userId, this.firmId, this);
+              } catch (profileError) {
+                console.log('[Amplifier] Profile update note:', profileError.message);
+              }
               
               // SMOOTH COMPLETION SEQUENCE
-              // Step 1: Show wrapping up (95%)
               this.progress.progressPercent = 95;
               this.progress.currentStep = 'Wrapping up...';
               this.streamEvent('finishing', '🎯 Finalizing work product...', {
