@@ -2016,7 +2016,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
                 console.log(`[Amplifier] Task ${this.id} attempted early completion: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}`);
                 
                 // Reject early completion - push message to continue
-                toolCallResults.push({
+                this.messages.push({
                   role: 'tool',
                   tool_call_id: toolCall.id,
                   content: JSON.stringify({

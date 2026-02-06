@@ -3648,7 +3648,7 @@ async function listInvoices(args, user) {
   const { status, client_id, matter_id, source, limit = 20 } = args;
   
   let sql = `
-    SELECT i.id, i.number, i.status, i.total as amount, i.due_date, i.external_id, i.external_source, c.display_name as client_name, m.name as matter_name, i.description
+    SELECT i.id, i.number, i.status, i.total as amount, i.due_date, i.external_id, i.external_source, c.display_name as client_name, m.name as matter_name, i.notes as description
     FROM invoices i
     LEFT JOIN clients c ON i.client_id = c.id
     LEFT JOIN matters m ON i.matter_id = m.id
