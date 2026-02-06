@@ -11,7 +11,6 @@ import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
-import { FirmSetupPage } from './pages/FirmSetupPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { MattersPage } from './pages/MattersPage'
 import { MatterDetailPage } from './pages/MatterDetailPage'
@@ -150,9 +149,9 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, user } = useAuthStore()
+  const { isAuthenticated } = useAuthStore()
   if (isAuthenticated) {
-    return <Navigate to={user?.firmId ? '/app/dashboard' : '/setup'} />
+    return <Navigate to="/app/dashboard" />
   }
   return <>{children}</>
 }
@@ -204,11 +203,6 @@ function AppContent() {
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/eula" element={<EULAPage />} />
       <Route path="/compliance" element={<CompliancePage />} />
-      
-      {/* Firm Setup */}
-      <Route path="/setup" element={
-        <PrivateRoute><FirmSetupPage /></PrivateRoute>
-      } />
       
       {/* Protected Routes */}
       <Route path="/app" element={
