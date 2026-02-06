@@ -128,7 +128,11 @@ class SuperLawyerAgent:
         )
         self.legal_knowledge = get_legal_knowledge_base()
         self.fs_tool = FileSystemTool(config.sandbox_directory)
-        self.tool_executor = get_tool_executor()
+        self.tool_executor = get_tool_executor(
+            backend_url=self.backend_url,
+            user_id=user_id,
+            firm_id=firm_id
+        )
         
         # Task time management for 30-minute optimization
         self.task_complexity = None

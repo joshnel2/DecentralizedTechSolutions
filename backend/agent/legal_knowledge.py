@@ -593,9 +593,11 @@ class LegalKnowledgeBase:
     
     def format_knowledge_for_prompt(self, task_description: str) -> str:
         """
-        Format relevant knowledge as text for the system prompt.
+        Format relevant knowledge as compact text for the system prompt.
         
-        This is the main method used to inject legal knowledge into the agent.
+        Kept concise to minimize context window usage. Only includes
+        the most relevant sections for the detected practice area.
+        Also points the agent to REAL information sources via tools.
         """
         knowledge = self.get_relevant_knowledge_for_task(task_description)
         
@@ -603,41 +605,31 @@ class LegalKnowledgeBase:
         
         if knowledge["practice_area"]:
             area_info = self.get_practice_area_knowledge(knowledge["practice_area"])
-            lines.append(f"## LEGAL CONTEXT: {area_info['name'].upper()}")
-            lines.append("")
-            lines.append(area_info.get("description", ""))
-            lines.append("")
+            lines.append(f"## {area_info['name'].upper()}")
         
+        # Compact workflow - just the steps, no extra formatting
         if knowledge["workflow"]:
-            lines.append("### Typical Workflow")
-            for i, step in enumerate(knowledge["workflow"][:8], 1):
-                lines.append(f"{i}. {step}")
-            lines.append("")
+            lines.append("Workflow: " + " → ".join(knowledge["workflow"][:6]))
         
-        if knowledge["checklist"]:
-            lines.append("### Intake Checklist")
-            for item in knowledge["checklist"][:8]:
-                lines.append(item)
-            lines.append("")
-        
+        # Key deadlines only
         if knowledge["deadlines"]:
-            lines.append("### Key Deadlines to Consider")
-            for name, desc in list(knowledge["deadlines"].items())[:5]:
-                lines.append(f"- **{name.replace('_', ' ').title()}**: {desc}")
-            lines.append("")
+            lines.append("Key deadlines:")
+            for name, desc in list(knowledge["deadlines"].items())[:3]:
+                lines.append(f"- {name.replace('_', ' ').title()}: {desc}")
         
-        if knowledge["best_practices"]:
-            lines.append("### Best Practices")
-            for practice in knowledge["best_practices"][:5]:
-                lines.append(f"- {practice}")
-            lines.append("")
-        
-        for procedure in knowledge["relevant_procedures"]:
-            if procedure:
-                lines.append(f"### Procedure: {procedure['name']}")
-                for step in procedure.get("steps", [])[:6]:
-                    lines.append(step)
-                lines.append("")
+        # Real information sources available via tools
+        lines.append("")
+        lines.append("## REAL INFORMATION SOURCES (use these tools)")
+        lines.append("- `lookup_cplr`: NY CPLR statute text, deadlines, and practice guidance")
+        lines.append("- `calculate_cplr_deadline`: Calculate NY deadlines with court rules")
+        lines.append("- `calculate_deadline`: Calculate deadlines (business/court/calendar days)")
+        lines.append("- `search_semantic`: Search firm's actual document library by meaning")
+        lines.append("- `find_precedent`: Find precedent in firm's real documents")
+        lines.append("- `search_document_content`: Full-text search across all firm documents")
+        lines.append("- `read_document_content`: Read actual text from any firm document")
+        lines.append("- `check_conflicts`: Real conflict check against firm's client/matter database")
+        lines.append("- `get_matter`: Get real matter details, documents, tasks, billing from database")
+        lines.append("ALWAYS prefer these real tools over general knowledge. Cite what the tools return.")
         
         return "\n".join(lines) if lines else ""
 
