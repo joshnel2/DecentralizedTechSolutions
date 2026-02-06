@@ -38,23 +38,62 @@ const TaskStatus = {
 // (top-level reads can fail if module loads before platform injects env vars)
 const API_VERSION = '2024-12-01-preview';
 
-// Background agent runtime defaults (tuned for EXTENDED legal tasks)
-// Increased for complex matters that require thorough analysis
+// Background agent runtime defaults (tuned for 30-MINUTE legal tasks)
 const DEFAULT_MAX_ITERATIONS = 200;
-const DEFAULT_MAX_RUNTIME_MINUTES = 180; // 3 hours for comprehensive legal work
+const DEFAULT_MAX_RUNTIME_MINUTES = 45; // 30 min target + 15 min buffer
 const EXTENDED_MAX_ITERATIONS = 400;
-const EXTENDED_MAX_RUNTIME_MINUTES = 480; // 8 hours for major projects
+const EXTENDED_MAX_RUNTIME_MINUTES = 120; // 2 hours for major projects
 const CHECKPOINT_INTERVAL_MS = 15000;
-const MESSAGE_COMPACT_MAX_CHARS = 20000; // Increased for better context retention
-const MESSAGE_COMPACT_MAX_MESSAGES = 32; // Allow more messages before compacting
+const MESSAGE_COMPACT_MAX_CHARS = 16000; // Tighter to compact sooner and preserve plan
+const MESSAGE_COMPACT_MAX_MESSAGES = 24; // Compact sooner to keep messages focused
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
+const PLAN_MESSAGE_PREFIX = '## EXECUTION PLAN';
+
+// Execution phases for structured 30-minute task management
+const ExecutionPhase = {
+  DISCOVERY: 'discovery',   // Gather info, read docs, understand context (first ~20%)
+  ANALYSIS: 'analysis',     // Analyze findings, identify issues (next ~20%)
+  ACTION: 'action',         // Create deliverables: docs, notes, tasks (next ~40%)
+  REVIEW: 'review',         // Verify work, create follow-ups, finalize (last ~20%)
+};
+
+const PHASE_CONFIG = {
+  [ExecutionPhase.DISCOVERY]: {
+    maxIterationPercent: 25,  // spend at most 25% of iterations here
+    tokenBudget: 2000,       // shorter responses for info gathering
+    temperature: 0.3,
+    description: 'Gathering information and understanding context',
+    requiredBefore: null,
+  },
+  [ExecutionPhase.ANALYSIS]: {
+    maxIterationPercent: 25,
+    tokenBudget: 3000,
+    temperature: 0.4,
+    description: 'Analyzing findings and identifying issues',
+    requiredBefore: ExecutionPhase.DISCOVERY,
+  },
+  [ExecutionPhase.ACTION]: {
+    maxIterationPercent: 35,
+    tokenBudget: 4000,       // longer responses for document creation
+    temperature: 0.5,
+    description: 'Creating deliverables and work product',
+    requiredBefore: ExecutionPhase.ANALYSIS,
+  },
+  [ExecutionPhase.REVIEW]: {
+    maxIterationPercent: 15,
+    tokenBudget: 3000,
+    temperature: 0.3,
+    description: 'Reviewing work, creating follow-ups, finalizing',
+    requiredBefore: ExecutionPhase.ACTION,
+  },
+};
 
 // Task complexity estimation for better progress tracking
 const TASK_COMPLEXITY = {
-  simple: { estimatedSteps: 5, estimatedMinutes: 2 },
-  moderate: { estimatedSteps: 10, estimatedMinutes: 5 },
-  complex: { estimatedSteps: 20, estimatedMinutes: 15 },
-  major: { estimatedSteps: 40, estimatedMinutes: 30 }
+  simple: { estimatedSteps: 8, estimatedMinutes: 5 },
+  moderate: { estimatedSteps: 15, estimatedMinutes: 15 },
+  complex: { estimatedSteps: 30, estimatedMinutes: 25 },
+  major: { estimatedSteps: 50, estimatedMinutes: 35 }
 };
 
 /**
@@ -349,6 +388,25 @@ class BackgroundTask extends EventEmitter {
     
     // Matter context cache
     this.matterContext = null;
+    
+    // ===== PHASE-BASED EXECUTION (for reliable 30-minute tasks) =====
+    this.executionPhase = ExecutionPhase.DISCOVERY;
+    this.phaseIterationCounts = {
+      [ExecutionPhase.DISCOVERY]: 0,
+      [ExecutionPhase.ANALYSIS]: 0,
+      [ExecutionPhase.ACTION]: 0,
+      [ExecutionPhase.REVIEW]: 0,
+    };
+    // Structured plan that SURVIVES compaction (stored as object, not just in messages)
+    this.structuredPlan = null; // { goal, phases: [{name, steps: [string], status}], keyFindings: [] }
+    
+    // Rate limit tracking for adaptive token management
+    this.rateLimitWaitMs = 0;
+    this.rateLimitCount = 0;
+    this.lastPlanInjectionIteration = 0;
+    
+    // Track text-only responses more aggressively
+    this.textOnlyStreak = 0;
   }
 
   /**
@@ -385,6 +443,231 @@ class BackgroundTask extends EventEmitter {
     } catch (e) {
       // Streaming is best-effort
     }
+  }
+
+  // ===== PHASE MANAGEMENT METHODS =====
+
+  /**
+   * Determine if the agent should transition to the next phase.
+   * Called after each iteration to check phase boundaries.
+   */
+  shouldTransitionPhase() {
+    const phases = [ExecutionPhase.DISCOVERY, ExecutionPhase.ANALYSIS, ExecutionPhase.ACTION, ExecutionPhase.REVIEW];
+    const currentIdx = phases.indexOf(this.executionPhase);
+    if (currentIdx >= phases.length - 1) return false; // Already in REVIEW
+    
+    const config = PHASE_CONFIG[this.executionPhase];
+    const maxItersForPhase = Math.ceil(this.maxIterations * config.maxIterationPercent / 100);
+    const itersInPhase = this.phaseIterationCounts[this.executionPhase];
+    
+    // Time-based: if we've spent too long in this phase relative to total budget
+    const elapsedMs = Date.now() - this.startTime.getTime();
+    const elapsedPercent = (elapsedMs / this.maxRuntimeMs) * 100;
+    
+    // Force transition if we've exceeded the phase's iteration budget
+    if (itersInPhase >= maxItersForPhase) return true;
+    
+    // Force transition based on time pressure
+    if (this.executionPhase === ExecutionPhase.DISCOVERY && elapsedPercent > 30) return true;
+    if (this.executionPhase === ExecutionPhase.ANALYSIS && elapsedPercent > 50) return true;
+    if (this.executionPhase === ExecutionPhase.ACTION && elapsedPercent > 85) return true;
+    
+    // Auto-transition from DISCOVERY to ANALYSIS after getting matter info
+    if (this.executionPhase === ExecutionPhase.DISCOVERY && this.substantiveActions.research >= 2 && itersInPhase >= 3) {
+      return true;
+    }
+    
+    // Auto-transition from ANALYSIS to ACTION after creating at least 1 note
+    if (this.executionPhase === ExecutionPhase.ANALYSIS && this.substantiveActions.notes >= 1 && itersInPhase >= 2) {
+      return true;
+    }
+    
+    // Auto-transition from ACTION to REVIEW after creating substantive deliverables
+    if (this.executionPhase === ExecutionPhase.ACTION && 
+        (this.substantiveActions.documents >= 1 || this.substantiveActions.tasks >= 2) && itersInPhase >= 3) {
+      return true;
+    }
+    
+    return false;
+  }
+  
+  /**
+   * Transition to the next execution phase
+   */
+  transitionPhase() {
+    const phases = [ExecutionPhase.DISCOVERY, ExecutionPhase.ANALYSIS, ExecutionPhase.ACTION, ExecutionPhase.REVIEW];
+    const currentIdx = phases.indexOf(this.executionPhase);
+    if (currentIdx >= phases.length - 1) return;
+    
+    const oldPhase = this.executionPhase;
+    this.executionPhase = phases[currentIdx + 1];
+    
+    console.log(`[Amplifier] Phase transition: ${oldPhase} → ${this.executionPhase}`);
+    
+    this.streamEvent('phase_change', `📋 Moving to ${PHASE_CONFIG[this.executionPhase].description}`, {
+      from: oldPhase,
+      to: this.executionPhase,
+      icon: 'arrow-right',
+      color: 'purple'
+    });
+    
+    // Inject phase transition guidance into messages
+    this.messages.push({
+      role: 'user',
+      content: this.getPhaseTransitionPrompt()
+    });
+  }
+  
+  /**
+   * Get phase-specific instruction prompt for the current phase
+   */
+  getPhaseTransitionPrompt() {
+    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
+    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
+    
+    const phasePrompts = {
+      [ExecutionPhase.ANALYSIS]: `
+== PHASE TRANSITION: Now in ANALYSIS phase (~${remainingMin} min remaining) ==
+You've gathered information. Now ANALYZE what you found:
+1. Use add_matter_note to document your key findings and analysis
+2. Identify legal issues, risks, and gaps
+3. Prepare your analysis before creating deliverables
+Focus on THINKING and DOCUMENTING findings. Call add_matter_note with your analysis NOW.`,
+
+      [ExecutionPhase.ACTION]: `
+== PHASE TRANSITION: Now in ACTION phase (~${remainingMin} min remaining) ==
+Analysis is done. Now CREATE DELIVERABLES:
+1. Use create_document for formal work product (memos, letters, briefs)
+2. Use create_task for follow-up action items
+3. Use create_calendar_event for deadlines
+This is where you produce the actual work product. Create documents NOW.`,
+
+      [ExecutionPhase.REVIEW]: `
+== PHASE TRANSITION: Now in REVIEW phase (~${remainingMin} min remaining) ==
+Work product created. Now FINALIZE:
+1. Use evaluate_progress to confirm all steps are done
+2. Create any remaining follow-up tasks
+3. Call task_complete with a comprehensive summary
+Wrap up efficiently. You MUST call task_complete soon.`,
+    };
+    
+    return phasePrompts[this.executionPhase] || `Continue working on: ${this.goal}`;
+  }
+
+  /**
+   * Build the persistent plan message that survives compaction.
+   * This is always re-injected after compaction so the agent never loses the thread.
+   */
+  buildPlanMessage() {
+    if (!this.structuredPlan) return null;
+    
+    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
+    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
+    
+    let planText = `${PLAN_MESSAGE_PREFIX}\n`;
+    planText += `Goal: ${this.structuredPlan.goal}\n`;
+    planText += `Phase: ${this.executionPhase.toUpperCase()} | Time: ${elapsedMin}min elapsed, ~${remainingMin}min remaining\n\n`;
+    
+    // Show plan steps with completion status
+    if (this.structuredPlan.steps && this.structuredPlan.steps.length > 0) {
+      planText += 'Steps:\n';
+      for (const step of this.structuredPlan.steps) {
+        const icon = step.done ? '✅' : (step.inProgress ? '🔄' : '⬜');
+        planText += `${icon} ${step.text}\n`;
+      }
+    }
+    
+    // Key findings that must persist
+    if (this.structuredPlan.keyFindings && this.structuredPlan.keyFindings.length > 0) {
+      planText += '\nKey findings:\n';
+      for (const finding of this.structuredPlan.keyFindings.slice(-8)) {
+        planText += `- ${finding}\n`;
+      }
+    }
+    
+    // What's been created
+    const created = [];
+    if (this.substantiveActions.documents > 0) created.push(`${this.substantiveActions.documents} document(s)`);
+    if (this.substantiveActions.notes > 0) created.push(`${this.substantiveActions.notes} note(s)`);
+    if (this.substantiveActions.tasks > 0) created.push(`${this.substantiveActions.tasks} task(s)`);
+    if (this.substantiveActions.events > 0) created.push(`${this.substantiveActions.events} event(s)`);
+    if (created.length > 0) planText += `\nCreated: ${created.join(', ')}\n`;
+    
+    // What's still needed (based on quality gates)
+    const needed = [];
+    if (this.substantiveActions.notes === 0) needed.push('at least 1 note (add_matter_note)');
+    if (this.substantiveActions.tasks === 0) needed.push('at least 1 task (create_task)');
+    if (this.actionsHistory.length < 5) needed.push(`${5 - this.actionsHistory.length} more tool calls`);
+    if (needed.length > 0) planText += `Still required: ${needed.join(', ')}\n`;
+    
+    return { role: 'system', content: planText };
+  }
+  
+  /**
+   * Update the structured plan when think_and_plan is called
+   */
+  updateStructuredPlan(planArgs) {
+    const steps = (planArgs.steps || []).map(s => ({
+      text: typeof s === 'string' ? s : s.text || String(s),
+      done: false,
+      inProgress: false,
+    }));
+    
+    this.structuredPlan = {
+      goal: this.goal,
+      steps,
+      keyFindings: this.structuredPlan?.keyFindings || [],
+    };
+    
+    console.log(`[Amplifier] Structured plan created with ${steps.length} steps`);
+  }
+  
+  /**
+   * Record a key finding that should persist through compaction
+   */
+  addKeyFinding(finding) {
+    if (!this.structuredPlan) {
+      this.structuredPlan = { goal: this.goal, steps: [], keyFindings: [] };
+    }
+    this.structuredPlan.keyFindings.push(finding);
+    // Keep only the 12 most recent findings to prevent bloat
+    if (this.structuredPlan.keyFindings.length > 12) {
+      this.structuredPlan.keyFindings = this.structuredPlan.keyFindings.slice(-12);
+    }
+  }
+  
+  /**
+   * Mark a plan step as done based on the tool that was executed
+   */
+  markPlanStepProgress(toolName) {
+    if (!this.structuredPlan?.steps) return;
+    
+    // Find a step that matches this tool action and mark it done
+    for (const step of this.structuredPlan.steps) {
+      if (step.done) continue;
+      const stepLower = step.text.toLowerCase();
+      
+      const toolStepMap = {
+        'get_matter': ['gather', 'review', 'load', 'get matter', 'check matter'],
+        'read_document_content': ['read', 'review document', 'examine'],
+        'search_document_content': ['search', 'find'],
+        'add_matter_note': ['note', 'document finding', 'write note', 'analysis note'],
+        'create_document': ['create document', 'draft', 'memo', 'letter', 'brief', 'write'],
+        'create_task': ['task', 'follow-up', 'action item', 'checklist'],
+        'create_calendar_event': ['schedule', 'deadline', 'calendar', 'event'],
+        'evaluate_progress': ['evaluate', 'review progress', 'check progress'],
+      };
+      
+      const keywords = toolStepMap[toolName] || [];
+      if (keywords.some(k => stepLower.includes(k))) {
+        step.done = true;
+        break;
+      }
+    }
+  }
+
+  isPlanMessage(message) {
+    return message?.role === 'system' && message?.content?.startsWith(PLAN_MESSAGE_PREFIX);
   }
 
   /**
@@ -575,84 +858,65 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
   }
 
   buildMemorySummary() {
-    // Categorize actions by type for better summary
     const successfulActions = this.actionsHistory.filter(a => !a.result?.error);
     const failedActions = this.actionsHistory.filter(a => a.result?.error);
+    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
+    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
     
-    const actionsByType = {
-      information: successfulActions.filter(a => ['get_matter', 'list_documents', 'read_document_content', 'search_matters', 'list_clients'].includes(a.tool)),
-      creation: successfulActions.filter(a => ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event'].includes(a.tool)),
-      planning: successfulActions.filter(a => ['think_and_plan', 'evaluate_progress', 'log_work'].includes(a.tool)),
-    };
-
-    const planLines = Array.isArray(this.plan?.steps)
-      ? this.plan.steps.map((step, index) => `${index + 1}. ${step}`)
-      : [];
+    const createdItems = successfulActions
+      .filter(a => ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event'].includes(a.tool))
+      .map(a => {
+        if (a.tool === 'create_document') return `- Doc: ${a.args?.name || 'untitled'}`;
+        if (a.tool === 'add_matter_note') return `- Note added to matter`;
+        if (a.tool === 'create_task') return `- Task: ${a.args?.title || 'untitled'}`;
+        if (a.tool === 'create_calendar_event') return `- Event: ${a.args?.title || 'untitled'}`;
+        return null;
+      }).filter(Boolean);
     
-    // Build key findings from successful information gathering
-    const keyFindings = actionsByType.information.slice(-5).map(a => {
-      if (a.tool === 'get_matter' && a.result?.matter) {
-        return `- Matter: ${a.result.matter.name} (${a.result.matter.status})`;
-      }
-      if (a.tool === 'read_document_content' && a.result?.name) {
-        return `- Read: ${a.result.name} (${a.result.truncated ? 'partial' : 'full'})`;
-      }
-      return null;
-    }).filter(Boolean);
-    
-    // Build created items summary
-    const createdItems = actionsByType.creation.map(a => {
-      if (a.tool === 'create_document') return `- Document: ${a.args?.name || 'untitled'}`;
-      if (a.tool === 'add_matter_note') return `- Note added`;
-      if (a.tool === 'create_task') return `- Task: ${a.args?.title || 'untitled'}`;
-      if (a.tool === 'create_calendar_event') return `- Event: ${a.args?.title || 'untitled'}`;
-      return null;
-    }).filter(Boolean);
+    const keyFindings = (this.structuredPlan?.keyFindings || []).slice(-6);
 
     const summaryParts = [
       `${MEMORY_MESSAGE_PREFIX}`,
       `Goal: ${this.goal}`,
-      `Complexity: ${this.complexity} | Progress: ${this.progress?.progressPercent || 0}%`,
-      this.progress?.currentStep ? `Current: ${this.progress.currentStep}` : null,
-      planLines.length ? `\nPLAN:\n${planLines.join('\n')}` : null,
-      keyFindings.length ? `\nKEY FINDINGS:\n${keyFindings.join('\n')}` : null,
+      `Phase: ${this.executionPhase.toUpperCase()} | ${elapsedMin}min elapsed | ~${remainingMin}min remaining`,
+      `Stats: ${this.actionsHistory.length} actions | Notes: ${this.substantiveActions.notes} | Tasks: ${this.substantiveActions.tasks} | Docs: ${this.substantiveActions.documents}`,
+      keyFindings.length ? `\nKEY FINDINGS:\n${keyFindings.map(f => `- ${f}`).join('\n')}` : null,
       createdItems.length ? `\nCREATED:\n${createdItems.join('\n')}` : null,
-      failedActions.length ? `\nFAILED (avoid repeating): ${failedActions.map(a => a.tool).join(', ')}` : null,
-      `\nTotal actions: ${this.actionsHistory.length} | Notes: ${this.substantiveActions.notes} | Tasks: ${this.substantiveActions.tasks} | Docs: ${this.substantiveActions.documents}`,
+      failedActions.length > 0 ? `\nFAILED (avoid): ${[...new Set(failedActions.map(a => a.tool))].join(', ')}` : null,
     ].filter(Boolean);
 
     const summary = summaryParts.join('\n');
-    return summary.length > 5000 ? `${summary.substring(0, 5000)}…` : summary;
+    return summary.length > 3000 ? `${summary.substring(0, 3000)}…` : summary;
   }
   
   /**
    * Calculate progress percentage based on task complexity and actions taken
    */
   calculateProgressPercent() {
-    const actionsCount = this.actionsHistory.length;
-    const hasNote = this.substantiveActions.notes > 0;
-    const hasTask = this.substantiveActions.tasks > 0;
-    const hasDocument = this.substantiveActions.documents > 0;
-    const hasPlan = this.plan !== null;
+    // Phase-based progress: each phase maps to a range
+    const phaseRanges = {
+      [ExecutionPhase.DISCOVERY]: { min: 5, max: 20 },
+      [ExecutionPhase.ANALYSIS]: { min: 20, max: 40 },
+      [ExecutionPhase.ACTION]: { min: 40, max: 75 },
+      [ExecutionPhase.REVIEW]: { min: 75, max: 90 },
+    };
     
-    // Base progress from action count vs estimated steps
-    const actionProgress = Math.min(70, (actionsCount / this.estimatedSteps) * 70);
+    const range = phaseRanges[this.executionPhase] || { min: 5, max: 90 };
+    const config = PHASE_CONFIG[this.executionPhase];
+    const maxItersForPhase = Math.ceil(this.maxIterations * config.maxIterationPercent / 100);
+    const itersInPhase = this.phaseIterationCounts[this.executionPhase];
+    const phaseProgress = Math.min(1, itersInPhase / Math.max(1, maxItersForPhase));
+    
+    const baseProgress = range.min + (range.max - range.min) * phaseProgress;
     
     // Milestone bonuses
-    let milestoneBonus = 0;
-    if (hasPlan) milestoneBonus += 5;
-    if (hasNote) milestoneBonus += 5;
-    if (hasTask) milestoneBonus += 5;
-    if (hasDocument) milestoneBonus += 10;
-    if (hasNote && hasTask) milestoneBonus += 5; // Both required = bonus
+    let bonus = 0;
+    if (this.structuredPlan) bonus += 3;
+    if (this.substantiveActions.notes > 0) bonus += 3;
+    if (this.substantiveActions.tasks > 0) bonus += 2;
+    if (this.substantiveActions.documents > 0) bonus += 5;
     
-    // Time-based progress (don't let it sit at 0 for too long)
-    const elapsedMs = Date.now() - this.startTime.getTime();
-    const expectedMs = this.estimatedMinutes * 60 * 1000;
-    const timeProgress = Math.min(10, (elapsedMs / expectedMs) * 10);
-    
-    const total = actionProgress + milestoneBonus + timeProgress;
-    return Math.min(90, Math.max(5, Math.round(total))); // Cap at 90%, minimum 5%
+    return Math.min(90, Math.max(5, Math.round(baseProgress + bonus)));
   }
 
   compactMessagesIfNeeded() {
@@ -668,34 +932,28 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
 
     console.log(`[Amplifier] Compacting messages: ${this.messages.length} messages, ${totalChars} chars`);
 
-    const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message));
+    // The system prompt is always first and always preserved
+    const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message) && !this.isPlanMessage(message));
     
-    // Keep more recent messages for better context (increased from 12 to 16)
-    const recentMessages = this.messages.slice(-16).filter(message => !this.isMemoryMessage(message));
+    // Keep recent messages (reduced from 16 to 12 to leave room for plan + memory)
+    const recentMessages = this.messages.slice(-12).filter(message => 
+      !this.isMemoryMessage(message) && !this.isPlanMessage(message)
+    );
     
-    // Also keep any messages that contain important context (e.g., matter details)
-    const importantMessages = this.messages.filter(message => {
-      if (this.isMemoryMessage(message)) return false;
-      if (recentMessages.includes(message)) return false;
-      
-      const content = message?.content || '';
-      // Keep messages that contain key information
-      return content.includes('matter:') || 
-             content.includes('client:') || 
-             content.includes('PRE-LOADED MATTER CONTEXT') ||
-             content.includes('EMPTY MATTER');
-    }).slice(-3); // Keep at most 3 important older messages
-    
+    // Build fresh memory summary
     const memoryMessage = { role: 'system', content: this.buildMemorySummary() };
+    
+    // Build fresh plan message (this is the KEY improvement - plan always survives)
+    const planMessage = this.buildPlanMessage();
 
     this.messages = this.normalizeMessages([
       systemMessage, 
       memoryMessage, 
-      ...importantMessages,
+      planMessage,    // Plan ALWAYS re-injected after compaction
       ...recentMessages
     ].filter(Boolean));
     
-    console.log(`[Amplifier] Compacted to ${this.messages.length} messages`);
+    console.log(`[Amplifier] Compacted to ${this.messages.length} messages (plan preserved)`);
   }
 
   normalizeMessages(messages) {
@@ -922,8 +1180,12 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       error: this.error,
       iterations: this.progress.iterations,
       plan: this.plan,
+      structuredPlan: this.structuredPlan,
+      executionPhase: this.executionPhase,
+      phaseIterationCounts: this.phaseIterationCounts,
+      substantiveActions: this.substantiveActions,
       systemPrompt: this.systemPrompt,
-      lastCheckpointAt: new Date().toISOString(), // Track when checkpoint was saved for resume timing
+      lastCheckpointAt: new Date().toISOString(),
     };
   }
 
@@ -986,6 +1248,10 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     this.result = checkpoint.result || this.result;
     this.error = checkpoint.error || this.error;
     this.plan = checkpoint.plan || this.plan;
+    this.structuredPlan = checkpoint.structuredPlan || this.structuredPlan;
+    this.executionPhase = checkpoint.executionPhase || this.executionPhase;
+    this.phaseIterationCounts = checkpoint.phaseIterationCounts || this.phaseIterationCounts;
+    this.substantiveActions = checkpoint.substantiveActions || this.substantiveActions;
     this.systemPrompt = checkpoint.systemPrompt || this.systemPrompt;
   }
 
@@ -1322,11 +1588,11 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = this.maxIterations;
-    const MAX_TEXT_ONLY_RESPONSES = 3; // Max times AI can respond with only text before we re-prompt
+    const MAX_TEXT_ONLY_STREAK = 2; // Only 2 text-only responses before aggressive re-prompt
+    const PLAN_REINJECTION_INTERVAL = 8; // Re-inject plan every 8 iterations
     const tools = getOpenAITools();
-    let textOnlyCount = 0;
     
-    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools available`);
+    console.log(`[Amplifier] Starting agent loop with ${tools.length} tools, phase: ${this.executionPhase}`);
     
     while (this.progress.iterations < MAX_ITERATIONS && !this.cancelled) {
       const elapsedMs = Date.now() - this.startTime.getTime();
@@ -1370,21 +1636,43 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
       }
 
       this.progress.iterations++;
-      this.progress.currentStep = `Working... (step ${this.progress.iterations})`;
+      this.phaseIterationCounts[this.executionPhase]++;
+      this.progress.currentStep = `${this.executionPhase.toUpperCase()}: step ${this.progress.iterations}`;
       this.emit('progress', this.getStatus());
       
+      // ===== PHASE TRANSITION CHECK =====
+      if (this.shouldTransitionPhase()) {
+        this.transitionPhase();
+      }
+      
+      // ===== PERIODIC PLAN RE-INJECTION =====
+      // Every N iterations, re-inject the plan so the agent never loses the thread
+      if (this.structuredPlan && 
+          (this.progress.iterations - this.lastPlanInjectionIteration) >= PLAN_REINJECTION_INTERVAL) {
+        const freshPlan = this.buildPlanMessage();
+        if (freshPlan) {
+          // Remove old plan messages and add fresh one
+          this.messages = this.messages.filter(m => !this.isPlanMessage(m));
+          // Insert after system message
+          const sysIdx = this.messages.findIndex(m => m.role === 'system');
+          this.messages.splice(sysIdx + 1, 0, freshPlan);
+          this.lastPlanInjectionIteration = this.progress.iterations;
+        }
+      }
+      
       try {
-        console.log(`[Amplifier] Iteration ${this.progress.iterations}: calling Azure OpenAI`);
+        const phaseConfig = PHASE_CONFIG[this.executionPhase];
         
-        // Stream thinking event to Glass Cockpit UI with context
+        console.log(`[Amplifier] Iteration ${this.progress.iterations} [${this.executionPhase}]: calling Azure OpenAI`);
+        
+        // Stream thinking event with phase context
         const thinkingContext = this.actionsHistory.length === 0 
           ? 'Analyzing task and creating plan...'
-          : this.plan 
-            ? `Step ${this.progress.completedSteps + 1}: Planning next action...`
-            : 'Evaluating progress and deciding next steps...';
+          : `[${this.executionPhase.toUpperCase()}] ${phaseConfig.description}`;
         
         this.streamEvent('thought_start', `🧠 ${thinkingContext}`, {
           iteration: this.progress.iterations,
+          phase: this.executionPhase,
           actions_so_far: this.actionsHistory.length,
           icon: 'brain',
           color: 'blue'
@@ -1393,10 +1681,19 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         this.messages = this.normalizeMessages(this.messages);
         this.compactMessagesIfNeeded();
         
-        // Call Azure OpenAI with tools
+        // ===== ADAPTIVE TOKEN BUDGET =====
+        // Use phase-specific token budget, reduce if rate limited heavily
+        let tokenBudget = phaseConfig.tokenBudget;
+        let temperature = phaseConfig.temperature;
+        if (this.rateLimitCount > 3) {
+          tokenBudget = Math.max(1500, Math.round(tokenBudget * 0.7));
+          console.log(`[Amplifier] Reducing token budget to ${tokenBudget} due to ${this.rateLimitCount} rate limits`);
+        }
+        
+        // Call Azure OpenAI with phase-aware settings
         const response = await callAzureOpenAI(this.messages, tools, {
-          temperature: this.options?.temperature ?? 0.3,
-          max_tokens: this.options?.max_tokens ?? 4000
+          temperature: this.options?.temperature ?? temperature,
+          max_tokens: this.options?.max_tokens ?? tokenBudget
         });
         const choice = response.choices[0];
         const message = choice.message;
@@ -1406,7 +1703,7 @@ Begin by calling think_and_plan to create your execution plan, then immediately 
         
         // Check for tool calls (this is what makes it an AGENT)
         if (message.tool_calls && message.tool_calls.length > 0) {
-          textOnlyCount = 0; // Reset text-only counter
+          this.textOnlyStreak = 0; // Reset text-only counter
           
           const toolNames = message.tool_calls.map(tc => tc.function?.name || 'unknown');
           console.log(`[Amplifier] Iteration ${this.progress.iterations}: ${message.tool_calls.length} tool(s) to execute: ${toolNames.join(', ')}`);
@@ -1650,11 +1947,27 @@ Keep working on: "${this.goal}"`
               return;
             }
             
-            // Update progress based on planning tools
+            // Update structured plan and progress based on tool results
             if (toolName === 'think_and_plan') {
               this.plan = toolArgs;
+              this.updateStructuredPlan(toolArgs);
               this.progress.totalSteps = (toolArgs.steps || []).length;
-              this.progress.progressPercent = Math.min(15, this.progress.progressPercent + 10);
+            }
+            
+            // Track key findings from info-gathering tools
+            if (toolSuccess && toolName === 'get_matter' && result?.matter) {
+              this.addKeyFinding(`Matter: ${result.matter.name} (${result.matter.status}, type: ${result.matter.type || 'general'})`);
+            }
+            if (toolSuccess && toolName === 'read_document_content' && result?.name) {
+              this.addKeyFinding(`Read doc: ${result.name} (${result.truncated ? 'partial' : 'full'})`);
+            }
+            if (toolSuccess && toolName === 'search_document_content' && result?.results) {
+              this.addKeyFinding(`Search "${toolArgs.search_term}": ${result.results.length} results`);
+            }
+            
+            // Mark plan steps as done
+            if (toolSuccess) {
+              this.markPlanStepProgress(toolName);
             }
             
             if (toolName === 'evaluate_progress') {
@@ -1694,77 +2007,87 @@ Keep working on: "${this.goal}"`
           }
         } else {
           // No tool calls - AI just responded with text
-          textOnlyCount++;
-          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (count: ${textOnlyCount})`);
+          this.textOnlyStreak++;
+          console.log(`[Amplifier] Iteration ${this.progress.iterations}: text-only response (streak: ${this.textOnlyStreak})`);
           
-          // Stream that we got a thinking/text response
           const responsePreview = message.content ? message.content.substring(0, 80) : '';
-          this.streamEvent('thought_response', `💭 Thinking: "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
+          this.streamEvent('thought_response', `💭 "${responsePreview}${responsePreview.length >= 80 ? '...' : ''}"`, {
             iteration: this.progress.iterations,
             icon: 'message-square',
             color: 'gray'
           });
           
-          // Check if finish_reason indicates completion
-          if (choice.finish_reason === 'stop') {
-            // If we've done some work and the AI seems done, complete the task
-            if (this.actionsHistory.length > 0) {
-              console.log(`[Amplifier] Task ${this.id} completed after ${this.actionsHistory.length} actions`);
-              
-              // SMOOTH COMPLETION SEQUENCE
-              this.progress.progressPercent = 95;
-              this.progress.currentStep = 'Wrapping up...';
-              this.streamEvent('finishing', '🎯 Finalizing...', { icon: 'loader', color: 'purple' });
-              this.streamProgress();
-              await sleep(600);
-              
-              this.progress.progressPercent = 98;
-              this.progress.currentStep = 'Saving results...';
-              this.streamProgress();
-              
-              await this.saveTaskHistory();
-              await this.persistCompletion(TaskStatus.COMPLETED);
-              await sleep(400);
-              
-              this.status = TaskStatus.COMPLETED;
-              this.progress.progressPercent = 100;
-              this.progress.currentStep = 'Completed';
-              this.result = {
-                summary: message.content || `Completed: ${this.goal}`,
-                actions: this.actionsHistory.map(a => a.tool)
-              };
-              this.endTime = new Date();
-              
-              this.streamEvent('task_complete', `✅ Task completed`, { 
-                actions_count: this.actionsHistory.length,
-                icon: 'check-circle', 
-                color: 'green' 
-              });
-              this.streamProgress();
-              await sleep(300);
-              
-              this.emit('complete', this.getStatus());
-              return;
-            }
+          // ===== AGGRESSIVE TEXT-ONLY RECOVERY =====
+          // The model is drifting - snap it back to tool usage
+          
+          if (choice.finish_reason === 'stop' && this.actionsHistory.length > 0 && this.executionPhase === ExecutionPhase.REVIEW) {
+            // In REVIEW phase with work done - allow completion
+            console.log(`[Amplifier] Task ${this.id} completing from REVIEW phase`);
             
-            // If no actions were taken and AI just responded with text, prompt it to take action
-            if (textOnlyCount < MAX_TEXT_ONLY_RESPONSES) {
-              console.log(`[Amplifier] Re-prompting AI to take action`);
-              this.messages.push({
-                role: 'user',
-                content: 'You must call tools to complete this task. Do NOT just respond with text. Start by calling think_and_plan, then execute the necessary tools. Call tools NOW.'
-              });
-            } else {
-              // AI keeps responding with text only - something is wrong
-              console.error(`[Amplifier] Task ${this.id} failed: AI not calling tools`);
-              this.status = TaskStatus.FAILED;
-              this.error = 'Agent did not execute any actions. The AI model may not support function calling.';
-              this.endTime = new Date();
-              await this.saveTaskHistory();
-              await this.persistCompletion(TaskStatus.FAILED);
-              this.emit('error', new Error(this.error));
-              return;
+            this.progress.progressPercent = 95;
+            this.progress.currentStep = 'Wrapping up...';
+            this.streamEvent('finishing', '🎯 Finalizing...', { icon: 'loader', color: 'purple' });
+            this.streamProgress();
+            await sleep(600);
+            
+            await this.saveTaskHistory();
+            await this.persistCompletion(TaskStatus.COMPLETED);
+            
+            this.status = TaskStatus.COMPLETED;
+            this.progress.progressPercent = 100;
+            this.progress.currentStep = 'Completed';
+            this.result = {
+              summary: message.content || `Completed: ${this.goal}`,
+              actions: this.actionsHistory.map(a => a.tool)
+            };
+            this.endTime = new Date();
+            
+            this.streamEvent('task_complete', `✅ Task completed`, { 
+              actions_count: this.actionsHistory.length,
+              icon: 'check-circle', 
+              color: 'green' 
+            });
+            this.streamProgress();
+            await sleep(300);
+            
+            this.emit('complete', this.getStatus());
+            return;
+          }
+          
+          // Text-only streak handling - escalating intervention
+          if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK) {
+            // Mild re-prompt
+            const phaseHint = {
+              [ExecutionPhase.DISCOVERY]: 'Call get_matter or search_matters to gather information.',
+              [ExecutionPhase.ANALYSIS]: 'Call add_matter_note to document your analysis.',
+              [ExecutionPhase.ACTION]: 'Call create_document or create_task to create deliverables.',
+              [ExecutionPhase.REVIEW]: 'Call evaluate_progress or task_complete to finalize.',
+            };
+            this.messages.push({
+              role: 'user',
+              content: `STOP writing text. You MUST call a tool NOW. ${phaseHint[this.executionPhase] || 'Call a tool immediately.'} Your goal: "${this.goal}"`
+            });
+          } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 3) {
+            // Strong intervention - re-inject plan and force tool use
+            console.warn(`[Amplifier] Text-only streak ${this.textOnlyStreak} - forcing plan re-injection`);
+            const planMsg = this.buildPlanMessage();
+            if (planMsg) {
+              this.messages.push(planMsg);
             }
+            this.messages.push({
+              role: 'user',
+              content: `⚠️ CRITICAL: You have responded ${this.textOnlyStreak} times without calling any tool. This is UNACCEPTABLE. You are a tool-calling agent. Call think_and_plan RIGHT NOW if you're unsure what to do, then call action tools. DO NOT RESPOND WITH TEXT.`
+            });
+          } else {
+            // Terminal failure after many text-only responses
+            console.error(`[Amplifier] Task ${this.id} failed: ${this.textOnlyStreak} consecutive text-only responses`);
+            this.status = TaskStatus.FAILED;
+            this.error = `Agent stopped using tools after ${this.textOnlyStreak} text-only responses.`;
+            this.endTime = new Date();
+            await this.saveTaskHistory();
+            await this.persistCompletion(TaskStatus.FAILED);
+            this.emit('error', new Error(this.error));
+            return;
           }
         }
         
@@ -1786,10 +2109,18 @@ Keep working on: "${this.goal}"`
           const retryAfterMs = rateLimitMatch ? Number.parseInt(rateLimitMatch[1], 10) * 1000 : 30000;
           const safeDelay = Number.isFinite(retryAfterMs) ? Math.max(5000, retryAfterMs) : 30000;
           const waitSeconds = Math.round(safeDelay / 1000);
-          this.progress.currentStep = `Rate limited - retrying in ${waitSeconds}s`;
           
-          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${waitSeconds}s before retry...`, {
+          // ===== RATE LIMIT TRACKING =====
+          this.rateLimitWaitMs += safeDelay;
+          this.rateLimitCount++;
+          const totalRLWaitSec = Math.round(this.rateLimitWaitMs / 1000);
+          console.warn(`[Amplifier] Rate limit #${this.rateLimitCount}, total wait: ${totalRLWaitSec}s`);
+          
+          this.progress.currentStep = `Rate limited - retrying in ${waitSeconds}s (total waits: ${totalRLWaitSec}s)`;
+          
+          this.streamEvent('rate_limit', `⏳ Rate limited - waiting ${waitSeconds}s (${this.rateLimitCount} total)`, {
             wait_seconds: waitSeconds,
+            total_rate_limits: this.rateLimitCount,
             icon: 'clock',
             color: 'yellow'
           });
