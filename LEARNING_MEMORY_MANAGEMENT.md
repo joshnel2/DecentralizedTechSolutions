@@ -1,23 +1,66 @@
-# How the Background Agent's Learning Memory Doesn't Get Overloaded
+# How the Background Agent's Learning Memory Works
 
-## The Problem
+## What Does the Agent Learn From?
 
-The background agent is constantly learning from every task it completes, every user
-edit it observes, every workflow it records, and every piece of feedback it receives.
-Without safeguards, this would lead to unbounded memory growth, slower performance,
-and eventually system failure.
+The agent learns from **three sources**, not just AI tasks:
 
-## The Solution: 7 Layered Safeguards
+### 1. User Documents (Private per-user)
 
-The system uses multiple complementary strategies to keep learning memory bounded,
-relevant, and efficient.
+When a user uploads or views a document, the system extracts learning insights:
+
+| What It Learns | How | File |
+|----------------|-----|------|
+| **Writing style** | Sentence length, formality level, paragraph structure | `documentLearning.js` |
+| **Clause patterns** | Common clauses in contracts (indemnification, termination, etc.) | `documentLearning.js` |
+| **Terminology preferences** | "pursuant to" vs "according to", "shall" vs "will" | `documentLearning.js` |
+| **Document structure** | Whether user uses headings, numbered sections, recitals, signature blocks | `documentLearning.js` |
+| **Naming conventions** | How user names documents (dated, versioned, descriptive) | `manualLearning.js` |
+
+**Wired in at:**
+- Document upload: `documents.js` line 1415 (`learnFromDocument`)
+- Document content view: `documents.js` line 1593 (`onDocumentAccessed`)
+
+### 2. User Interactions with the Software (Private per-user)
+
+The system learns from how the user **manually** uses the software, not just AI:
+
+| What It Learns | Triggered By | File |
+|----------------|-------------|------|
+| **Billing description patterns** | Creating a time entry | `manualLearning.js` via `timeEntries.js` |
+| **Rate patterns by matter type** | Creating time entries with rates | `manualLearning.js` via `timeEntries.js` |
+| **Activity code usage** | Using activity codes on time entries | `manualLearning.js` via `timeEntries.js` |
+| **Billing timing** | When during the day/week user enters time | `manualLearning.js` via `timeEntries.js` |
+| **Task patterns** | Creating tasks manually | `manualLearning.js` via `matterItems.js` |
+| **Scheduling patterns** | Setting due dates on tasks | `manualLearning.js` via `matterItems.js` |
+| **Calendar event patterns** | Creating calendar events | `manualLearning.js` via `calendar.js` |
+| **Meeting duration patterns** | Scheduling meetings/hearings | `manualLearning.js` via `calendar.js` |
+| **Matter naming conventions** | Creating matters | `manualLearning.js` via `matters.js` |
+| **Note-taking patterns** | Adding notes to matters | `manualLearning.js` via `matters.js` |
+| **Page navigation patterns** | Browsing the app | `interactionLearning.js` via `useInteractionLearning` hook |
+| **Feature usage frequency** | Using buttons/actions | `interactionLearning.js` via `useInteractionLearning` hook |
+| **Search behavior** | Searching (categories only, not raw text) | `interactionLearning.js` via `useInteractionLearning` hook |
+| **Sort/filter preferences** | Changing view settings | `interactionLearning.js` via `useInteractionLearning` hook |
+| **Work schedule patterns** | Time-of-day usage | `interactionLearning.js` via `useInteractionLearning` hook |
+
+### 3. AI Task Execution (Shared at firm/global levels)
+
+| What It Learns | Triggered By | File |
+|----------------|-------------|------|
+| **Successful tool sequences** | Completing AI tasks | `selfReinforcement.js` |
+| **Error recovery strategies** | Recovering from failed actions | `selfReinforcement.js` |
+| **Task templates** | Successfully completing multi-step tasks | `selfReinforcement.js` |
+| **Quality standards** | Highly-rated task completions | `selfReinforcement.js` |
+| **User preferences from feedback** | Negative feedback with corrections | `selfReinforcement.js` |
+| **Workflow patterns** | Recording successful workflows | `learning.py` |
+| **User behavior emulation** | Observing user decision patterns | `learning.py` |
 
 ---
 
-### 1. Three-Layer Memory Architecture with Consolidation
+## How Does It Not Get Overloaded?
 
-The system uses a **short-term → medium-term → long-term** memory pipeline that
-progressively compresses data:
+The system uses **7 layered safeguards** to keep learning memory bounded:
+
+### 1. Three-Layer Memory Architecture with Consolidation
 
 | Layer | Retention | Storage | Purpose |
 |-------|-----------|---------|---------|
@@ -25,184 +68,139 @@ progressively compresses data:
 | **Medium-term** | 90 days | Database patterns table | Statistical patterns extracted from raw data |
 | **Long-term** | Indefinite | Compressed heuristics | Distilled wisdom and core principles |
 
-**How consolidation works:**
-- **Daily** (midnight): Raw tasks are analyzed and patterns are extracted. The 7-day
-  rolling window means old raw data naturally expires.
-- **Weekly** (Sunday): Patterns are distilled into heuristics. Multiple observations
-  like "document reviews take 25% longer" become a single reliable rule.
-- **Monthly** (1st): Memory pruning runs — low-confidence patterns are deprecated,
-  rarely-used heuristics are archived, and storage is optimized.
+**Consolidation schedule:**
+- **Daily**: Raw tasks -> Patterns (7-day rolling window)
+- **Weekly**: Patterns -> Heuristics (wisdom distillation)
+- **Monthly**: Memory pruning (low-confidence deprecated, storage optimized)
 
-**Compression ratio: ~100:1** — hundreds of raw task records become a handful of
-proven heuristics.
-
-*See: `backend/src/services/amplifier/memoryDemoSimple.js`*
-
----
+**Compression ratio: ~100:1**
 
 ### 2. Hard Caps on Collection Sizes
 
-Every collection in the system has explicit size limits:
-
 | Collection | Cap | Location |
 |-----------|-----|----------|
-| Observations | **500 most recent** | `learning.py` line 345: `recent_observations = self._observations[-500:]` |
-| Examples per preference | **10 max** | `learning.py` line 668: `existing.examples = list(set(existing.examples))[:10]` |
-| Edit patterns in style guide | **Top 10** | `learning.py` line 613: `top_patterns = sorted(...)[:10]` |
-| Database learnings per firm | **100 max** | `selfReinforcement.js` line 383: `LIMIT 100` |
-| Context patterns per level | **10 max** | `learning.py` lines 557-559: `.[:10]` per level |
-| Lessons for a task | **10 max** | `learning.py` line 1253: `return list(set(lessons))[:10]` |
-| Preferences in prompt | **10 max** | `learning.py` line 898: `for pref in relevant[:10]` |
-| Learnings for a task | **10 max** | `selfReinforcement.js` line 370: `return relevantLearnings.slice(0, 10)` |
-| Success patterns | **5 max** | `learning.py` line 1274: `return patterns[:5]` |
-| Past observations checked | **Last 100** | `learning.py` lines 1247, 1264: `self._observations[-100:]` |
-
-These hard caps ensure that no matter how much the agent learns, the working set
-stays bounded.
-
----
+| Observations | **500 most recent** | `learning.py` line 345 |
+| Examples per preference | **10 max** | `learning.py` line 668 |
+| Edit patterns in style guide | **Top 10** | `learning.py` line 613 |
+| Database learnings per firm | **100 max** | `selfReinforcement.js` line 383 |
+| Context patterns per level | **10 max** | `learning.py` lines 557-559 |
+| Lessons for a task | **10 max** | `learning.py` line 1253 |
+| Preferences in prompt | **10 max** | `learning.py` line 898 |
+| Document insights per user | **50 max** | `documentLearning.js` line 320 |
+| Interaction profile | **50 max** | `interactionLearning.js` line 289 |
+| Frontend event buffer | **30 max** | `useInteractionLearning.ts` line 14 |
 
 ### 3. Confidence-Based Filtering
 
-Not all learnings are treated equally. The system uses confidence scores (0.0 to 1.0)
-to filter what gets stored and what gets used:
-
-**Storage thresholds:**
-- Database cache only loads learnings with `confidence >= 0.5`
-- Low-confidence learnings are deprioritized during pruning
-
-**Retrieval thresholds (hierarchical):**
-- **User-level** patterns: `confidence >= 0.3` (more lenient — personal data)
-- **Firm-level** patterns: `confidence >= 0.5` (medium threshold)
-- **Global patterns**: `confidence >= 0.6` (higher bar for shared data)
-
-**Confidence growth is bounded:**
-- Confidence increases use `min(1.0, existing + 0.1)` — capped at 1.0
-- Database uses a diminishing-returns formula:
-  `confidence = min(0.99, 0.50 + 0.49 * (1 - exp(-occurrences / 10)))`
-- This means confidence grows rapidly at first, then plateaus — even 1000
-  occurrences won't exceed 0.99
-
-*See: `backend/src/db/migrations/add_ai_learning_patterns.sql` lines 103-111*
-
----
+- Database only loads learnings with `confidence >= 0.5`
+- **User-level** patterns: threshold `>= 0.3` (lenient for personal data)
+- **Firm-level** patterns: threshold `>= 0.5` (medium)
+- **Global patterns**: threshold `>= 0.6` (strict)
+- Confidence uses diminishing-returns formula: `min(0.99, 0.50 + 0.49 * (1 - exp(-occurrences/10)))`
 
 ### 4. Database Deduplication
 
-The database prevents duplicate learnings using content hashing:
-
 ```sql
--- Content hash is auto-generated for deduplication
-content_hash VARCHAR(64) GENERATED ALWAYS AS (
-  encode(sha256(content::text::bytea), 'hex')
-) STORED
+content_hash GENERATED ALWAYS AS (encode(sha256(content::text::bytea), 'hex')) STORED
 
--- Upsert on conflict: merge instead of duplicate
 ON CONFLICT (firm_id, learning_type, content_hash)
 DO UPDATE SET
-  confidence = GREATEST(ai_learnings.confidence, EXCLUDED.confidence),
-  occurrence_count = ai_learnings.occurrence_count + 1,
-  updated_at = NOW()
+  confidence = GREATEST(confidence, EXCLUDED.confidence),
+  occurrence_count = occurrence_count + 1
 ```
 
-When the same pattern is observed again, instead of creating a new row, the existing
-row's confidence is boosted and its occurrence count increments. This means 1000
-observations of the same pattern still occupy exactly **one database row**.
-
-*See: `backend/src/db/migrations/add_ai_learnings.sql` lines 17, 33*
-
----
+1000 observations of the same pattern = **1 database row** with a high occurrence count.
 
 ### 5. In-Memory Cache with TTL
 
-The system doesn't query the database on every request. Instead, it uses a time-based
-cache:
-
-```javascript
-const CACHE_TTL_MS = 300000; // 5 minutes
-
-// Cache is refreshed only when stale
-if (now - lastCacheRefresh > CACHE_TTL_MS) {
-  await refreshCache(firmId);
-}
-```
-
-The cache loads at most 100 learnings per firm, sorted by confidence. This bounds
-the in-memory footprint regardless of how many learnings exist in the database.
-
-*See: `backend/src/services/amplifier/selfReinforcement.js` lines 17-18, 376-396*
-
----
+| Cache | TTL | Max Size |
+|-------|-----|----------|
+| Learnings cache | 5 minutes | 100 per firm |
+| Document style cache | 10 minutes | 50 per user |
+| Interaction profile cache | 10 minutes | 50 per user |
 
 ### 6. Pattern Merging Instead of Accumulation
 
-When the same pattern is observed again, the system **merges** instead of appending:
-
-**Edit patterns:** If the user corrects "hereinafter" → "from now on" multiple times,
-the occurrence count on the existing pattern increments rather than creating new entries.
-
-**Workflow patterns:** When a successful workflow is recorded for a task type that
-already has a pattern, the existing pattern is updated:
-- Success/failure counts are incremented
-- Average time is recalculated with a running average
-- The action sequence is only replaced if the old one had a low success rate
-
-**Style preferences:** When a preference is updated, examples are deduplicated:
-```python
-existing.examples.extend(examples)
-existing.examples = list(set(existing.examples))[:10]  # Dedupe and cap
-```
-
-This means repeated learning of the same concept doesn't grow memory — it
-strengthens existing knowledge.
-
-*See: `backend/agent/learning.py` lines 661-691 (preferences), 786-799 (edit patterns),
-934-964 (workflows)*
-
----
+When the same thing is observed again:
+- **Edit patterns**: Occurrence count increments (not new entry)
+- **Workflow patterns**: Running average updated (not new record)
+- **Style preferences**: Examples deduplicated and capped at 10
+- **Interaction patterns**: Frequency aggregated with running total
+- **Manual learning**: Numeric fields use running averages
 
 ### 7. Hierarchical Privacy-Based Scoping
 
-The three-level hierarchy (user → firm → global) naturally partitions memory:
+| Level | Scope | Filter Threshold |
+|-------|-------|-----------------|
+| **User** | Private to individual | `>= 0.3` |
+| **Firm** | Shared within firm | `>= 0.5` |
+| **Global** | Anonymized across all users | `>= 0.6` |
 
-- **User-level:** Only that user's personal patterns (smallest set)
-- **Firm-level:** Shared patterns within the firm (medium set, shared load)
-- **Global-level:** Anonymized, highly compressed patterns (largest but most filtered)
-
-Each level has its own filtering threshold, and global patterns go through an
-**anonymization step** that strips out identifying information, keeping only
-aggregate statistical data like task types, success rates, and action sequences.
-
-Safe fields allowed in global patterns:
+Global patterns are stripped of all identifying information:
 ```python
-safe_keys = [
-    'task_type', 'action_type', 'pattern_type', 'category',
-    'avg_time', 'avg_hours', 'success_rate', 'action_sequence',
-    'step_count', 'priority', 'frequency', 'document_type',
-    'matter_type', 'practice_area', 'event_type'
-]
+safe_keys = ['task_type', 'action_type', 'success_rate', 'action_sequence',
+             'step_count', 'priority', 'frequency', 'document_type', 'matter_type']
 ```
 
-This means global patterns are inherently small — they're stripped down to just
-the essential statistical fields.
+### 8. Frontend Event Batching
 
-*See: `backend/agent/learning.py` lines 472-512*
+The `useInteractionLearning` hook uses additional safeguards:
+- Events buffered in memory (not sent per click)
+- Flushed every 60 seconds OR when buffer hits 30 events
+- Minimum 3 events required to trigger a flush
+- Server processes events into aggregated patterns, not raw clicks
+- Categories (not raw text) are stored for search queries
 
 ---
 
-## Summary: Why It Works
+## Architecture Diagram
 
-| Strategy | What it prevents |
-|----------|-----------------|
-| 3-layer consolidation | Raw data accumulation (100:1 compression) |
-| Hard caps | Unbounded collection growth |
-| Confidence filtering | Low-quality data polluting memory |
-| Database deduplication | Duplicate entries |
-| TTL caching | Excessive database queries & memory use |
-| Pattern merging | Redundant entries for repeated observations |
-| Hierarchical scoping | Any single level growing too large |
+```
+USER ACTIONS                    LEARNING LAYER                 AGENT CONTEXT
+===========                     ==============                 =============
 
-The net effect: the agent can learn continuously for months or years without
-memory overload. Old, low-value data naturally fades away while proven patterns
-strengthen and persist — similar to how human memory works with short-term
-recall consolidating into long-term wisdom.
+Upload document ──────> documentLearning.js ──────┐
+View document content ──> (writing style,         │
+                          terminology,             │
+                          clause patterns)         │
+                                                   │
+Create time entry ────> manualLearning.js ────────┤
+Create task ──────────> (billing patterns,        │
+Create event ─────────>  naming conventions,      ├──> ai_learning_patterns DB
+Create matter ────────>  scheduling patterns,     │         │
+Add note ─────────────>  workflow sequences)      │         │
+                                                   │         ▼
+Navigate app ─────────> interactionLearning.js ───┤    Agent Prompt Context
+Use features ─────────> (page frequency,          │    (get_full_learning_context)
+Search ───────────────>  feature usage,            │         │
+Filter/Sort ──────────>  work schedule,            │         │
+                         search behavior)          │         ▼
+                                                   │    Better Personalized
+AI task completes ────> selfReinforcement.js ─────┤    Responses & Actions
+User feedback ────────> (tool patterns,           │
+                         error recovery,           │
+                         quality standards)        │
+                                                   │
+User edits AI output ─> learning.py ──────────────┘
+                        (edit patterns,
+                         style preferences,
+                         workflow patterns)
+
+MEMORY MANAGEMENT:
+  Raw Events ──[daily]──> Patterns ──[weekly]──> Heuristics
+  (7 day TTL)             (90 day TTL)            (permanent)
+  
+  All layers: deduplication, confidence caps, size limits, TTL caching
+```
+
+---
+
+## Summary
+
+| Question | Answer |
+|----------|--------|
+| Does it learn from documents? | Yes - writing style, terminology, structure, clause patterns |
+| Does it learn from manual software use? | Yes - time entries, tasks, calendar, matters, notes, navigation, search |
+| Does it learn from AI tasks? | Yes - tool patterns, error recovery, quality standards |
+| Will it get overloaded? | No - 7 safeguards: consolidation, hard caps, confidence filtering, deduplication, TTL caching, pattern merging, hierarchical scoping |
+| Is it private? | Yes - user patterns are private; firm patterns shared within firm; global patterns fully anonymized |
