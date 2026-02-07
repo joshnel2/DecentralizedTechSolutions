@@ -587,6 +587,10 @@ router.get('/review-queue', authenticate, async (req, res) => {
         item.deliverables.notes.length + 
         item.deliverables.tasks.length;
       
+      // ===== HARNESS INTELLIGENCE: Include confidence report =====
+      // This tells the attorney exactly where to focus their review
+      item.confidence = item.result?.confidence || null;
+      
       reviewItems.push(item);
     }
     
@@ -679,9 +683,39 @@ router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
       // Non-fatal
     }
     
+    // ===== HARNESS INTELLIGENCE: Learn from rejection =====
+    // This is the closed feedback loop. The rejection creates quality overrides
+    // that automatically tighten gates for this lawyer + work type on future tasks.
+    try {
+      const { learnFromRejection, recordToolChainFailure } = await import('../services/amplifier/harnessIntelligence.js');
+      
+      // Get the task result for context
+      const taskResult = await dbQuery(
+        `SELECT result, goal FROM ai_background_tasks WHERE id = $1`,
+        [req.params.id]
+      );
+      const result = taskResult.rows[0]?.result;
+      const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
+      
+      // Learn quality overrides from the rejection
+      const overrides = await learnFromRejection(
+        req.params.id, req.user.id, req.user.firmId, feedback, parsedResult
+      );
+      
+      // Mark the tool chain as failed
+      if (parsedResult?.actions) {
+        const workTypeId = parsedResult?.work_type_id || 'general';
+        await recordToolChainFailure(req.user.firmId, workTypeId, parsedResult.actions);
+      }
+      
+      console.log(`[ReviewQueue] Rejection learning: ${overrides?.length || 0} quality overrides created`);
+    } catch (e) {
+      console.log('[ReviewQueue] Rejection learning note:', e.message);
+    }
+    
     console.log(`[ReviewQueue] Task ${req.params.id} rejected by user ${req.user.id}: ${feedback.substring(0, 80)}`);
     
-    res.json({ success: true, message: 'Task rejected - feedback recorded for learning' });
+    res.json({ success: true, message: 'Task rejected - feedback recorded for learning. Quality gates tightened for future tasks.' });
   } catch (error) {
     console.error('[ReviewQueue] Error rejecting task:', error);
     res.status(500).json({ error: 'Failed to reject task' });

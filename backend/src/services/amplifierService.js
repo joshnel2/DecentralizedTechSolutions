@@ -35,6 +35,13 @@ import { detectModule, formatModuleForPrompt } from './amplifier/modules/index.j
 import { hooks as enhancedAmplifierHooks } from './amplifier/amplifierHooks.js';
 // Learning Optimizer: cross-task pattern refinement (periodic)
 import { LearningOptimizer } from './amplifier/learningOptimizer.js';
+// Harness Intelligence: rejection learning, tool chains, matter memory, confidence scoring
+import {
+  getQualityOverrides, recordOverrideSuccess, learnFromRejection,
+  getProvenToolChain, formatToolChainForPrompt, recordToolChain, recordToolChainFailure,
+  getMatterMemory, storeMatterMemories, extractMemoriesFromTask,
+  calculateConfidenceReport, formatConfidenceForReview,
+} from './amplifier/harnessIntelligence.js';
 
 // ===== SINGLETON INSTANCES for cross-task learning =====
 // These persist across tasks so learnings accumulate over the service lifetime
@@ -612,6 +619,13 @@ class BackgroundTask extends EventEmitter {
     // ===== MID-TASK EVALUATION tracking =====
     // Track whether we've run mid-task quality checks at phase transitions
     this.phaseEvaluationsDone = new Set();
+    
+    // ===== HARNESS INTELLIGENCE =====
+    // Loaded at initializeContext time - stores rejection-learned quality overrides,
+    // proven tool chains, and per-matter memory
+    this.qualityOverrides = null;
+    this.provenToolChain = null;
+    this.matterMemory = null;
   }
 
   /**
@@ -1322,6 +1336,39 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       
       // Try to extract matter context from goal if mentioned
       this.matterContext = await this.extractMatterContext();
+      
+      // ===== HARNESS INTELLIGENCE: Load learned quality overrides =====
+      const workType = classifyWork(this.goal);
+      try {
+        this.qualityOverrides = await getQualityOverrides(this.userId, this.firmId, workType.id);
+        if (this.qualityOverrides.promptModifiers.length > 0) {
+          console.log(`[Amplifier] Loaded ${this.qualityOverrides.promptModifiers.length} rejection-learned prompt modifiers`);
+        }
+      } catch (e) {
+        this.qualityOverrides = null;
+      }
+      
+      // ===== HARNESS INTELLIGENCE: Load proven tool chain =====
+      try {
+        this.provenToolChain = await getProvenToolChain(this.firmId, workType.id);
+        if (this.provenToolChain) {
+          console.log(`[Amplifier] Found proven tool chain for "${workType.id}" (${(this.provenToolChain.confidence * 100).toFixed(0)}% confidence, deterministic: ${this.provenToolChain.deterministic})`);
+        }
+      } catch (e) {
+        this.provenToolChain = null;
+      }
+      
+      // ===== HARNESS INTELLIGENCE: Load per-matter memory =====
+      if (this.preloadedMatterId) {
+        try {
+          this.matterMemory = await getMatterMemory(this.firmId, this.preloadedMatterId);
+          if (this.matterMemory) {
+            console.log(`[Amplifier] Loaded matter memory for "${this.preloadedMatterName}" - agent has institutional knowledge from previous tasks`);
+          }
+        } catch (e) {
+          this.matterMemory = null;
+        }
+      }
       
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
@@ -2149,6 +2196,25 @@ ${hasMatterPreloaded
       prompt += this.learningContext + '\n';
     }
 
+    // ===== HARNESS INTELLIGENCE: Inject per-matter memory =====
+    if (this.matterMemory) {
+      prompt += this.matterMemory;
+    }
+
+    // ===== HARNESS INTELLIGENCE: Inject proven tool chain =====
+    if (this.provenToolChain) {
+      prompt += formatToolChainForPrompt(this.provenToolChain);
+    }
+
+    // ===== HARNESS INTELLIGENCE: Inject rejection-learned modifiers =====
+    if (this.qualityOverrides?.promptModifiers?.length > 0) {
+      prompt += '\n## QUALITY REQUIREMENTS (learned from previous feedback)\n';
+      for (const modifier of this.qualityOverrides.promptModifiers.slice(0, 3)) {
+        prompt += `${modifier}\n`;
+      }
+      prompt += '\n';
+    }
+
     prompt += `\nBEGIN NOW. ${hasMatterPreloaded ? `Start with think_and_plan, then immediately work on matter "${this.preloadedMatterName}".` : 'Call think_and_plan first, then execute tools.'}\n`;
 
     // Add comprehensive lawyer profile (personalization that improves over time)
@@ -2826,10 +2892,10 @@ ${hasMatterPreloaded
               );
               const hasSelfReview = this.actionsHistory.some(a => a.tool === 'review_created_documents' && a.success !== false);
               
-              // Generic minimums
+              // Generic minimums (may be overridden by rejection learning)
               const MIN_SECONDS = 120;
-              const MIN_ACTIONS = 8;
-              const MIN_SUBSTANTIVE = 3;
+              const MIN_ACTIONS = Math.max(8, this.qualityOverrides?.minActions || 0);
+              const MIN_SUBSTANTIVE = Math.max(3, this.qualityOverrides?.minActions ? Math.ceil(this.qualityOverrides.minActions * 0.6) : 0);
               
               // Build missing requirements message
               const missing = [];
@@ -2923,6 +2989,31 @@ ${hasMatterPreloaded
                 WT_REQS[workTypeId]();
               }
               
+              // ===== HARNESS INTELLIGENCE: Rejection-learned required tools =====
+              if (this.qualityOverrides?.requiredTools?.length > 0) {
+                for (const req of this.qualityOverrides.requiredTools) {
+                  const toolCalled = this.actionsHistory.some(a => a.tool === req.tool && a.success !== false);
+                  if (!toolCalled && req.must_call) {
+                    missing.push(`REQUIRED (learned from feedback): Must call ${req.tool}. Previous work was rejected because this step was skipped.`);
+                  }
+                  if (req.min_calls) {
+                    const callCount = this.actionsHistory.filter(a => a.tool === req.tool && a.success !== false).length;
+                    if (callCount < req.min_calls) {
+                      missing.push(`REQUIRED (learned from feedback): Must call ${req.tool} at least ${req.min_calls} times (called ${callCount}).`);
+                    }
+                  }
+                }
+              }
+              
+              // ===== HARNESS INTELLIGENCE: Minimum document length from rejection learning =====
+              if (this.qualityOverrides?.minDocumentLength && hasDocument) {
+                const docs = this.actionsHistory.filter(a => a.tool === 'create_document' && a.success !== false);
+                const maxLen = Math.max(0, ...docs.map(d => (d.args?.content || '').length));
+                if (maxLen < this.qualityOverrides.minDocumentLength) {
+                  missing.push(`REQUIRED (learned from feedback): Document must be at least ${this.qualityOverrides.minDocumentLength} chars (current: ${maxLen}). Previous work was rejected as too short.`);
+                }
+              }
+              
               if (missing.length > 0) {
                 console.log(`[Amplifier] Task ${this.id} attempted early completion [${workTypeId}]: ${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive, hasNote=${hasNote}, hasTask=${hasTask}, hasMatterRead=${hasMatterRead}`);
                 
@@ -2989,6 +3080,49 @@ Keep working on: "${this.goal}"`
                 console.log('[Amplifier] Profile update note:', profileError.message);
               }
               
+              // ===== HARNESS INTELLIGENCE: Store per-matter memory =====
+              if (this.preloadedMatterId) {
+                try {
+                  const memories = extractMemoriesFromTask(this);
+                  if (memories.length > 0) {
+                    await storeMatterMemories(this.firmId, this.preloadedMatterId, this.id, memories);
+                    console.log(`[Amplifier] Stored ${memories.length} memories for matter "${this.preloadedMatterName}"`);
+                  }
+                } catch (memError) {
+                  console.log('[Amplifier] Matter memory storage note:', memError.message);
+                }
+              }
+              
+              // ===== HARNESS INTELLIGENCE: Record proven tool chain =====
+              try {
+                const successfulTools = this.actionsHistory
+                  .filter(a => a.success !== false)
+                  .map(a => a.tool);
+                await recordToolChain(
+                  this.firmId, workTypeId, successfulTools,
+                  evaluation?.overallScore || null,
+                  Math.round(elapsedSeconds)
+                );
+              } catch (chainError) {
+                console.log('[Amplifier] Tool chain recording note:', chainError.message);
+              }
+              
+              // ===== HARNESS INTELLIGENCE: Record override success =====
+              if (this.qualityOverrides?.promptModifiers?.length > 0) {
+                try {
+                  await recordOverrideSuccess(this.userId, this.firmId, workTypeId);
+                } catch (_) {}
+              }
+              
+              // ===== HARNESS INTELLIGENCE: Calculate confidence report =====
+              let confidenceReport = null;
+              try {
+                confidenceReport = calculateConfidenceReport(this);
+                console.log(`[Amplifier] Confidence report: overall ${confidenceReport.overallConfidence}%, review guidance: "${confidenceReport.reviewGuidance}"`);
+              } catch (confError) {
+                console.log('[Amplifier] Confidence report note:', confError.message);
+              }
+              
               // SMOOTH COMPLETION SEQUENCE
               this.progress.progressPercent = 95;
               this.progress.currentStep = 'Wrapping up...';
@@ -3044,6 +3178,13 @@ Keep working on: "${this.goal}"`
                 actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
                 recommendations: toolArgs.recommendations || [],
                 stats: efficiencyMetrics,
+                confidence: confidenceReport ? formatConfidenceForReview(confidenceReport) : null,
+                evaluation: evaluation ? {
+                  score: evaluation.overallScore,
+                  dimensions: evaluation.dimensions,
+                  issues: evaluation.issues,
+                  strengths: evaluation.strengths,
+                } : null,
               };
               
               // Save to history and extract learnings (endTime must be set first)
