@@ -96,8 +96,8 @@ const DEFAULT_MAX_RUNTIME_MINUTES = 90;   // Up from 45: 60 min target + 30 min 
 const EXTENDED_MAX_ITERATIONS = 800;      // Up from 400: deep-dive complex projects
 const EXTENDED_MAX_RUNTIME_MINUTES = 480; // Up from 120: 8 hours for major projects
 const CHECKPOINT_INTERVAL_MS = 10000;     // Down from 15s: save progress more often
-const MESSAGE_COMPACT_MAX_CHARS = 24000;  // Up from 16000: keep more context in memory
-const MESSAGE_COMPACT_MAX_MESSAGES = 36;  // Up from 24: preserve more conversation history
+const MESSAGE_COMPACT_MAX_CHARS = 20000;  // Tightened from 24000: reduce per-call token cost
+const MESSAGE_COMPACT_MAX_MESSAGES = 28;  // Tightened from 36: compact sooner to stay lean
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
 const PLAN_MESSAGE_PREFIX = '## EXECUTION PLAN';
 
@@ -582,7 +582,16 @@ class BackgroundTask extends EventEmitter {
       'list_documents', 'read_document_content', 'search_document_content',
       'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
       'list_team_members', 'get_upcoming_deadlines', 'lookup_cplr',
+      'find_and_read_document', 'get_document', 'get_document_versions',
+      'get_matter_documents_content',
     ]);
+    
+    // Longer TTL for tools that return stable data (matter details don't change mid-task)
+    this.STABLE_CACHE_TOOLS = new Set([
+      'get_matter', 'get_client', 'lookup_cplr', 'list_team_members',
+      'get_firm_analytics', 'list_my_matters', 'search_matters',
+    ]);
+    this.STABLE_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes for stable data
     
     // ===== DECISION REINFORCER (real-time learning per tool outcome) =====
     // Uses the global singleton so learnings persist across tasks
@@ -669,7 +678,10 @@ class BackgroundTask extends EventEmitter {
     if (this.executionPhase === ExecutionPhase.ACTION && elapsedPercent > 85) return true;
     
     // Auto-transition from DISCOVERY to ANALYSIS after getting matter info
-    if (this.executionPhase === ExecutionPhase.DISCOVERY && this.substantiveActions.research >= 2 && itersInPhase >= 3) {
+    // If matter was pre-loaded, allow faster transition (1 research action instead of 2)
+    const discoveryResearchThreshold = this.preloadedMatterId ? 1 : 2;
+    const discoveryIterThreshold = this.preloadedMatterId ? 2 : 3;
+    if (this.executionPhase === ExecutionPhase.DISCOVERY && this.substantiveActions.research >= discoveryResearchThreshold && itersInPhase >= discoveryIterThreshold) {
       return true;
     }
     
@@ -999,13 +1011,14 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
     const cached = this.toolCache.get(key);
     if (!cached) return null;
     
-    // Check TTL
-    if (Date.now() - cached.timestamp > this.CACHE_TTL_MS) {
+    // Use longer TTL for stable data tools (matter details don't change mid-task)
+    const ttl = this.STABLE_CACHE_TOOLS.has(toolName) ? this.STABLE_CACHE_TTL_MS : this.CACHE_TTL_MS;
+    if (Date.now() - cached.timestamp > ttl) {
       this.toolCache.delete(key);
       return null;
     }
     
-    console.log(`[Amplifier] Cache HIT for ${toolName}`);
+    console.log(`[Amplifier] Cache HIT for ${toolName} (${cached.result?._preloaded ? 'pre-loaded' : 'cached'})`);
     return cached.result;
   }
   
@@ -1028,7 +1041,154 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
    * version is trimmed so it doesn't eat the entire context window.
    */
   trimToolResultForMessage(toolName, result) {
-    const MAX_RESULT_CHARS = 3000; // Hard cap for any single tool result in messages
+    const MAX_RESULT_CHARS = 2500; // Tighter cap: saves ~500 tokens per large result
+    
+    // Tool-specific trimming strategies (applied BEFORE size check for proactive trimming)
+    try {
+      if (toolName === 'read_document_content' && result?.content) {
+        // For document content, keep first 1800 chars
+        const maxContent = 1800;
+        if (result.content.length > maxContent) {
+          return JSON.stringify({
+            name: result.name,
+            id: result.id,
+            content: result.content.substring(0, maxContent) + '\n\n[... TRIMMED - full document is ' + result.content.length + ' chars]',
+            trimmed: true,
+            originalLength: result.content.length,
+          });
+        }
+      }
+      
+      if (toolName === 'find_and_read_document' && result?.content) {
+        const maxContent = 1800;
+        if (result.content.length > maxContent) {
+          return JSON.stringify({
+            name: result.name,
+            id: result.id,
+            content: result.content.substring(0, maxContent) + '\n\n[... TRIMMED]',
+            trimmed: true,
+          });
+        }
+      }
+      
+      if (toolName === 'get_matter_documents_content') {
+        // Aggressively trim - only keep document names and short previews
+        const docs = result?.documents || result?.results || [];
+        const trimmedDocs = docs.slice(0, 10).map(d => ({
+          id: d.id,
+          name: d.name || d.original_name,
+          type: d.type || d.document_type,
+          preview: (d.content || d.content_preview || '').substring(0, 200),
+        }));
+        return JSON.stringify({
+          documents: trimmedDocs,
+          count: docs.length,
+          trimmed: docs.length > 10,
+        });
+      }
+      
+      // For list results: strip to essential fields ONLY
+      if (toolName === 'list_my_matters' || toolName === 'search_matters') {
+        const matters = result?.matters || [];
+        const trimmedMatters = matters.slice(0, 10).map(m => ({
+          id: m.id, name: m.name, number: m.number, status: m.status, type: m.type,
+          client_name: m.client_name,
+        }));
+        return JSON.stringify({
+          matters: trimmedMatters,
+          count: matters.length,
+          trimmed: matters.length > 10,
+          message: matters.length > 10 ? `Showing 10 of ${matters.length}. Use search_matters for specific ones.` : undefined,
+        });
+      }
+      
+      if (toolName === 'list_documents') {
+        const docs = result?.documents || [];
+        const trimmedDocs = docs.slice(0, 10).map(d => ({
+          id: d.id, name: d.original_name || d.name, matter_id: d.matter_id, 
+          type: d.type, created_at: d.created_at,
+        }));
+        return JSON.stringify({
+          documents: trimmedDocs,
+          count: docs.length,
+          trimmed: docs.length > 10,
+        });
+      }
+      
+      if (toolName === 'list_clients') {
+        const clients = result?.clients || [];
+        const trimmedClients = clients.slice(0, 10).map(c => ({
+          id: c.id, display_name: c.display_name, email: c.email, type: c.type,
+        }));
+        return JSON.stringify({
+          clients: trimmedClients,
+          count: clients.length,
+          trimmed: clients.length > 10,
+        });
+      }
+      
+      if (toolName === 'list_tasks') {
+        const tasks = result?.tasks || [];
+        const trimmedTasks = tasks.slice(0, 12).map(t => ({
+          id: t.id, title: t.title, status: t.status, priority: t.priority,
+          due_date: t.due_date, matter_id: t.matter_id,
+        }));
+        return JSON.stringify({
+          tasks: trimmedTasks,
+          count: tasks.length,
+          trimmed: tasks.length > 12,
+        });
+      }
+      
+      if (toolName === 'search_document_content' && Array.isArray(result?.results)) {
+        const trimmedResults = result.results.slice(0, 6).map(r => ({
+          id: r.id, name: r.name || r.document_name,
+          content: r.content ? r.content.substring(0, 250) + '...' : undefined,
+          matter_id: r.matter_id,
+        }));
+        return JSON.stringify({
+          results: trimmedResults,
+          totalResults: result.results.length,
+          trimmed: result.results.length > 6,
+        });
+      }
+      
+      if (toolName === 'get_matter' && result?.matter) {
+        const matter = { ...result.matter };
+        // Strip description to 300 chars
+        if (matter.description && matter.description.length > 300) {
+          matter.description = matter.description.substring(0, 300) + '...';
+        }
+        // Strip nested arrays to counts only
+        if (Array.isArray(matter.documents)) {
+          matter.document_count = matter.documents.length;
+          matter.documents = matter.documents.slice(0, 5).map(d => ({ id: d.id, name: d.name || d.original_name }));
+        }
+        if (Array.isArray(matter.notes)) {
+          matter.note_count = matter.notes.length;
+          matter.notes = matter.notes.slice(0, 3).map(n => ({ id: n.id, type: n.note_type, preview: (n.content || '').substring(0, 100) }));
+        }
+        if (Array.isArray(matter.tasks)) {
+          matter.task_count = matter.tasks.length;
+          matter.tasks = matter.tasks.slice(0, 5).map(t => ({ id: t.id, title: t.title, status: t.status }));
+        }
+        return JSON.stringify({ matter, success: true });
+      }
+      
+      if (toolName === 'get_calendar_events') {
+        const events = result?.events || [];
+        const trimmedEvents = events.slice(0, 10).map(e => ({
+          id: e.id, title: e.title, start_time: e.start_time, end_time: e.end_time,
+          type: e.type, matter_id: e.matter_id,
+        }));
+        return JSON.stringify({
+          events: trimmedEvents,
+          count: events.length,
+        });
+      }
+    } catch (e) {
+      // Fall through to size-based trimming
+    }
     
     const resultStr = JSON.stringify(result);
     
@@ -1037,61 +1197,7 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       return resultStr;
     }
     
-    // Tool-specific trimming strategies
-    try {
-      if (toolName === 'read_document_content' && result?.content) {
-        // For document content, keep first 2000 chars + note it was trimmed
-        const trimmedContent = result.content.substring(0, 2000);
-        return JSON.stringify({
-          ...result,
-          content: trimmedContent + '\n\n[... CONTENT TRIMMED - full document is ' + result.content.length + ' chars. Focus on the key points from what you can see above.]',
-          trimmed: true,
-          originalLength: result.content.length,
-        });
-      }
-      
-      if ((toolName === 'list_documents' || toolName === 'list_my_matters' || toolName === 'list_clients') && Array.isArray(result?.documents || result?.matters || result?.clients)) {
-        // For list results, keep first 15 items with summary
-        const listKey = result.documents ? 'documents' : result.matters ? 'matters' : 'clients';
-        const fullList = result[listKey];
-        if (fullList.length > 15) {
-          return JSON.stringify({
-            ...result,
-            [listKey]: fullList.slice(0, 15),
-            trimmed: true,
-            totalCount: fullList.length,
-            message: `Showing 15 of ${fullList.length} ${listKey}. Use search to find specific items.`,
-          });
-        }
-      }
-      
-      if (toolName === 'search_document_content' && Array.isArray(result?.results)) {
-        // For search results, keep first 8 results with trimmed content
-        const trimmedResults = result.results.slice(0, 8).map(r => ({
-          ...r,
-          content: r.content ? r.content.substring(0, 300) + '...' : r.content,
-        }));
-        return JSON.stringify({
-          ...result,
-          results: trimmedResults,
-          trimmed: result.results.length > 8,
-          totalResults: result.results.length,
-        });
-      }
-      
-      if (toolName === 'get_matter' && result?.matter) {
-        // For matter details, trim the description and notes if too long
-        const matter = { ...result.matter };
-        if (matter.description && matter.description.length > 500) {
-          matter.description = matter.description.substring(0, 500) + '...';
-        }
-        return JSON.stringify({ ...result, matter });
-      }
-    } catch (e) {
-      // Fall through to generic trimming
-    }
-    
-    // Generic trimming: just cap the JSON string
+    // Generic trimming: cap the JSON string
     return resultStr.substring(0, MAX_RESULT_CHARS) + '... [TRIMMED - result was ' + resultStr.length + ' chars]';
   }
 
@@ -1223,57 +1329,111 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
   }
   
   /**
-   * Extract matter context from goal if a matter is mentioned
+   * Extract matter context from goal if a matter is mentioned.
    * This pre-loads relevant matter info so the agent starts with context
+   * and warm-seeds the tool cache to avoid redundant API calls.
+   * 
+   * EFFICIENCY: Uses a multi-strategy approach:
+   * 1. Regex extraction of matter name from goal text
+   * 2. If no regex match, falls back to searching recent active matters
+   * 3. Pre-loads matter data into the tool cache so get_matter calls are instant
    */
   async extractMatterContext() {
     try {
       const goalLower = this.goal.toLowerCase();
       
-      // Look for matter name patterns in the goal
-      // Common patterns: "for [matter]", "on [matter]", "matter [name]", "[name] matter"
+      // Look for matter name patterns in the goal (expanded patterns)
       const matterPatterns = [
-        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,]+)["']?/i,
-        /matter\s+(?:named?\s+)?["']?([^"'.,]+)["']?/i,
+        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']([^"']+)["']/i,    // quoted matter name
+        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,;!?\n]+?)(?:\s+(?:matter|case|file))?\s*$/i, // trailing matter name
+        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,;!?\n]+)["']?/i,
+        /matter\s+(?:named?\s+)?["']?([^"'.,;!?\n]+)["']?/i,
         /["']([^"']+)["']\s+(?:matter|case)/i,
+        /(?:v\.\s*\w+|vs?\.\s+\w+)/i, // "v." or "vs." pattern (e.g., "Smith v. Jones")
       ];
       
       let potentialMatterName = null;
       for (const pattern of matterPatterns) {
         const match = this.goal.match(pattern);
-        if (match && match[1] && match[1].length > 2) {
+        if (match && match[1] && match[1].trim().length > 2) {
           potentialMatterName = match[1].trim();
+          // Clean up common trailing words that aren't part of the matter name
+          potentialMatterName = potentialMatterName.replace(/\s+(?:and|then|also|please|asap|urgently|quickly)\s*$/i, '').trim();
           break;
+        }
+        // For v. pattern, match the whole phrase
+        if (match && match[0] && pattern.source.includes('v\\.')) {
+          // Extract the full "Party v. Party" from surrounding context
+          const vMatch = this.goal.match(/([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?\s+v\.?\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)/);
+          if (vMatch) {
+            potentialMatterName = vMatch[1].trim();
+            break;
+          }
         }
       }
       
-      if (!potentialMatterName) {
-        return null;
+      let matterResult;
+      
+      if (potentialMatterName) {
+        // Strategy 1: Direct name search
+        matterResult = await query(`
+          SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
+                 m.created_at, m.open_date, c.display_name as client_name, c.id as client_id, c.email as client_email,
+                 (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
+                 (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
+                 (SELECT COUNT(*) FROM tasks t WHERE t.matter_id = m.id) as task_count
+          FROM matters m
+          LEFT JOIN clients c ON m.client_id = c.id
+          WHERE m.firm_id = $1 
+            AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
+          ORDER BY 
+            CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
+            m.created_at DESC
+          LIMIT 1
+        `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
       }
       
-      // Search for the matter
-      const matterResult = await query(`
-        SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
-               m.created_at, m.open_date, c.display_name as client_name, c.email as client_email,
-               (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
-               (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
-               (SELECT COUNT(*) FROM matter_tasks mt WHERE mt.matter_id = m.id) as task_count
-        FROM matters m
-        LEFT JOIN clients c ON m.client_id = c.id
-        WHERE m.firm_id = $1 
-          AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
-        ORDER BY 
-          CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
-          m.created_at DESC
-        LIMIT 1
-      `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
+      // Strategy 2: If no match found, check if there's only one active matter (common for solo/small firms)
+      if ((!matterResult || matterResult.rows.length === 0) && !potentialMatterName) {
+        // If the goal mentions generic "matter" or "case" without a name, try to find the most recent active matter
+        if (/\b(?:the\s+)?(?:matter|case|file)\b/i.test(goalLower) || /\b(?:review|check|update|draft|prepare)\b/i.test(goalLower)) {
+          const recentMatterResult = await query(`
+            SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
+                   m.created_at, m.open_date, c.display_name as client_name, c.id as client_id, c.email as client_email,
+                   (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
+                   (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
+                   (SELECT COUNT(*) FROM tasks t WHERE t.matter_id = m.id) as task_count
+            FROM matters m
+            LEFT JOIN clients c ON m.client_id = c.id
+            WHERE m.firm_id = $1 AND m.status = 'active'
+            ORDER BY m.updated_at DESC NULLS LAST, m.created_at DESC
+            LIMIT 3
+          `, [this.firmId]);
+          
+          // Only use this if there's exactly 1 active matter (unambiguous) 
+          // or if the most recent one was updated very recently
+          if (recentMatterResult.rows.length === 1) {
+            matterResult = recentMatterResult;
+            console.log(`[Amplifier] No matter name in goal, but found single active matter: ${recentMatterResult.rows[0].name}`);
+          } else if (recentMatterResult.rows.length > 1) {
+            // Pre-cache the list of matters so the agent's first list_my_matters call is instant
+            this._warmCacheMattersList(recentMatterResult.rows);
+            console.log(`[Amplifier] ${recentMatterResult.rows.length} active matters found - agent will need to identify which one`);
+          }
+        }
+      }
       
-      if (matterResult.rows.length === 0) {
+      if (!matterResult || matterResult.rows.length === 0) {
         return null;
       }
       
       const matter = matterResult.rows[0];
-      const isEmpty = matter.doc_count === 0 && matter.note_count === 0;
+      const isEmpty = parseInt(matter.doc_count) === 0 && parseInt(matter.note_count) === 0;
+      
+      // ===== WARM THE TOOL CACHE with pre-loaded matter data =====
+      // This prevents the agent from wasting an iteration calling get_matter
+      // on a matter we already fetched. Saves 1-2 iterations + 1 API call.
+      this._warmCacheMatter(matter);
       
       let contextStr = `
 ## PRE-LOADED MATTER CONTEXT
@@ -1281,15 +1441,18 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
 The goal mentions a matter. Here's what I found:
 
 **Matter:** ${matter.name} (${matter.number || 'No number'})
+**Matter ID:** ${matter.id}
 **Status:** ${matter.status}
 **Type:** ${matter.type || 'General'}
-**Client:** ${matter.client_name || 'No client assigned'}
+**Client:** ${matter.client_name || 'No client assigned'}${matter.client_id ? ` (ID: ${matter.client_id})` : ''}
 **Created:** ${matter.created_at ? new Date(matter.created_at).toLocaleDateString() : 'Unknown'}
 
 **Current State:**
 - Documents: ${matter.doc_count}
 - Notes: ${matter.note_count}  
 - Tasks: ${matter.task_count}
+
+**IMPORTANT:** The matter ID is \`${matter.id}\`. Use this ID directly in tool calls (get_matter, add_matter_note, create_document, create_task, etc.) - no need to search for it.
 `;
       
       if (isEmpty) {
@@ -1341,6 +1504,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       
       // Store matter ID for quick reference
       this.preloadedMatterId = matter.id;
+      this.preloadedMatterName = matter.name;
       
       console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'})`);
       
@@ -1350,6 +1514,87 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       console.error('[Amplifier] Error extracting matter context:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Warm the tool cache with a pre-loaded matter so the agent doesn't re-fetch it.
+   * This saves 1-2 iterations and 1 API call per task.
+   */
+  _warmCacheMatter(matterRow) {
+    if (!matterRow?.id) return;
+    
+    // Build a result that matches what executeTool('get_matter', ...) would return
+    const matterResult = {
+      matter: {
+        id: matterRow.id,
+        name: matterRow.name,
+        number: matterRow.number,
+        status: matterRow.status,
+        type: matterRow.type,
+        description: matterRow.description,
+        billing_type: matterRow.billing_type,
+        created_at: matterRow.created_at,
+        open_date: matterRow.open_date,
+        client_name: matterRow.client_name,
+        client_id: matterRow.client_id,
+        client_email: matterRow.client_email,
+        doc_count: parseInt(matterRow.doc_count) || 0,
+        note_count: parseInt(matterRow.note_count) || 0,
+        task_count: parseInt(matterRow.task_count) || 0,
+      },
+      success: true,
+      _preloaded: true,
+    };
+    
+    // Cache under both the matter ID and the matter name (since the agent might use either)
+    const cacheKeyById = this.getToolCacheKey('get_matter', { matter_id: matterRow.id });
+    const cacheKeyByName = this.getToolCacheKey('get_matter', { matter_id: matterRow.name });
+    
+    this.toolCache.set(cacheKeyById, { result: matterResult, timestamp: Date.now() });
+    this.toolCache.set(cacheKeyByName, { result: matterResult, timestamp: Date.now() });
+    
+    // Also cache a search_matters result for this matter
+    const searchKey = this.getToolCacheKey('search_matters', { search: matterRow.name });
+    this.toolCache.set(searchKey, {
+      result: { matters: [matterResult.matter], count: 1, success: true, _preloaded: true },
+      timestamp: Date.now()
+    });
+    
+    console.log(`[Amplifier] Warm-cached matter "${matterRow.name}" (ID: ${matterRow.id}) - agent get_matter calls will be instant`);
+  }
+
+  /**
+   * Warm the tool cache with a list of matters for list_my_matters.
+   */
+  _warmCacheMattersList(matterRows) {
+    if (!Array.isArray(matterRows) || matterRows.length === 0) return;
+    
+    const matters = matterRows.map(m => ({
+      id: m.id,
+      name: m.name,
+      number: m.number,
+      status: m.status,
+      type: m.type,
+      description: m.description,
+      client_name: m.client_name,
+      created_at: m.created_at,
+    }));
+    
+    // Cache for list_my_matters with status=active
+    const cacheKey = this.getToolCacheKey('list_my_matters', { status: 'active' });
+    this.toolCache.set(cacheKey, {
+      result: { matters, count: matters.length, success: true, _preloaded: true },
+      timestamp: Date.now()
+    });
+    
+    // Also cache without status parameter (default call)
+    const defaultKey = this.getToolCacheKey('list_my_matters', {});
+    this.toolCache.set(defaultKey, {
+      result: { matters, count: matters.length, success: true, _preloaded: true },
+      timestamp: Date.now()
+    });
+    
+    console.log(`[Amplifier] Warm-cached ${matters.length} matters for list_my_matters - agent's first call will be instant`);
   }
 
   isMemoryMessage(message) {
@@ -1456,8 +1701,8 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     // The system prompt is always first and always preserved
     const systemMessage = this.messages.find(message => message.role === 'system' && !this.isMemoryMessage(message) && !this.isPlanMessage(message));
     
-    // Keep recent messages (reduced from 16 to 12 to leave room for plan + memory)
-    const recentMessages = this.messages.slice(-12).filter(message => 
+    // Keep recent messages (reduced from 12 to 10 to leave more room for plan + memory)
+    const recentMessages = this.messages.slice(-10).filter(message => 
       !this.isMemoryMessage(message) && !this.isPlanMessage(message)
     );
     
@@ -1846,49 +2091,65 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     // Only include what the model NEEDS. GPT already knows what legal matters, clients, etc. are.
     // This saves ~2000 tokens per API call = dramatically fewer rate limits over 30 min.
     
+    // ===== LEAN SYSTEM PROMPT (optimized for token efficiency) =====
+    // Only include what the model NEEDS for this specific task.
+    // Every unnecessary token here costs across ALL iterations.
+    
+    const matterContextStr = this.matterContext || '';
+    const hasMatterPreloaded = !!this.preloadedMatterId;
+    
     let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS junior attorney AI with COMPLETE tool access to a legal practice management platform.
 
 **Task:** ${this.goal}
-**Complexity:** ${this.complexity} | **Budget:** ~${totalMinutes} min, ${this.maxIterations} iterations
-**Phase:** ${this.executionPhase.toUpperCase()} - ${PHASE_CONFIG[this.executionPhase].description}
+**Complexity:** ${this.complexity} | **Budget:** ~${totalMinutes} min | **Phase:** ${this.executionPhase.toUpperCase()}
 
 ${this.userContext || ''}
-${this.matterContext || ''}
-${this.learningContext || ''}
+${matterContextStr}
 
-## CRITICAL RULES
-- You are FULLY AUTONOMOUS. Call tools immediately. NEVER just respond with text.
-- NEVER use log_time or log_billable_work. Time entries are for humans.
-- NO placeholders like [INSERT], [TODO] in documents. Write REAL content.
-- Before task_complete: you MUST have ≥8 tool calls, ≥1 note, ≥1 task, ≥120s of work.
-- Use IRAC for legal analysis: Issue → Rule → Application → Conclusion.
-- BE THOROUGH. A real attorney would not cut corners. Dig deeper, analyze more, create comprehensive deliverables.
-- NEVER give up early. If an approach fails, try a different one. You have plenty of time and iterations.
-- PUSH THROUGH difficulty. If a tool fails, try alternatives. If research is thin, search harder.
-- STAY ON TASK. Do not call task_complete until you have produced HIGH-QUALITY, SUBSTANTIVE work product.
+## RULES
+- FULLY AUTONOMOUS. Call tools immediately. NEVER respond with text only.
+- NEVER use log_time or log_billable_work.
+- NO placeholders [INSERT], [TODO] in documents. Write REAL content only.
+- Before task_complete: ≥8 tool calls, ≥1 note, ≥1 task, ≥120s elapsed.
+- IRAC for legal analysis. Be thorough. Push through failures.
+${hasMatterPreloaded ? `- Matter "${this.preloadedMatterName}" is pre-loaded (ID: ${this.preloadedMatterId}). Use this ID directly - no need to search.` : '- Search for the relevant matter first with search_matters or list_my_matters.'}
 
-## TOOL QUICK REFERENCE
+## TOOLS
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
-**Write:** add_matter_note (internal notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
-**Meta:** think_and_plan (make a plan first!), evaluate_progress, review_created_documents (verify your work in REVIEW phase), task_complete (when done)
+**Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
+**Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
 
-**Document vs Note:** create_document = formal work product (memos, letters, briefs). add_matter_note = internal analysis notes, findings, observations.
-**Empty matters:** Create an assessment note, intake tasks, initial assessment doc, and flag for partner review.
+## PHASES (current: ${this.executionPhase.toUpperCase()})
+${hasMatterPreloaded 
+  ? `- **DISCOVERY**: Read documents and notes for the pre-loaded matter. Skip searching.`
+  : `- **DISCOVERY**: Find and read the matter, its documents, notes, calendar.`}
+- **ANALYSIS**: Document findings with add_matter_note.
+- **ACTION**: Create deliverables: documents, tasks, events.
+- **REVIEW**: Call review_created_documents, verify quality, then task_complete.
+`;
 
-## PHASE INSTRUCTIONS
-You work in phases. Current phase: **${this.executionPhase.toUpperCase()}**
-- **DISCOVERY**: Gather info with get_matter, read_document_content, search. Don't create yet.
-- **ANALYSIS**: Document findings with add_matter_note. Identify issues and gaps.
-- **ACTION**: Create deliverables: create_document, create_task, create_calendar_event.
-- **REVIEW**: Call review_created_documents to re-read your work product and verify quality. Fix any issues (placeholders, thin content, unverified citations). Then call task_complete with full summary.
+    // Only include CPLR context if task involves NY law or litigation
+    const needsCPLR = /\b(?:cplr|ny |new york|litigation|motion|discovery|filing|statute|deadline|sol\b)/i.test(this.goal);
+    if (needsCPLR) {
+      prompt += getCPLRContextForPrompt() + '\n';
+    }
 
-${getCPLRContextForPrompt()}
+    // Only include rewind/failed paths if they exist
+    if (this.rewindManager && this.rewindManager.failedPaths.length > 0) {
+      prompt += this.rewindManager.getFailedPathsSummary() + '\n';
+    }
 
-${this.rewindManager && this.rewindManager.failedPaths.length > 0 ? this.rewindManager.getFailedPathsSummary() : ''}
+    // Only include module guidance if detected and relevant
+    if (this.detectedModule) {
+      prompt += formatModuleForPrompt(this.detectedModule) + '\n';
+    }
 
-${this.detectedModule ? formatModuleForPrompt(this.detectedModule) : ''}
+    // Only include learning context if meaningful
+    if (this.learningContext && this.learningContext.trim().length > 20) {
+      prompt += this.learningContext + '\n';
+    }
 
-BEGIN NOW. Call \`think_and_plan\` first, then execute tools for each step. Be thorough, specific, and professional.
+    prompt += `\nBEGIN NOW. ${hasMatterPreloaded ? `Start with think_and_plan, then immediately work on matter "${this.preloadedMatterName}".` : 'Call think_and_plan first, then execute tools.'}\n`;
 `;
 
     // Add comprehensive lawyer profile (personalization that improves over time)
@@ -2039,8 +2300,8 @@ You have your brief above. Follow the approach order and time budget. Call think
    */
   async runAgentLoop() {
     const MAX_ITERATIONS = this.maxIterations;
-    const MAX_TEXT_ONLY_STREAK = 3; // Tightened: 3 text-only responses before mild intervention
-    const PLAN_REINJECTION_INTERVAL = 6; // Down from 8: keep plan fresher in context
+    const MAX_TEXT_ONLY_STREAK = 2; // Tightened: 2 text-only responses before intervention (saves iterations)
+    const PLAN_REINJECTION_INTERVAL = 8; // Up from 6: reduce overhead of plan injection
     const tools = getOpenAITools();
     
     console.log(`[Amplifier] Starting agent loop with ${tools.length} tools, phase: ${this.executionPhase}`);
