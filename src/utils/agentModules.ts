@@ -8,7 +8,7 @@ export interface AgentModule {
   id: string
   name: string
   description: string
-  category: 'matters' | 'documents' | 'billing' | 'clients' | 'calendar' | 'research' | 'compliance'
+  category: 'matters' | 'documents' | 'billing' | 'clients' | 'calendar' | 'research' | 'compliance' | 'litigation' | 'drafting'
   estimatedMinutes: number
   complexity: 'low' | 'medium' | 'high'
   requiredContext?: string[]
@@ -413,6 +413,279 @@ export const AGENT_MODULES: AgentModule[] = [
       'Adverse party matches',
       'Conflict analysis',
       'Waiver recommendation'
+    ]
+  },
+
+  // =========================================
+  // LITIGATION MODULES (Junior Attorney)
+  // =========================================
+  {
+    id: 'motion-drafting',
+    name: 'Motion Drafting',
+    description: 'Draft a motion with supporting memorandum of law using IRAC analysis',
+    category: 'litigation',
+    estimatedMinutes: 15,
+    complexity: 'high',
+    requiredContext: ['matterId', 'motionType'],
+    prompt: `Draft a motion with supporting memorandum of law:
+1. Review matter facts, documents, and existing filings
+2. Identify the applicable legal standard and standard of review
+3. Research governing statutes and controlling case law
+4. Draft the Notice of Motion with proper caption and relief sought
+5. Draft the Memorandum of Law using IRAC structure:
+   - Issue statement
+   - Rule of law with citations
+   - Application of law to facts
+   - Conclusion with specific relief requested
+6. Draft supporting affidavit/declaration if needed
+7. Create review task for supervising attorney
+8. Calendar filing deadline and hearing date`,
+    expectedOutputs: [
+      'Notice of Motion',
+      'Memorandum of Law (IRAC format)',
+      'Supporting declaration/affidavit',
+      'Review task for partner',
+      'Filing deadline on calendar'
+    ],
+    followUpQuestions: [
+      'What type of motion? (dismiss, summary judgment, compel, etc.)',
+      'Which court and jurisdiction?',
+      'Is there a filing deadline?'
+    ]
+  },
+  {
+    id: 'deposition-prep',
+    name: 'Deposition Preparation',
+    description: 'Prepare comprehensive deposition outline with key documents and examination topics',
+    category: 'litigation',
+    estimatedMinutes: 12,
+    complexity: 'high',
+    requiredContext: ['matterId'],
+    prompt: `Prepare for deposition:
+1. Review all matter documents for key facts and chronology
+2. Build witness background profile from available information
+3. Identify key examination topics organized by subject
+4. Draft examination outline with specific questions for each topic
+5. Flag documents to use as exhibits during examination
+6. Prepare objection reminders (form, privilege, foundation)
+7. Create timeline of key events for reference
+8. Draft deposition notice if taking the deposition
+9. Create preparation task checklist
+10. Note areas requiring follow-up discovery`,
+    expectedOutputs: [
+      'Examination outline with topics and questions',
+      'Key documents/exhibits list',
+      'Chronological timeline',
+      'Objection reference guide',
+      'Preparation checklist',
+      'Follow-up discovery recommendations'
+    ]
+  },
+  {
+    id: 'opposing-motion-response',
+    name: 'Opposition to Motion',
+    description: 'Draft opposition papers responding to an adverse motion',
+    category: 'litigation',
+    estimatedMinutes: 15,
+    complexity: 'high',
+    requiredContext: ['matterId'],
+    prompt: `Draft opposition to adverse motion:
+1. Analyze the moving papers — identify each argument
+2. Research the applicable standard of review
+3. Identify factual disputes that preclude relief
+4. Research counter-authority and distinguishing cases
+5. Draft opposition memorandum of law:
+   - Statement of facts (favorable to our position)
+   - Legal standard (emphasizing burden on movant)
+   - Point-by-point rebuttal of each argument
+   - Affirmative arguments why motion should be denied
+6. Draft counter-affidavit/declaration with supporting facts
+7. Create review task for supervising attorney
+8. Calendar response deadline`,
+    expectedOutputs: [
+      'Opposition memorandum of law',
+      'Counter-declaration/affidavit',
+      'Analysis of moving papers',
+      'Research memo on counter-authority',
+      'Review task for partner'
+    ]
+  },
+  {
+    id: 'trial-prep-bundle',
+    name: 'Trial Preparation Bundle',
+    description: 'Comprehensive trial preparation including witness lists, exhibit lists, and trial brief outline',
+    category: 'litigation',
+    estimatedMinutes: 20,
+    complexity: 'high',
+    requiredContext: ['matterId'],
+    prompt: `Prepare comprehensive trial bundle:
+1. Review all pleadings, discovery, and motion practice
+2. Create master witness list with contact info and testimony topics
+3. Prepare exhibit list organized by topic/witness
+4. Draft trial brief outline with key legal arguments
+5. Create timeline of key events for opening statement
+6. Identify potential evidentiary issues and prepare motions in limine
+7. Draft voir dire questions if jury trial
+8. Prepare witness examination outlines (direct and cross)
+9. Create daily trial preparation checklist
+10. Calendar all pre-trial deadlines and conference dates`,
+    expectedOutputs: [
+      'Witness list with testimony summaries',
+      'Exhibit list and organization plan',
+      'Trial brief outline',
+      'Timeline of key events',
+      'Motions in limine issues',
+      'Pre-trial checklist'
+    ]
+  },
+
+  // =========================================
+  // DRAFTING MODULES (Junior Attorney)
+  // =========================================
+  {
+    id: 'legal-memo',
+    name: 'Legal Memorandum',
+    description: 'Draft a formal legal memorandum using IRAC methodology',
+    category: 'drafting',
+    estimatedMinutes: 12,
+    complexity: 'high',
+    requiredContext: ['matterId', 'legalIssue'],
+    prompt: `Draft a comprehensive legal memorandum:
+1. Review matter documents and identify the legal issue(s)
+2. Research applicable statutes and regulations
+3. Find controlling and persuasive case authority
+4. Draft memorandum in IRAC format:
+   - ISSUE: Precise statement of the legal question
+   - RULE: Applicable legal standards with citations
+   - APPLICATION: Apply the law to our specific facts
+   - CONCLUSION: Clear answer with confidence level
+5. Include practical recommendations and next steps
+6. Add table of authorities
+7. Mark any unverified citations as [UNVERIFIED]
+8. Create review task for supervising attorney`,
+    expectedOutputs: [
+      'Legal memorandum (IRAC format, 800+ words)',
+      'Table of authorities',
+      'Practical recommendations',
+      'Review task for partner',
+      'Matter note summarizing findings'
+    ]
+  },
+  {
+    id: 'demand-letter',
+    name: 'Demand Letter',
+    description: 'Draft a professional demand letter with legal basis and specific demands',
+    category: 'drafting',
+    estimatedMinutes: 8,
+    complexity: 'medium',
+    requiredContext: ['matterId'],
+    prompt: `Draft a demand letter:
+1. Review matter for relevant facts, damages, and legal basis
+2. Identify the correct recipient and their counsel (if represented)
+3. Draft demand letter with:
+   - Clear identification of client and purpose
+   - Concise factual background (chronological)
+   - Legal basis for the claim with statutory/case citations
+   - Specific demand (amount, action, or both)
+   - Deadline for response (typically 10-30 days)
+   - Consequences of non-compliance
+   - Willingness to discuss resolution
+4. Maintain firm but professional tone throughout
+5. Create review task for supervising attorney before sending
+6. Note in matter file that demand letter was drafted`,
+    expectedOutputs: [
+      'Demand letter draft',
+      'Review task for partner',
+      'Matter note documenting demand',
+      'Calendar event for response deadline'
+    ]
+  },
+  {
+    id: 'engagement-letter',
+    name: 'Engagement Letter',
+    description: 'Draft a client engagement letter with fee arrangement and scope of representation',
+    category: 'drafting',
+    estimatedMinutes: 6,
+    complexity: 'medium',
+    requiredContext: ['clientName', 'matterType'],
+    prompt: `Draft an engagement letter:
+1. Review client information and matter type
+2. Draft engagement letter including:
+   - Scope of representation (specific and bounded)
+   - Fee arrangement (hourly, flat, contingency, retainer)
+   - Billing practices and payment terms
+   - Retainer amount and replenishment (if applicable)
+   - Client responsibilities and cooperation expectations
+   - Conflict of interest disclosure (if applicable)
+   - Termination and withdrawal provisions
+   - File retention and destruction policy
+   - Electronic communication consent
+3. Use clear, client-friendly language
+4. Create review task for partner before sending
+5. Create follow-up task to collect signed copy`,
+    expectedOutputs: [
+      'Engagement letter draft',
+      'Review task for partner',
+      'Follow-up task for signed copy',
+      'Matter note documenting engagement terms'
+    ]
+  },
+  {
+    id: 'client-status-update',
+    name: 'Client Status Update Letter',
+    description: 'Draft a client status update summarizing recent activity and next steps',
+    category: 'drafting',
+    estimatedMinutes: 5,
+    complexity: 'low',
+    requiredContext: ['matterId'],
+    prompt: `Draft a client status update:
+1. Review matter for all recent activity and developments
+2. Check recent notes, documents, and calendar events
+3. Draft update letter including:
+   - Greeting and matter reference
+   - Summary of recent developments (plain language)
+   - Current status of the matter
+   - Upcoming deadlines and scheduled events
+   - Action items needed from the client (with deadlines)
+   - Next steps from the firm
+   - Estimated timeline for next milestones
+4. Use plain language — no unexplained legal jargon
+5. Create review task for supervising attorney
+6. Schedule follow-up for next update`,
+    expectedOutputs: [
+      'Client status update letter',
+      'Review task for partner',
+      'Calendar event for next scheduled update',
+      'Matter note documenting communication'
+    ]
+  },
+  {
+    id: 'closing-letter',
+    name: 'Matter Closing Letter',
+    description: 'Draft a matter closing letter and prepare file for archival',
+    category: 'drafting',
+    estimatedMinutes: 6,
+    complexity: 'medium',
+    requiredContext: ['matterId'],
+    prompt: `Draft a matter closing letter and prepare for archival:
+1. Review matter for final status and outcome
+2. Check for any outstanding billing or open tasks
+3. Draft closing letter including:
+   - Summary of the representation and outcome
+   - Final billing status and any outstanding balance
+   - Return of client documents and property
+   - File retention policy and anticipated destruction date
+   - Post-matter obligations (if any, e.g., ongoing compliance)
+   - Thank the client and invite future contact
+4. Create tasks for file archival steps
+5. Flag any open items that must be resolved before closing
+6. Update matter status if appropriate`,
+    expectedOutputs: [
+      'Closing letter draft',
+      'Outstanding items list',
+      'File archival task checklist',
+      'Final billing summary',
+      'Matter note documenting closure'
     ]
   }
 ]
