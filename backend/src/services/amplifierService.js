@@ -596,7 +596,7 @@ class BackgroundTask extends EventEmitter {
       'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
       'list_team_members', 'get_upcoming_deadlines', 'lookup_cplr',
       'find_and_read_document', 'get_document', 'get_document_versions',
-      'get_matter_documents_content', 'search_semantic',
+      'get_matter_documents_content',
     ]);
     
     // Longer TTL for tools that return stable data (matter details don't change mid-task)
@@ -1396,19 +1396,6 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         }
       }
       
-      // ===== AUTO-BACKFILL: Index existing documents for semantic search =====
-      // On the first task for a firm, check if documents need embedding.
-      // Runs a small batch (50 docs) in the background without blocking the task.
-      try {
-        const { autoBackfillIfNeeded } = await import('./amplifier/embeddingBackfill.js');
-        const backfillResult = await autoBackfillIfNeeded(this.firmId);
-        if (backfillResult.triggered) {
-          console.log(`[Amplifier] Auto-embedding backfill triggered: ${backfillResult.docsRemaining} documents to index`);
-        }
-      } catch (e) {
-        // Non-fatal: embedding is optional
-      }
-      
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
     }
@@ -2201,10 +2188,9 @@ ${matterContextStr}
 ${hasMatterPreloaded ? `- Matter "${this.preloadedMatterName}" is pre-loaded (ID: ${this.preloadedMatterId}). Use this ID directly - no need to search.` : '- Search for the relevant matter first with search_matters or list_my_matters.'}
 
 ## TOOLS
-**Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, search_semantic (AI-powered meaning search), list_documents, get_calendar_events, list_tasks
+**Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
 **Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
-**Tip:** Use search_semantic to find documents by MEANING (e.g., "indemnification clause" finds "hold harmless" language). Use search_document_content for exact keyword matches.
 
 ## PHASES (current: ${this.executionPhase.toUpperCase()})
 ${hasMatterPreloaded 

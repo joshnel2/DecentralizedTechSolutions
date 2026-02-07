@@ -5851,23 +5851,6 @@ async function createDocument(args, user) {
       console.log('[AI DOCUMENT] Audit log skipped:', auditError.message);
     }
     
-    // Auto-embed for semantic search (async, non-blocking)
-    if (content && content.length > 50) {
-      (async () => {
-        try {
-          const { storeDocumentEmbeddings } = await import('../services/embeddingService.js');
-          await storeDocumentEmbeddings(savedDoc.id, user.firmId, content, {
-            documentType: 'ai-generated',
-            documentName: docName,
-            matterId: matter_id,
-          });
-          console.log(`[AI DOCUMENT] Auto-embedded ${savedDoc.id} for semantic search`);
-        } catch (embedError) {
-          console.log(`[AI DOCUMENT] Auto-embed skipped: ${embedError.message}`);
-        }
-      })();
-    }
-    
     // Get matter/client names for confirmation
     let locationInfo = '';
     if (matter_id) {

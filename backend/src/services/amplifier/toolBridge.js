@@ -556,23 +556,6 @@ const BACKGROUND_AGENT_ONLY_TOOLS = [
       }
     }
   },
-  {
-    type: 'function',
-    function: {
-      name: 'search_semantic',
-      description: 'Semantic search across all firm documents using AI embeddings. Finds documents by MEANING, not just keywords. Use this to find: relevant precedent, similar contract clauses, prior work product on similar issues, related memos. Much more powerful than search_document_content for finding conceptually related documents. Example: searching "indemnification obligations" will find documents that say "hold harmless" even though the exact words differ.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'What to search for - describe the concept, clause, or issue you need to find' },
-          matter_id: { type: 'string', description: 'Optional: limit search to a specific matter' },
-          document_type: { type: 'string', description: 'Optional: filter by document type' },
-          limit: { type: 'integer', description: 'Number of results to return (default 8)' },
-        },
-        required: ['query']
-      }
-    }
-  },
 ];
 
 // Add background-agent-only tools to the OpenAI tool list
@@ -698,10 +681,6 @@ export async function executeTool(toolName, params, context) {
       // Quality assurance: let the agent review what it created
       case 'review_created_documents':
         return await reviewCreatedDocuments(params, userId, firmId);
-      
-      // Semantic search: find documents by meaning using vector embeddings
-      case 'search_semantic':
-        return await searchSemantic(params, userId, firmId);
       
       default:
         // Delegate to the standard AI agent tool executor (same as normal AI chat)
@@ -3480,97 +3459,6 @@ async function reviewCreatedDocuments(params, userId, firmId) {
   } catch (error) {
     console.error('[ToolBridge] reviewCreatedDocuments error:', error.message);
     return { error: 'Failed to review created documents: ' + error.message };
-  }
-}
-
-/**
- * Semantic search across firm documents using vector embeddings.
- * Finds documents by meaning, not just keywords.
- * Falls back to keyword search if embeddings aren't available.
- */
-async function searchSemantic(params, userId, firmId) {
-  const { query: searchQuery, matter_id, document_type, limit = 8 } = params;
-  
-  if (!searchQuery || searchQuery.trim().length < 3) {
-    return { error: 'Search query must be at least 3 characters' };
-  }
-  
-  try {
-    // Try semantic search first (requires embeddings to be indexed)
-    const { semanticSearch } = await import('../../services/embeddingService.js');
-    
-    const results = await semanticSearch(searchQuery, firmId, {
-      limit: Math.min(limit, 15),
-      threshold: 0.5, // Lower threshold for broader results
-      matterId: matter_id || null,
-      documentType: document_type || null,
-      includeGraphExpansion: true,
-      lawyerId: userId,
-    });
-    
-    if (results && results.length > 0) {
-      return {
-        success: true,
-        results: results.map(r => ({
-          documentId: r.documentId,
-          documentName: r.documentName,
-          matterId: r.matterId,
-          matterName: r.matterName,
-          similarity: Math.round(r.similarity * 100) + '%',
-          excerpt: r.chunkText,
-          source: r.source || 'semantic',
-        })),
-        count: results.length,
-        searchType: 'semantic',
-        message: `Found ${results.length} semantically similar document(s). Use read_document_content to read the full content of any result.`,
-      };
-    }
-    
-    // Fall back to keyword search if no semantic results
-    console.log('[ToolBridge] No semantic results, falling back to keyword search');
-    
-  } catch (semanticError) {
-    // Semantic search may fail if embeddings aren't set up - fall back gracefully
-    console.log('[ToolBridge] Semantic search not available, falling back to keyword search:', semanticError.message);
-  }
-  
-  // Fallback: keyword search (always works, doesn't need embeddings)
-  try {
-    const keywordResults = await query(`
-      SELECT d.id, d.original_name as name, d.type, d.matter_id, m.name as matter_name,
-             LEFT(d.content_text, 300) as content_preview
-      FROM documents d
-      LEFT JOIN matters m ON d.matter_id = m.id
-      WHERE d.firm_id = $1
-        AND d.content_text IS NOT NULL
-        AND d.content_text ILIKE $2
-        ${matter_id ? 'AND d.matter_id = $3' : ''}
-      ORDER BY d.uploaded_at DESC
-      LIMIT $${matter_id ? '4' : '3'}
-    `, matter_id 
-      ? [firmId, `%${searchQuery}%`, matter_id, limit]
-      : [firmId, `%${searchQuery}%`, limit]
-    );
-    
-    return {
-      success: true,
-      results: keywordResults.rows.map(r => ({
-        documentId: r.id,
-        documentName: r.name,
-        matterId: r.matter_id,
-        matterName: r.matter_name,
-        excerpt: r.content_preview,
-        source: 'keyword',
-      })),
-      count: keywordResults.rows.length,
-      searchType: 'keyword_fallback',
-      message: `Found ${keywordResults.rows.length} document(s) via keyword search. Semantic search requires document embeddings to be indexed.`,
-    };
-  } catch (fallbackError) {
-    return { 
-      error: 'Search failed: ' + fallbackError.message,
-      hint: 'Try search_document_content as an alternative.'
-    };
   }
 }
 
