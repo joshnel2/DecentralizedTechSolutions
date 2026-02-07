@@ -540,6 +540,11 @@ class BackgroundTask extends EventEmitter {
     // Matter context cache
     this.matterContext = null;
     
+    // Matter resolution confidence tracking
+    this.matterConfidence = null;  // 'exact' | 'high' | 'medium' | 'ambiguous' | 'low' | 'none'
+    this.matterCandidates = [];    // All candidate matters from resolution
+    this._verifiedMatterIds = new Set(); // Matters confirmed via get_matter read
+    
     // ===== PHASE-BASED EXECUTION (for reliable 30-minute tasks) =====
     this.executionPhase = ExecutionPhase.DISCOVERY;
     this.phaseIterationCounts = {
@@ -1192,7 +1197,11 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
           matter.task_count = matter.tasks.length;
           matter.tasks = matter.tasks.slice(0, 5).map(t => ({ id: t.id, title: t.title, status: t.status }));
         }
-        return JSON.stringify({ matter, success: true });
+        // Preserve ambiguity warnings - these MUST survive trimming so the agent sees them
+        const trimmedResult = { matter, success: true };
+        if (result._warning) trimmedResult._warning = result._warning;
+        if (result._resolution) trimmedResult._resolution = result._resolution;
+        return JSON.stringify(trimmedResult);
       }
       
       if (toolName === 'get_calendar_events') {
@@ -1223,9 +1232,50 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
 
   // ===== PRE-FLIGHT ARGUMENT VALIDATION =====
 
+  // Write tools that modify matter data - these require verified matter context
+  static MATTER_WRITE_TOOLS = new Set([
+    'add_matter_note', 'create_document', 'create_task', 'create_calendar_event',
+    'update_matter', 'close_matter', 'archive_matter', 'draft_legal_document',
+    'draft_email_for_matter', 'set_critical_deadline',
+  ]);
+  
+  // Read tools that verify the agent has loaded a matter
+  static MATTER_READ_TOOLS = new Set([
+    'get_matter', 'search_matters', 'list_my_matters', 'list_documents',
+    'read_document_content', 'get_matter_documents_content',
+  ]);
+
+  /**
+   * Track that the agent has verified a matter by reading its details.
+   * Called after successful execution of matter-reading tools.
+   */
+  markMatterVerified(matterId) {
+    if (!this._verifiedMatterIds) {
+      this._verifiedMatterIds = new Set();
+    }
+    this._verifiedMatterIds.add(matterId);
+    console.log(`[Amplifier] Matter ${matterId} marked as verified`);
+  }
+  
+  /**
+   * Check if a matter has been verified (agent has read its details).
+   */
+  isMatterVerified(matterId) {
+    // If confidence was exact/high from extractMatterContext, the pre-load counts as verification
+    if (this.matterConfidence === 'exact' || this.matterConfidence === 'high') {
+      if (matterId === this.preloadedMatterId) return true;
+    }
+    return this._verifiedMatterIds?.has(matterId) || false;
+  }
+
   /**
    * Validate tool arguments before execution to prevent wasted iterations.
    * Returns null if valid, or an error message string if invalid.
+   * 
+   * Now includes MATTER VERIFICATION GUARDRAIL:
+   * Write tools that target a matter are blocked until the agent has verified
+   * the matter identity through a read operation. This prevents the agent from
+   * creating documents/notes/tasks on the wrong matter when the match was ambiguous.
    */
   validateToolArgs(toolName, args) {
     // Check for obviously invalid UUIDs (common GPT hallucination)
@@ -1238,6 +1288,30 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         if (val.length < 3 && !val.match(/^[0-9a-f]{8}-/i)) {
           return `Invalid ${field}: "${val}" is too short. Use the actual ID from a previous tool result, or use search_matters/list_clients to find the correct ID.`;
         }
+      }
+    }
+    
+    // ===== MATTER VERIFICATION GUARDRAIL =====
+    // Block write operations on a matter that hasn't been verified when confidence is not high.
+    // This is the hard gate that prevents working on the wrong matter.
+    // A junior attorney wouldn't start drafting for "the Smith case" without first pulling the file
+    // and confirming it's the RIGHT Smith case.
+    const isWriteTool = AmplifierTask.MATTER_WRITE_TOOLS.has(toolName);
+    const targetMatterId = args.matter_id || args.matterId;
+    
+    if (isWriteTool && targetMatterId) {
+      const needsVerification = this.matterConfidence === 'ambiguous' || 
+                                 this.matterConfidence === 'low' || 
+                                 this.matterConfidence === 'none' ||
+                                 this.matterConfidence === 'medium';
+      
+      if (needsVerification && !this.isMatterVerified(targetMatterId)) {
+        const verifiedList = this._verifiedMatterIds ? Array.from(this._verifiedMatterIds).join(', ') : 'none';
+        return `MATTER VERIFICATION REQUIRED: You are trying to ${toolName} on matter "${targetMatterId}" but the matter has NOT been verified yet. ` +
+               `The initial matter match confidence was ${(this.matterConfidence || 'unknown').toUpperCase()}. ` +
+               `Before ANY write operation, you MUST first call get_matter with this matter_id to load and verify it is the correct matter. ` +
+               `Verified matters so far: [${verifiedList}]. ` +
+               `Do NOT skip this step - working on the wrong matter is a serious error.`;
       }
     }
     
@@ -1406,10 +1480,15 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
    * This pre-loads relevant matter info so the agent starts with context
    * and warm-seeds the tool cache to avoid redundant API calls.
    * 
-   * EFFICIENCY: Uses a multi-strategy approach:
+   * RELIABILITY: Uses a multi-strategy approach with STRICT disambiguation:
    * 1. Regex extraction of matter name from goal text
-   * 2. If no regex match, falls back to searching recent active matters
-   * 3. Pre-loads matter data into the tool cache so get_matter calls are instant
+   * 2. Scored matching against ALL candidate matters (not LIMIT 1)
+   * 3. Confidence classification: EXACT (100%), HIGH (80%+), AMBIGUOUS, NONE
+   * 4. Ambiguous matches force the agent to VERIFY before any write operations
+   * 5. Pre-loads matter data into the tool cache so get_matter calls are instant
+   * 
+   * A junior attorney would NEVER guess which file to work on.
+   * Neither should this agent.
    */
   async extractMatterContext() {
     try {
@@ -1426,12 +1505,15 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       ];
       
       let potentialMatterName = null;
+      let wasQuoted = false; // Quoted names get higher confidence
       for (const pattern of matterPatterns) {
         const match = this.goal.match(pattern);
         if (match && match[1] && match[1].trim().length > 2) {
           potentialMatterName = match[1].trim();
           // Clean up common trailing words that aren't part of the matter name
           potentialMatterName = potentialMatterName.replace(/\s+(?:and|then|also|please|asap|urgently|quickly)\s*$/i, '').trim();
+          // Check if the original match was quoted (first pattern)
+          wasQuoted = /["']/.test(this.goal.charAt(this.goal.indexOf(potentialMatterName) - 1) || '');
           break;
         }
         // For v. pattern, match the whole phrase
@@ -1445,71 +1527,143 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         }
       }
       
-      let matterResult;
+      // ===== SCORED MATTER RESOLUTION =====
+      // Instead of LIMIT 1, fetch ALL candidates and score them.
+      // This prevents silently picking the wrong matter when names are similar.
+      
+      let allCandidates = [];
       
       if (potentialMatterName) {
-        // Strategy 1: Direct name search
-        matterResult = await query(`
+        // Strategy 1: Search by extracted name - get ALL matches, not just first
+        const candidateResult = await query(`
           SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
                  m.created_at, m.open_date, c.display_name as client_name, c.id as client_id, c.email as client_email,
                  (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
                  (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
-                 (SELECT COUNT(*) FROM matter_tasks t WHERE t.matter_id = m.id) as task_count
+                 (SELECT COUNT(*) FROM matter_tasks t WHERE t.matter_id = m.id) as task_count,
+                 CASE
+                   WHEN LOWER(m.name) = LOWER($2) THEN 100
+                   WHEN LOWER(m.number) = LOWER($2) THEN 95
+                   WHEN LOWER(m.name) = LOWER($3) THEN 90
+                   WHEN LOWER(m.number) = LOWER($3) THEN 85
+                   WHEN LOWER(m.name) LIKE LOWER($3) || '%' THEN 75
+                   WHEN LOWER(m.number) LIKE LOWER($3) || '%' THEN 70
+                   WHEN LOWER(m.name) LIKE '%' || LOWER($3) || '%' THEN 60
+                   WHEN LOWER(m.number) LIKE '%' || LOWER($3) || '%' THEN 55
+                   WHEN LOWER(c.display_name) LIKE '%' || LOWER($3) || '%' THEN 45
+                   ELSE 30
+                 END as match_score
           FROM matters m
           LEFT JOIN clients c ON m.client_id = c.id
           WHERE m.firm_id = $1 
-            AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
-          ORDER BY 
-            CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
-            m.created_at DESC
-          LIMIT 1
-        `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
+            AND (
+              LOWER(m.name) LIKE '%' || LOWER($3) || '%' 
+              OR LOWER(m.number) LIKE '%' || LOWER($3) || '%'
+              OR LOWER(c.display_name) LIKE '%' || LOWER($3) || '%'
+            )
+          ORDER BY match_score DESC, m.status = 'active' DESC, m.updated_at DESC NULLS LAST
+          LIMIT 10
+        `, [this.firmId, potentialMatterName, potentialMatterName.toLowerCase()]);
+        
+        allCandidates = candidateResult.rows;
       }
       
-      // Strategy 2: If no match found, check if there's only one active matter (common for solo/small firms)
-      if ((!matterResult || matterResult.rows.length === 0) && !potentialMatterName) {
-        // If the goal mentions generic "matter" or "case" without a name, try to find the most recent active matter
+      // Strategy 2: If no match found and goal mentions generic "matter"/"case", check active matters
+      if (allCandidates.length === 0 && !potentialMatterName) {
         if (/\b(?:the\s+)?(?:matter|case|file)\b/i.test(goalLower) || /\b(?:review|check|update|draft|prepare)\b/i.test(goalLower)) {
           const recentMatterResult = await query(`
             SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
                    m.created_at, m.open_date, c.display_name as client_name, c.id as client_id, c.email as client_email,
                    (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
                    (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
-                   (SELECT COUNT(*) FROM matter_tasks t WHERE t.matter_id = m.id) as task_count
+                   (SELECT COUNT(*) FROM matter_tasks t WHERE t.matter_id = m.id) as task_count,
+                   0 as match_score
             FROM matters m
             LEFT JOIN clients c ON m.client_id = c.id
             WHERE m.firm_id = $1 AND m.status = 'active'
             ORDER BY m.updated_at DESC NULLS LAST, m.created_at DESC
-            LIMIT 3
+            LIMIT 5
           `, [this.firmId]);
           
-          // Only use this if there's exactly 1 active matter (unambiguous) 
-          // or if the most recent one was updated very recently
           if (recentMatterResult.rows.length === 1) {
-            matterResult = recentMatterResult;
-            console.log(`[Amplifier] No matter name in goal, but found single active matter: ${recentMatterResult.rows[0].name}`);
+            // Exactly one active matter - unambiguous by elimination
+            allCandidates = recentMatterResult.rows;
+            allCandidates[0].match_score = 80; // High confidence: only one option
+            console.log(`[Amplifier] No matter name in goal, but only 1 active matter exists: ${allCandidates[0].name}`);
           } else if (recentMatterResult.rows.length > 1) {
-            // Pre-cache the list of matters so the agent's first list_my_matters call is instant
+            // Multiple active matters with no name specified - AMBIGUOUS
             this._warmCacheMattersList(recentMatterResult.rows);
-            console.log(`[Amplifier] ${recentMatterResult.rows.length} active matters found - agent will need to identify which one`);
+            console.log(`[Amplifier] ${recentMatterResult.rows.length} active matters found, no name specified - agent MUST identify which one`);
+            
+            // Return disambiguation context instead of guessing
+            this.matterConfidence = 'none';
+            this.matterCandidates = recentMatterResult.rows;
+            return this._buildMatterDisambiguationContext(null, recentMatterResult.rows, 'no_name_multiple_matters');
           }
         }
       }
       
-      if (!matterResult || matterResult.rows.length === 0) {
+      if (allCandidates.length === 0) {
         return null;
       }
       
-      const matter = matterResult.rows[0];
+      // ===== CONFIDENCE CLASSIFICATION =====
+      // Score the match and classify confidence level
+      const topMatch = allCandidates[0];
+      const secondMatch = allCandidates.length > 1 ? allCandidates[1] : null;
+      const topScore = parseInt(topMatch.match_score);
+      const secondScore = secondMatch ? parseInt(secondMatch.match_score) : 0;
+      const scoreDelta = topScore - secondScore;
+      
+      let confidence;
+      if (topScore >= 95) {
+        // Exact name or number match
+        confidence = 'exact';
+      } else if (topScore >= 80 && (allCandidates.length === 1 || scoreDelta >= 25)) {
+        // Strong match with clear separation from next candidate
+        confidence = 'high';
+      } else if (topScore >= 60 && scoreDelta >= 20 && allCandidates.length <= 2) {
+        // Good match with reasonable separation
+        confidence = wasQuoted ? 'high' : 'medium';
+      } else if (allCandidates.length > 1 && scoreDelta < 15) {
+        // Multiple close matches - AMBIGUOUS, must not guess
+        confidence = 'ambiguous';
+      } else if (topScore < 50) {
+        // Weak match - might be wrong entirely
+        confidence = 'low';
+      } else {
+        confidence = 'medium';
+      }
+      
+      console.log(`[Amplifier] Matter resolution: "${potentialMatterName}" -> "${topMatch.name}" (score: ${topScore}, delta: ${scoreDelta}, confidence: ${confidence}, candidates: ${allCandidates.length})`);
+      
+      // Store confidence for use in system prompt and guardrails
+      this.matterConfidence = confidence;
+      this.matterCandidates = allCandidates;
+      
+      // ===== AMBIGUOUS: Force disambiguation - do NOT guess =====
+      if (confidence === 'ambiguous') {
+        console.log(`[Amplifier] AMBIGUOUS matter match: top=${topMatch.name} (${topScore}), second=${secondMatch?.name} (${secondScore}) - forcing agent to verify`);
+        this._warmCacheMattersList(allCandidates);
+        return this._buildMatterDisambiguationContext(potentialMatterName, allCandidates, 'ambiguous_matches');
+      }
+      
+      // ===== LOW CONFIDENCE: Warn agent heavily =====
+      if (confidence === 'low') {
+        console.log(`[Amplifier] LOW confidence matter match: "${potentialMatterName}" -> "${topMatch.name}" (score: ${topScore}) - agent must verify`);
+        this._warmCacheMattersList(allCandidates);
+        return this._buildMatterDisambiguationContext(potentialMatterName, allCandidates, 'low_confidence');
+      }
+      
+      // ===== EXACT or HIGH CONFIDENCE: Pre-load the matter =====
+      const matter = topMatch;
       const isEmpty = parseInt(matter.doc_count) === 0 && parseInt(matter.note_count) === 0;
       
-      // ===== WARM THE TOOL CACHE with pre-loaded matter data =====
-      // This prevents the agent from wasting an iteration calling get_matter
-      // on a matter we already fetched. Saves 1-2 iterations + 1 API call.
+      // Warm the tool cache
       this._warmCacheMatter(matter);
       
       let contextStr = `
-## PRE-LOADED MATTER CONTEXT
+## PRE-LOADED MATTER CONTEXT (Confidence: ${confidence.toUpperCase()})
 
 The goal mentions a matter. Here's what I found:
 
@@ -1519,6 +1673,7 @@ The goal mentions a matter. Here's what I found:
 **Type:** ${matter.type || 'General'}
 **Client:** ${matter.client_name || 'No client assigned'}${matter.client_id ? ` (ID: ${matter.client_id})` : ''}
 **Created:** ${matter.created_at ? new Date(matter.created_at).toLocaleDateString() : 'Unknown'}
+**Match Confidence:** ${confidence.toUpperCase()} (score: ${topScore}/100${secondMatch ? `, next closest: "${secondMatch.name}" at ${secondScore}/100` : ''})
 
 **Current State:**
 - Documents: ${matter.doc_count}
@@ -1527,6 +1682,15 @@ The goal mentions a matter. Here's what I found:
 
 **IMPORTANT:** The matter ID is \`${matter.id}\`. Use this ID directly in tool calls (get_matter, add_matter_note, create_document, create_task, etc.) - no need to search for it.
 `;
+
+      // For MEDIUM confidence, add a verification reminder
+      if (confidence === 'medium') {
+        contextStr += `
+⚠️ **MEDIUM CONFIDENCE MATCH** - I matched "${potentialMatterName}" to "${matter.name}" but the match is not exact.
+**BEFORE creating any documents, notes, or tasks:** Call get_matter with ID \`${matter.id}\` and verify this is the correct matter for the user's request.
+If the matter details don't match what the user described, use search_matters to find the right one.
+`;
+      }
       
       if (isEmpty) {
         contextStr += `
@@ -1579,7 +1743,7 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       this.preloadedMatterId = matter.id;
       this.preloadedMatterName = matter.name;
       
-      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'})`);
+      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (confidence: ${confidence}, ${isEmpty ? 'EMPTY' : 'has content'})`);
       
       return contextStr;
       
@@ -1587,6 +1751,77 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       console.error('[Amplifier] Error extracting matter context:', error.message);
       return null;
     }
+  }
+
+  /**
+   * Build disambiguation context when the matter cannot be confidently identified.
+   * Instead of guessing, this tells the agent EXACTLY what to do: verify before writing.
+   * 
+   * A junior attorney who gets handed "the Smith file" when there are 3 Smith files
+   * would walk back to the partner's office and ask. This is the digital equivalent.
+   */
+  _buildMatterDisambiguationContext(searchedName, candidates, reason) {
+    const candidateList = candidates.slice(0, 5).map((m, i) => {
+      const score = m.match_score ? ` (match: ${m.match_score}/100)` : '';
+      return `  ${i + 1}. **${m.name}** (${m.number || 'no number'}) - ${m.status} - Client: ${m.client_name || 'none'}${score} [ID: ${m.id}]`;
+    }).join('\n');
+    
+    let contextStr;
+    
+    if (reason === 'no_name_multiple_matters') {
+      contextStr = `
+## ⚠️ MATTER IDENTIFICATION REQUIRED - NO MATTER SPECIFIED
+
+The goal does not specify which matter to work on, and there are multiple active matters.
+
+**Active matters in this firm:**
+${candidateList}
+
+## MANDATORY FIRST STEPS - DO NOT SKIP
+1. **Call \`list_my_matters\`** to see all available matters
+2. **Analyze the goal** to determine which matter is most relevant
+3. **Call \`get_matter\`** on the identified matter to load its details
+4. **Only then** proceed with the actual work
+
+**CRITICAL:** Do NOT create any documents, notes, tasks, or calendar events until you have positively identified and loaded the correct matter. Working on the wrong matter is a SERIOUS ERROR that wastes attorney time and creates misfiled work product.
+`;
+    } else if (reason === 'ambiguous_matches') {
+      contextStr = `
+## ⚠️ AMBIGUOUS MATTER MATCH - VERIFICATION REQUIRED
+
+The goal mentions "${searchedName}" but multiple matters match with similar scores:
+
+${candidateList}
+
+## MANDATORY FIRST STEPS - DO NOT SKIP
+1. **Call \`get_matter\`** on the TOP candidate (ID: \`${candidates[0].id}\`) to review its details
+2. **Compare** the matter details against what the user's goal describes
+3. If the matter looks correct, proceed. If NOT, try the next candidate.
+4. **Only after confirming the correct matter** should you create any documents, notes, tasks, or events.
+
+**CRITICAL:** These matters have similar names. You MUST verify you have the right one by reading its details before doing ANY write operations. A junior attorney would confirm which file to work on before spending hours on it. So must you.
+`;
+    } else if (reason === 'low_confidence') {
+      contextStr = `
+## ⚠️ LOW CONFIDENCE MATTER MATCH - VERIFICATION REQUIRED
+
+The goal mentions "${searchedName}" but the best match is weak:
+
+${candidateList}
+
+## MANDATORY FIRST STEPS - DO NOT SKIP
+1. **Call \`search_matters\`** with search term "${searchedName}" to find better matches
+2. If no good match found, call \`list_my_matters\` to browse all matters
+3. **Call \`get_matter\`** on the correct matter to load its full details
+4. **Only after confirming the correct matter** should you create any documents, notes, tasks, or events.
+
+**CRITICAL:** The match confidence is LOW. The matter "${candidates[0]?.name}" may NOT be what the user intended. You MUST verify before doing any work. Working on the wrong matter wastes attorney time and creates compliance risks.
+`;
+    }
+    
+    console.log(`[Amplifier] Matter disambiguation context generated (reason: ${reason}, candidates: ${candidates.length})`);
+    
+    return contextStr;
   }
 
   /**
@@ -2038,6 +2273,9 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
       agentMemoryState: this.agentMemory ? this.agentMemory.serialize() : null,
       // Persist work type classification from the brief
       workTypeId: this.workType?.id || null,
+      // Persist matter verification state so it survives restarts
+      matterConfidence: this.matterConfidence || null,
+      verifiedMatterIds: this._verifiedMatterIds ? Array.from(this._verifiedMatterIds) : [],
     };
   }
 
@@ -2106,6 +2344,15 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     this.substantiveActions = checkpoint.substantiveActions || this.substantiveActions;
     this.systemPrompt = checkpoint.systemPrompt || this.systemPrompt;
     
+    // Restore matter verification state (so the guardrail doesn't re-block after restart)
+    if (checkpoint.matterConfidence) {
+      this.matterConfidence = checkpoint.matterConfidence;
+    }
+    if (Array.isArray(checkpoint.verifiedMatterIds) && checkpoint.verifiedMatterIds.length > 0) {
+      this._verifiedMatterIds = new Set(checkpoint.verifiedMatterIds);
+      console.log(`[Amplifier] Restored ${this._verifiedMatterIds.size} verified matter IDs from checkpoint`);
+    }
+    
     // Restore rewind system state (failed paths survive restarts)
     if (checkpoint.rewindState && this.rewindManager) {
       this.rewindManager.loadSerializableState(checkpoint.rewindState);
@@ -2170,6 +2417,9 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
     
     const matterContextStr = this.matterContext || '';
     const hasMatterPreloaded = !!this.preloadedMatterId;
+    const matterConfidence = this.matterConfidence || (hasMatterPreloaded ? 'high' : 'none');
+    const matterIsVerified = matterConfidence === 'exact' || matterConfidence === 'high';
+    const matterNeedsVerification = matterConfidence === 'ambiguous' || matterConfidence === 'low' || matterConfidence === 'medium' || matterConfidence === 'none';
     
     let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS junior attorney AI with COMPLETE tool access to a legal practice management platform.
 
@@ -2185,7 +2435,12 @@ ${matterContextStr}
 - NO placeholders [INSERT], [TODO] in documents. Write REAL content only.
 - Before task_complete: ≥8 tool calls, ≥1 note, ≥1 task, ≥120s elapsed.
 - IRAC for legal analysis. Be thorough. Push through failures.
-${hasMatterPreloaded ? `- Matter "${this.preloadedMatterName}" is pre-loaded (ID: ${this.preloadedMatterId}). Use this ID directly - no need to search.` : '- Search for the relevant matter first with search_matters or list_my_matters.'}
+${hasMatterPreloaded && matterIsVerified
+  ? `- Matter "${this.preloadedMatterName}" is pre-loaded with ${matterConfidence.toUpperCase()} confidence (ID: ${this.preloadedMatterId}). Use this ID directly - no need to search.`
+  : hasMatterPreloaded && !matterIsVerified
+  ? `- ⚠️ Matter "${this.preloadedMatterName}" was matched with ${matterConfidence.toUpperCase()} confidence. You MUST call get_matter to verify it before creating any documents, notes, or tasks. If it's the wrong matter, use search_matters to find the right one.`
+  : '- No matter was identified from the goal. Search for the relevant matter first with search_matters or list_my_matters. You MUST verify the correct matter before any write operations.'}
+${matterNeedsVerification ? `- **MATTER SAFETY GATE**: Write tools (add_matter_note, create_document, create_task, etc.) are BLOCKED until you call get_matter and verify the correct matter. This prevents working on the wrong file.` : ''}
 
 ## TOOLS
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
@@ -2193,9 +2448,9 @@ ${hasMatterPreloaded ? `- Matter "${this.preloadedMatterName}" is pre-loaded (ID
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
 
 ## PHASES (current: ${this.executionPhase.toUpperCase()})
-${hasMatterPreloaded 
+${hasMatterPreloaded && matterIsVerified
   ? `- **DISCOVERY**: Read documents and notes for the pre-loaded matter. Skip searching.`
-  : `- **DISCOVERY**: Find and read the matter, its documents, notes, calendar.`}
+  : `- **DISCOVERY**: ${matterNeedsVerification ? 'FIRST verify the correct matter with get_matter/search_matters, THEN ' : 'Find and '}read the matter, its documents, notes, calendar.`}
 - **ANALYSIS**: Document findings with add_matter_note.
 - **ACTION**: Create deliverables: documents, tasks, events.
 - **REVIEW**: Call review_created_documents, verify quality, then task_complete.
@@ -2241,7 +2496,16 @@ ${hasMatterPreloaded
       prompt += '\n';
     }
 
-    prompt += `\nBEGIN NOW. ${hasMatterPreloaded ? `Start with think_and_plan, then immediately work on matter "${this.preloadedMatterName}".` : 'Call think_and_plan first, then execute tools.'}\n`;
+    // Confidence-aware start instructions
+    let startInstruction;
+    if (hasMatterPreloaded && matterIsVerified) {
+      startInstruction = `Start with think_and_plan, then immediately work on matter "${this.preloadedMatterName}".`;
+    } else if (hasMatterPreloaded && matterNeedsVerification) {
+      startInstruction = `Start by calling get_matter with ID "${this.preloadedMatterId}" to VERIFY it is the correct matter for this task. Check the matter name, client, and status. If correct, proceed. If NOT, use search_matters to find the right one. Do NOT create any documents, notes, or tasks until verified.`;
+    } else {
+      startInstruction = `Call think_and_plan first, then use search_matters or list_my_matters to identify the correct matter before doing any work.`;
+    }
+    prompt += `\nBEGIN NOW. ${startInstruction}\n`;
 
     // ===== UNIFIED LEARNING CONTEXT =====
     // All learning sources are combined into a single, selective, budgeted section.
@@ -2853,6 +3117,33 @@ ${hasMatterPreloaded
                   }
                 } catch (docLearnErr) {
                   // Non-fatal: document learning is best-effort
+                }
+              }
+              
+              // ===== MATTER VERIFICATION TRACKING =====
+              // When the agent successfully reads matter details, mark the matter as verified.
+              // This unlocks the write-tool guardrail for that matter ID.
+              if (AmplifierTask.MATTER_READ_TOOLS.has(toolName)) {
+                // Extract matter ID from the result depending on which tool was used
+                let verifiedMatterId = null;
+                if (toolName === 'get_matter') {
+                  // get_matter result may have matter at top level (from aiAgent.js) 
+                  // or nested under .matter (from warm cache)
+                  verifiedMatterId = result?.matter?.id || result?.id || null;
+                } else if (toolName === 'search_matters' && result?.matters?.length === 1) {
+                  // Only auto-verify if search returned exactly one result (unambiguous)
+                  verifiedMatterId = result.matters[0].id;
+                } else if (toolName === 'list_documents' && toolArgs.matter_id) {
+                  // Reading docs for a matter implies the agent has identified it
+                  verifiedMatterId = toolArgs.matter_id;
+                } else if (toolName === 'read_document_content' && result?.matter_id) {
+                  verifiedMatterId = result.matter_id;
+                } else if (toolName === 'get_matter_documents_content' && toolArgs.matter_id) {
+                  verifiedMatterId = toolArgs.matter_id;
+                }
+                
+                if (verifiedMatterId) {
+                  this.markMatterVerified(verifiedMatterId);
                 }
               }
             } else {
