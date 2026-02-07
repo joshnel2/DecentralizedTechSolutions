@@ -101,18 +101,27 @@ This is **NOT** the Python standalone path (`worker.py → lawyer_brain.py → b
     - Progress percentage tracking with milestone bonuses
     - Error and warning events for monitoring
 
-11. **Pre-loaded Context**:
-    - Matter context extracted from goal and pre-loaded with SQL (including doc/note/task counts)
-    - CPLR guidance auto-injected based on matter type
+11. **Pre-loaded Context & Cache Warm-Seeding**:
+    - Matter context extracted from goal with expanded regex patterns (including "v." case patterns)
+    - Fallback strategy: if no matter name found, checks for single active matter or pre-caches matter list
+    - Pre-loaded matter data warm-seeds the tool cache — `get_matter` and `search_matters` calls are instant
+    - Matter ID explicitly provided in context so agent skips searching entirely
+    - CPLR guidance conditionally injected only when task involves NY law keywords
     - User/firm context, workflow templates, learned patterns all loaded at start
 
-12. **Resilience**:
+12. **Resilience & Efficiency**:
     - 8 retry attempts on Azure OpenAI with exponential backoff
     - Rate limit detection with adaptive token budget reduction
-    - Tool result caching (5 min TTL) for read-only tools
+    - Smart tool result caching: 5 min TTL for dynamic data, 15 min TTL for stable data (matters, clients, CPLR)
+    - Cache warm-seeding eliminates redundant first-call fetches
     - Parallel execution for read-only tool batches
+    - Aggressive tool result trimming: list payloads stripped to essential fields only (~40% smaller)
     - Tool argument pre-validation to prevent wasted iterations
     - Blocks `log_time`/`log_billable_work` to prevent accidental billing
+    - Leaner system prompt (~40% fewer tokens) with conditional sections
+    - Compact Junior Attorney Brief when matter context is pre-loaded (23% smaller)
+    - Tighter message compaction thresholds for smaller context windows per API call
+    - Efficiency metrics tracked per task: iterations/action, actions/minute, cache hits, rate limits
 
 13. **Timeout Completion with Quality Assessment**:
     - When time limit is reached, runs FULL evaluateTask() (was previously skipped)
