@@ -1223,6 +1223,112 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
   }
   
   /**
+   * Verify deliverables actually exist in the database.
+   * 
+   * This prevents hallucinated summaries by cross-checking the agent's
+   * claimed work (from actionsHistory) against what was actually saved.
+   * Returns an object with verified counts and lists.
+   */
+  async verifyDeliverablesInDB() {
+    const result = {
+      verified: false,
+      documents: { claimed: 0, confirmed: 0, items: [] },
+      notes: { claimed: 0, confirmed: 0, items: [] },
+      tasks: { claimed: 0, confirmed: 0, items: [] },
+      events: { claimed: 0, confirmed: 0, items: [] },
+      warnings: [],
+    };
+    
+    try {
+      const taskStartTime = this.startTime || new Date(Date.now() - 3600000);
+      
+      // Count claimed deliverables from action history
+      const successActions = this.actionsHistory.filter(a => a.success !== false);
+      result.documents.claimed = successActions.filter(a => a.tool === 'create_document').length;
+      result.notes.claimed = successActions.filter(a => a.tool === 'add_matter_note').length;
+      result.tasks.claimed = successActions.filter(a => a.tool === 'create_task').length;
+      result.events.claimed = successActions.filter(a => a.tool === 'create_calendar_event').length;
+      
+      // Verify documents in DB (documents table uses uploaded_at, not created_at)
+      try {
+        const docResult = await query(
+          `SELECT id, original_name as name FROM documents 
+           WHERE firm_id = $1 AND uploaded_by = $2 AND uploaded_at >= $3
+           ORDER BY uploaded_at DESC LIMIT 20`,
+          [this.firmId, this.userId, taskStartTime]
+        );
+        result.documents.confirmed = docResult.rows.length;
+        result.documents.items = docResult.rows.map(r => r.name || 'untitled');
+      } catch (e) {
+        result.warnings.push(`Document verification query failed: ${e.message}`);
+      }
+      
+      // Verify notes in DB
+      try {
+        const noteResult = await query(
+          `SELECT mn.id, LEFT(mn.content, 80) as preview FROM matter_notes mn
+           JOIN matters m ON mn.matter_id = m.id
+           WHERE m.firm_id = $1 AND mn.created_by = $2 AND mn.created_at >= $3
+           ORDER BY mn.created_at DESC LIMIT 20`,
+          [this.firmId, this.userId, taskStartTime]
+        );
+        result.notes.confirmed = noteResult.rows.length;
+        result.notes.items = noteResult.rows.map(r => r.preview || 'note');
+      } catch (e) {
+        result.warnings.push(`Note verification query failed: ${e.message}`);
+      }
+      
+      // Verify tasks in DB (matter_tasks table uses name, not title)
+      try {
+        const taskResult = await query(
+          `SELECT id, name FROM matter_tasks 
+           WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
+           ORDER BY created_at DESC LIMIT 20`,
+          [this.firmId, this.userId, taskStartTime]
+        );
+        result.tasks.confirmed = taskResult.rows.length;
+        result.tasks.items = taskResult.rows.map(r => r.name || 'task');
+      } catch (e) {
+        result.warnings.push(`Task verification query failed: ${e.message}`);
+      }
+      
+      // Verify events in DB
+      try {
+        const eventResult = await query(
+          `SELECT id, title FROM calendar_events 
+           WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
+           ORDER BY created_at DESC LIMIT 20`,
+          [this.firmId, this.userId, taskStartTime]
+        );
+        result.events.confirmed = eventResult.rows.length;
+        result.events.items = eventResult.rows.map(r => r.title || 'event');
+      } catch (e) {
+        result.warnings.push(`Event verification query failed: ${e.message}`);
+      }
+      
+      // Build warnings for mismatches
+      if (result.documents.claimed > 0 && result.documents.confirmed === 0) {
+        result.warnings.push(`Agent claimed ${result.documents.claimed} document(s) but 0 found in database`);
+      }
+      if (result.notes.claimed > 0 && result.notes.confirmed === 0) {
+        result.warnings.push(`Agent claimed ${result.notes.claimed} note(s) but 0 found in database`);
+      }
+      if (result.tasks.claimed > 0 && result.tasks.confirmed === 0) {
+        result.warnings.push(`Agent claimed ${result.tasks.claimed} task(s) but 0 found in database`);
+      }
+      
+      result.verified = true;
+      console.log(`[Amplifier] DB verification: docs=${result.documents.confirmed}/${result.documents.claimed}, notes=${result.notes.confirmed}/${result.notes.claimed}, tasks=${result.tasks.confirmed}/${result.tasks.claimed}, events=${result.events.confirmed}/${result.events.claimed}`);
+      
+    } catch (error) {
+      console.warn('[Amplifier] DB verification failed (non-fatal):', error.message);
+      result.warnings.push(`DB verification failed: ${error.message}`);
+    }
+    
+    return result;
+  }
+
+  /**
    * Extract matter context from goal if a matter is mentioned
    * This pre-loads relevant matter info so the agent starts with context
    */
@@ -2071,13 +2177,28 @@ You have your brief above. Follow the approach order and time budget. Call think
           console.warn('[Amplifier] Timeout evaluation failed (non-fatal):', evalErr.message);
         }
         
-        // Build detailed completion summary
+        // ===== DB VERIFICATION: Check what actually exists in the database =====
+        // Don't trust actionsHistory alone - verify deliverables were actually saved.
+        // This prevents hallucinated summaries where the agent claims work it didn't do.
+        const dbVerification = await this.verifyDeliverablesInDB();
+        
+        // Build detailed completion summary using DB-VERIFIED counts (not just claimed)
         const elapsedMin = Math.round(elapsedMs / 60000);
         const successActions = this.actionsHistory.filter(a => a.success !== false);
-        const createdDocs = successActions.filter(a => a.tool === 'create_document').map(a => a.args?.name || 'document');
-        const createdNotes = successActions.filter(a => a.tool === 'add_matter_note').length;
-        const createdTasks = successActions.filter(a => a.tool === 'create_task').map(a => a.args?.title || 'task');
-        const createdEvents = successActions.filter(a => a.tool === 'create_calendar_event').map(a => a.args?.title || 'event');
+        
+        // Use DB-verified items if available, fall back to claimed
+        const createdDocs = dbVerification.verified && dbVerification.documents.confirmed > 0
+          ? dbVerification.documents.items
+          : (dbVerification.verified && dbVerification.documents.confirmed === 0 ? [] : successActions.filter(a => a.tool === 'create_document').map(a => a.args?.name || 'document'));
+        const createdNotes = dbVerification.verified 
+          ? dbVerification.notes.confirmed 
+          : successActions.filter(a => a.tool === 'add_matter_note').length;
+        const createdTasks = dbVerification.verified && dbVerification.tasks.confirmed > 0
+          ? dbVerification.tasks.items
+          : (dbVerification.verified && dbVerification.tasks.confirmed === 0 ? [] : successActions.filter(a => a.tool === 'create_task').map(a => a.args?.title || 'task'));
+        const createdEvents = dbVerification.verified && dbVerification.events.confirmed > 0
+          ? dbVerification.events.items
+          : (dbVerification.verified && dbVerification.events.confirmed === 0 ? [] : successActions.filter(a => a.tool === 'create_calendar_event').map(a => a.args?.title || 'event'));
         const keyFindings = (this.structuredPlan?.keyFindings || []).slice(-5);
         
         const summaryParts = [`Task ran for ${elapsedMin} minutes (${this.progress.iterations} iterations, phase: ${this.executionPhase}).`];
@@ -2087,6 +2208,18 @@ You have your brief above. Follow the approach order and time budget. Call think
         if (createdTasks.length > 0) summaryParts.push(`Tasks created: ${createdTasks.join(', ')}`);
         if (createdEvents.length > 0) summaryParts.push(`Events scheduled: ${createdEvents.join(', ')}`);
         if (keyFindings.length > 0) summaryParts.push(`Key findings: ${keyFindings.join('; ')}`);
+        
+        // Add DB verification warnings to summary
+        if (dbVerification.warnings.length > 0) {
+          summaryParts.push(`⚠️ DB VERIFICATION WARNINGS: ${dbVerification.warnings.join('; ')}`);
+        }
+        
+        // If nothing was actually saved to DB, flag the entire task
+        const totalConfirmed = (dbVerification.documents.confirmed || 0) + (dbVerification.notes.confirmed || 0) + 
+                               (dbVerification.tasks.confirmed || 0) + (dbVerification.events.confirmed || 0);
+        if (dbVerification.verified && totalConfirmed === 0 && successActions.length > 3) {
+          summaryParts.push('⚠️ WARNING: No deliverables were confirmed in the database despite agent claiming to have created them. The agent may have encountered errors or worked on non-existent data.');
+        }
         
         // ===== STRUCTURED WHAT-DONE / WHAT-REMAINS =====
         // Identify what phases were NOT completed and what the next attorney should do
@@ -2142,6 +2275,14 @@ You have your brief above. Follow the approach order and time budget. Call think
             tasks: createdTasks,
             events: createdEvents,
           },
+          db_verified: dbVerification.verified,
+          db_verification: dbVerification.verified ? {
+            documents_confirmed: dbVerification.documents.confirmed,
+            notes_confirmed: dbVerification.notes.confirmed,
+            tasks_confirmed: dbVerification.tasks.confirmed,
+            events_confirmed: dbVerification.events.confirmed,
+            warnings: dbVerification.warnings,
+          } : null,
           phase_reached: this.executionPhase,
           phases_completed: completedPhases,
           phases_remaining: remainingPhases,
@@ -2719,6 +2860,29 @@ Keep working on: "${this.goal}"`
               
               console.log(`[Amplifier] Task ${this.id} passed evaluation (score: ${evaluation.overallScore}/100)`);
               
+              // ===== DB VERIFICATION: Confirm deliverables actually exist =====
+              const completionVerification = await this.verifyDeliverablesInDB();
+              
+              // If agent claims work but DB shows nothing, reject completion
+              const totalClaimed = this.substantiveActions.notes + this.substantiveActions.documents + this.substantiveActions.tasks;
+              const totalConfirmedCompletion = (completionVerification.documents.confirmed || 0) + 
+                                               (completionVerification.notes.confirmed || 0) + 
+                                               (completionVerification.tasks.confirmed || 0);
+              
+              if (completionVerification.verified && totalClaimed >= 3 && totalConfirmedCompletion === 0) {
+                // Agent claims to have created lots of stuff but nothing exists in DB
+                console.warn(`[Amplifier] Task ${this.id} DB verification mismatch: claimed ${totalClaimed} deliverables, confirmed 0`);
+                this.messages.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({
+                    rejected: true,
+                    reason: `DB VERIFICATION FAILED: You claimed to create ${totalClaimed} deliverable(s) but 0 were found in the database. Your work may not have been saved properly. Re-do your work: call get_matter to verify you are working on a REAL matter, then create your deliverables again.`
+                  })
+                });
+                continue; // Go back to the agent loop
+              }
+              
               // ===== UPDATE LAWYER PROFILE (learn from this task) =====
               try {
                 await updateProfileAfterTask(this.userId, this.firmId, this);
@@ -2745,14 +2909,28 @@ Keep working on: "${this.goal}"`
               });
               this.streamProgress();
               
+              // Build summary with DB verification info
+              let completionSummary = toolArgs.summary || 'Task completed';
+              if (completionVerification.warnings.length > 0) {
+                completionSummary += ` [DB Warnings: ${completionVerification.warnings.join('; ')}]`;
+              }
+              
               // Step 3: Show complete (100%)
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
               this.progress.currentStep = 'Completed successfully';
               this.result = {
-                summary: toolArgs.summary || 'Task completed',
+                summary: completionSummary,
                 actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
                 recommendations: toolArgs.recommendations || [],
+                db_verified: completionVerification.verified,
+                db_verification: completionVerification.verified ? {
+                  documents_confirmed: completionVerification.documents.confirmed,
+                  notes_confirmed: completionVerification.notes.confirmed,
+                  tasks_confirmed: completionVerification.tasks.confirmed,
+                  events_confirmed: completionVerification.events.confirmed,
+                  warnings: completionVerification.warnings,
+                } : null,
                 stats: {
                   duration_seconds: elapsedSeconds,
                   total_actions: actionCount,
@@ -3111,11 +3289,33 @@ Keep working on: "${this.goal}"`
           this.status = TaskStatus.COMPLETED; // Complete with partial results, don't lose work
           this.progress.progressPercent = 100;
           this.progress.currentStep = 'Completed (recovered from errors)';
+          
+          // DB verification for error recovery path
+          const errorRecoveryVerification = await this.verifyDeliverablesInDB();
+          const errorTotalConfirmed = (errorRecoveryVerification.documents.confirmed || 0) + 
+                                      (errorRecoveryVerification.notes.confirmed || 0) + 
+                                      (errorRecoveryVerification.tasks.confirmed || 0);
+          
+          let errorSummary = `Task completed with partial results after encountering errors. ${this.actionsHistory.length} actions attempted. ${this.rewindManager.rewindCount} recovery attempts.`;
+          if (errorRecoveryVerification.verified) {
+            errorSummary += ` DB verified: ${errorTotalConfirmed} deliverable(s) actually saved.`;
+          }
+          if (errorRecoveryVerification.warnings.length > 0) {
+            errorSummary += ` Warnings: ${errorRecoveryVerification.warnings.join('; ')}`;
+          }
+          
           this.result = {
-            summary: `Task completed with partial results after encountering errors. ${this.actionsHistory.length} actions were completed successfully. ${this.rewindManager.rewindCount} recovery attempts were made.`,
+            summary: errorSummary,
             actions: this.actionsHistory.filter(a => a.success).map(a => a.tool),
             partial: true,
-            rewinds: this.rewindManager.rewindCount
+            rewinds: this.rewindManager.rewindCount,
+            db_verified: errorRecoveryVerification.verified,
+            db_verification: errorRecoveryVerification.verified ? {
+              documents_confirmed: errorRecoveryVerification.documents.confirmed,
+              notes_confirmed: errorRecoveryVerification.notes.confirmed,
+              tasks_confirmed: errorRecoveryVerification.tasks.confirmed,
+              warnings: errorRecoveryVerification.warnings,
+            } : null,
           };
           this.endTime = new Date();
           await this.saveTaskHistory();
@@ -3164,20 +3364,43 @@ Keep working on: "${this.goal}"`
       this.status = TaskStatus.COMPLETED;
       this.progress.progressPercent = 100;
       this.progress.currentStep = 'Completed (max iterations)';
-      this.result = {
-        summary: `Task processed over ${this.progress.iterations} iterations. Actions: ${this.actionsHistory.map(a => a.tool).join(', ')}`,
-        actions: this.actionsHistory.map(a => a.tool)
-      };
+      
+      // DB verification for max iterations path
       this.endTime = new Date();
+      const maxIterVerification = await this.verifyDeliverablesInDB();
+      const maxIterConfirmed = (maxIterVerification.documents.confirmed || 0) + 
+                               (maxIterVerification.notes.confirmed || 0) + 
+                               (maxIterVerification.tasks.confirmed || 0);
+      
+      let maxIterSummary = `Task processed over ${this.progress.iterations} iterations.`;
+      if (maxIterVerification.verified) {
+        maxIterSummary += ` DB verified: ${maxIterConfirmed} deliverable(s) saved.`;
+      }
+      if (maxIterVerification.warnings.length > 0) {
+        maxIterSummary += ` ⚠️ ${maxIterVerification.warnings.join('; ')}`;
+      }
+      maxIterSummary += ` Actions: ${this.actionsHistory.map(a => a.tool).join(', ')}`;
+      
+      this.result = {
+        summary: maxIterSummary,
+        actions: this.actionsHistory.map(a => a.tool),
+        db_verified: maxIterVerification.verified,
+        db_verification: maxIterVerification.verified ? {
+          documents_confirmed: maxIterVerification.documents.confirmed,
+          notes_confirmed: maxIterVerification.notes.confirmed,
+          tasks_confirmed: maxIterVerification.tasks.confirmed,
+          warnings: maxIterVerification.warnings,
+        } : null,
+      };
       
       await this.saveTaskHistory();
       await this.persistCompletion(TaskStatus.COMPLETED);
       await sleep(400);
       
-      this.streamEvent('task_complete', `✅ Task completed (${this.progress.iterations} iterations)`, { 
+      this.streamEvent('task_complete', `✅ Task completed (${this.progress.iterations} iterations, ${maxIterConfirmed} verified deliverables)`, { 
         actions_count: this.actionsHistory.length,
         icon: 'check-circle', 
-        color: 'green' 
+        color: maxIterConfirmed > 0 ? 'green' : 'yellow'
       });
       this.streamProgress();
       await sleep(300);
