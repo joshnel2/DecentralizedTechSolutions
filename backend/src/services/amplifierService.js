@@ -596,7 +596,7 @@ class BackgroundTask extends EventEmitter {
       'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
       'list_team_members', 'get_upcoming_deadlines', 'lookup_cplr',
       'find_and_read_document', 'get_document', 'get_document_versions',
-      'get_matter_documents_content',
+      'get_matter_documents_content', 'search_semantic',
     ]);
     
     // Longer TTL for tools that return stable data (matter details don't change mid-task)
@@ -1454,7 +1454,7 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
                  m.created_at, m.open_date, c.display_name as client_name, c.id as client_id, c.email as client_email,
                  (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
                  (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
-                 (SELECT COUNT(*) FROM tasks t WHERE t.matter_id = m.id) as task_count
+                 (SELECT COUNT(*) FROM matter_tasks t WHERE t.matter_id = m.id) as task_count
           FROM matters m
           LEFT JOIN clients c ON m.client_id = c.id
           WHERE m.firm_id = $1 
@@ -1475,7 +1475,7 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
                    m.created_at, m.open_date, c.display_name as client_name, c.id as client_id, c.email as client_email,
                    (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
                    (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
-                   (SELECT COUNT(*) FROM tasks t WHERE t.matter_id = m.id) as task_count
+                   (SELECT COUNT(*) FROM matter_tasks t WHERE t.matter_id = m.id) as task_count
             FROM matters m
             LEFT JOIN clients c ON m.client_id = c.id
             WHERE m.firm_id = $1 AND m.status = 'active'
@@ -2188,9 +2188,10 @@ ${matterContextStr}
 ${hasMatterPreloaded ? `- Matter "${this.preloadedMatterName}" is pre-loaded (ID: ${this.preloadedMatterId}). Use this ID directly - no need to search.` : '- Search for the relevant matter first with search_matters or list_my_matters.'}
 
 ## TOOLS
-**Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
+**Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, search_semantic (AI-powered meaning search), list_documents, get_calendar_events, list_tasks
 **Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
+**Tip:** Use search_semantic to find documents by MEANING (e.g., "indemnification clause" finds "hold harmless" language). Use search_document_content for exact keyword matches.
 
 ## PHASES (current: ${this.executionPhase.toUpperCase()})
 ${hasMatterPreloaded 

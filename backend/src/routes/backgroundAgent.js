@@ -650,7 +650,7 @@ router.get('/review-queue', authenticate, async (req, res) => {
       try {
         const tasksCreated = await dbQuery(
           `SELECT id, title, description, status, priority, due_date, created_at, matter_id
-           FROM tasks
+           FROM matter_tasks
            WHERE firm_id = $1 AND created_by = $2
              AND created_at >= $3 AND created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
            ORDER BY created_at DESC LIMIT 15`,

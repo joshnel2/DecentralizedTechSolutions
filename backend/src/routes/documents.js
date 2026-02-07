@@ -1421,6 +1421,27 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       folder_id: d.folder_path
     }, req.user.id, req.user.firmId).catch(() => {});
     
+    // Auto-embed document for semantic search (async, non-blocking)
+    // This enables the background agent's search_semantic tool to find
+    // this document by meaning, not just keywords
+    if (contentText && contentText.length > 50) {
+      (async () => {
+        try {
+          const { storeDocumentEmbeddings } = await import('../services/embeddingService.js');
+          await storeDocumentEmbeddings(d.id, req.user.firmId, contentText, {
+            documentType: d.type,
+            documentName: d.original_name || d.name,
+            matterId: d.matter_id,
+          });
+          console.log(`[UPLOAD] Auto-embedded document ${d.id} for semantic search (${contentText.length} chars)`);
+        } catch (embedError) {
+          // Non-blocking: embedding is best-effort
+          // Will fail gracefully if Azure OpenAI embedding deployment isn't configured
+          console.log(`[UPLOAD] Auto-embed skipped for ${d.id}: ${embedError.message}`);
+        }
+      })();
+    }
+    
     res.status(201).json({
       id: d.id,
       name: d.name,

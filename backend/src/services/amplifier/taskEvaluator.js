@@ -805,7 +805,7 @@ async function _fetchSavedContent(task) {
     // Fetch tasks created during this task's runtime
     const taskResult = await query(
       `SELECT id, title, created_at
-       FROM tasks
+       FROM matter_tasks
        WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
        ORDER BY created_at DESC LIMIT 15`,
       [firmId, userId, taskStartTime]

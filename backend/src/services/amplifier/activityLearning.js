@@ -122,7 +122,7 @@ async function buildActivityContext(userId, firmId) {
   try {
     const recentTasks = await query(`
       SELECT t.title, t.status, t.priority, t.due_date, m.name as matter_name
-      FROM tasks t
+      FROM matter_tasks t
       LEFT JOIN matters m ON t.matter_id = m.id
       WHERE t.firm_id = $1 AND t.created_by = $2
         AND t.created_at > NOW() - INTERVAL '14 days'
@@ -263,7 +263,7 @@ export async function extractWorkPatterns(userId, firmId) {
     
     // 3. Task patterns (how they structure follow-ups)
     const taskPatterns = await query(`
-      SELECT title, priority FROM tasks
+      SELECT name as title, priority FROM matter_tasks
       WHERE firm_id = $1 AND created_by = $2 AND created_at > NOW() - INTERVAL '90 days'
       ORDER BY created_at DESC LIMIT 50
     `, [firmId, userId]);
