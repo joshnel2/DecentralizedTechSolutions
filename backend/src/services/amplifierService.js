@@ -42,6 +42,12 @@ import {
   getMatterMemory, storeMatterMemories, extractMemoriesFromTask,
   calculateConfidenceReport, formatConfidenceForReview,
 } from './amplifier/harnessIntelligence.js';
+// Interaction learning: how the lawyer uses the software (pages, features, workflows)
+import { getUserInteractionProfile, formatInteractionProfileForPrompt } from '../services/interactionLearning.js';
+// Activity learning: what the lawyer actually does (matters, docs, time entries)
+import { getRecentActivityContext } from './amplifier/activityLearning.js';
+// Unified learning context: selective, budgeted prompt injection from ALL learning sources
+import { buildUnifiedLearningContext } from './amplifier/unifiedLearningContext.js';
 
 // ===== SINGLETON INSTANCES for cross-task learning =====
 // These persist across tasks so learnings accumulate over the service lifetime
@@ -1337,6 +1343,26 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       // Try to extract matter context from goal if mentioned
       this.matterContext = await this.extractMatterContext();
       
+      // ===== INTERACTION LEARNING: How this lawyer uses the software =====
+      try {
+        this.interactionProfile = await getUserInteractionProfile(this.firmId, this.userId);
+        if (this.interactionProfile) {
+          console.log(`[Amplifier] Loaded interaction profile for user ${this.userId} (${this.interactionProfile.mostUsedPages?.length || 0} pages, ${this.interactionProfile.mostUsedFeatures?.length || 0} features tracked)`);
+        }
+      } catch (e) {
+        this.interactionProfile = null;
+      }
+      
+      // ===== ACTIVITY LEARNING: What the lawyer has been doing recently =====
+      try {
+        this.activityContext = await getRecentActivityContext(this.userId, this.firmId);
+        if (this.activityContext) {
+          console.log(`[Amplifier] Loaded recent activity context for user ${this.userId}`);
+        }
+      } catch (e) {
+        this.activityContext = null;
+      }
+      
       // ===== HARNESS INTELLIGENCE: Load learned quality overrides =====
       const workType = classifyWork(this.goal);
       try {
@@ -2217,43 +2243,34 @@ ${hasMatterPreloaded
 
     prompt += `\nBEGIN NOW. ${hasMatterPreloaded ? `Start with think_and_plan, then immediately work on matter "${this.preloadedMatterName}".` : 'Call think_and_plan first, then execute tools.'}\n`;
 
-    // Add comprehensive lawyer profile (personalization that improves over time)
-    if (this.lawyerProfile) {
-      prompt += formatLawyerProfile(this.lawyerProfile);
-    }
-    
-    // Add user's document style profile (PRIVATE per-user learning)
-    if (this.userDocumentProfile) {
-      prompt += formatProfileForPrompt(this.userDocumentProfile);
-    }
-
-    // Add workflow templates if relevant
-    if (this.workflowTemplates && this.workflowTemplates.length > 0) {
-      prompt += '\n## AVAILABLE WORKFLOW TEMPLATES\n\n';
-      for (const wf of this.workflowTemplates) {
-        const triggers = wf.trigger_phrases?.join(', ') || '';
-        prompt += `- **${wf.name}**: ${wf.description} (triggers: ${triggers})\n`;
-      }
-    }
-    
-    // ===== DECISION REINFORCER: Inject cross-task learned strategy insights =====
+    // ===== UNIFIED LEARNING CONTEXT =====
+    // All learning sources are combined into a single, selective, budgeted section.
+    // This replaces the previous scattered approach where each module independently
+    // appended its own section (causing prompt bloat and inconsistent prioritization).
     try {
-      const taskType = this.workType?.id || this.complexity || 'general';
-      const metrics = this.decisionReinforcer.getDecisionMetrics(taskType);
-      if (metrics.strategies.length > 0) {
-        const topStrategies = metrics.strategies
-          .filter(s => s.attempts >= 3 && s.confidence > 0.5)
-          .slice(0, 3);
-        if (topStrategies.length > 0) {
-          prompt += '\n## LEARNED TOOL PREFERENCES (from past tasks)\n';
-          for (const s of topStrategies) {
-            prompt += `- **${s.strategy}**: ${Math.round(s.confidence * 100)}% confidence (${s.attempts} uses, ${Math.round(s.successRate * 100)}% success)\n`;
-          }
-          prompt += '\n';
+      const unifiedContext = buildUnifiedLearningContext({
+        goal: this.goal,
+        workTypeId: this.workType?.id || this.complexity || 'general',
+        matterId: this.preloadedMatterId || null,
+        lawyerProfile: this.lawyerProfile,
+        interactionProfile: this.interactionProfile,
+        qualityOverrides: this.qualityOverrides,
+        provenToolChain: this.provenToolChain,
+        matterMemory: this.matterMemory,
+        activityContext: this.activityContext,
+        documentProfile: this.userDocumentProfile,
+      });
+      if (unifiedContext) {
+        prompt += unifiedContext;
+      }
+    } catch (e) {
+      // Fallback: inject critical overrides only
+      if (this.qualityOverrides?.promptModifiers?.length > 0) {
+        prompt += '\n## QUALITY REQUIREMENTS\n';
+        for (const mod of this.qualityOverrides.promptModifiers.slice(0, 2)) {
+          prompt += `${mod}\n`;
         }
       }
-    } catch (reinforcerErr) {
-      // Non-fatal: reinforcer insights are supplementary
     }
 
     return prompt;
