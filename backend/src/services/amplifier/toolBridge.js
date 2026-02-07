@@ -866,7 +866,7 @@ async function getMatter(params, userId, firmId) {
   
   // Get related data
   const [docs, tasks, events, timeEntries] = await Promise.all([
-    query(`SELECT id, original_name, type, created_at FROM documents WHERE matter_id = $1 LIMIT 10`, [matter.id]),
+    query(`SELECT id, original_name, type, uploaded_at FROM documents WHERE matter_id = $1 LIMIT 10`, [matter.id]),
     query(`SELECT id, name, status, due_date FROM matter_tasks WHERE matter_id = $1 LIMIT 10`, [matter.id]),
     query(`SELECT id, title, start_time, type FROM calendar_events WHERE matter_id = $1 AND start_time >= NOW() LIMIT 5`, [matter.id]),
     query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount FROM time_entries WHERE matter_id = $1`, [matter.id])
@@ -1211,7 +1211,7 @@ async function readDocumentContent(params, userId, firmId) {
   
   try {
     const result = await query(`
-      SELECT name, original_name, content_text, path, external_path, azure_path, type, size, created_at
+      SELECT name, original_name, content_text, path, external_path, azure_path, type, size, uploaded_at
       FROM documents 
       WHERE id = $1 AND firm_id = $2
     `, [document_id, firmId]);
@@ -1240,7 +1240,7 @@ async function readDocumentContent(params, userId, firmId) {
         suggestion: ext.match(/\.(jpg|jpeg|png|gif|bmp|tiff)$/i) 
           ? 'This is an image file. Use analyze_image if you need to understand its contents.'
           : 'This file format does not contain extractable text.',
-        created_at: doc.created_at
+        created_at: doc.uploaded_at
       };
     }
     
@@ -1258,7 +1258,7 @@ async function readDocumentContent(params, userId, firmId) {
           file_size: doc.size,
           note: `File format "${ext || 'unknown'}" may not be supported for text extraction. The document exists but content could not be read.`,
           suggestion: 'You can still reference this document exists - just note that you could not read its contents.',
-          created_at: doc.created_at
+          created_at: doc.uploaded_at
         };
       }
       
@@ -1307,7 +1307,7 @@ async function readDocumentContent(params, userId, firmId) {
         content_length: content.length,
         truncated: isTruncated,
         truncated_at: isTruncated ? safeMax : null,
-        created_at: doc.created_at,
+        created_at: doc.uploaded_at,
         note: isTruncated 
           ? `Document truncated at ${safeMax.toLocaleString()} characters. Full document is ${content.length.toLocaleString()} characters.`
           : null
@@ -1328,7 +1328,7 @@ async function readDocumentContent(params, userId, firmId) {
           'The file may be corrupted or empty'
         ],
         suggestion: 'Document exists but content is not readable. Note this limitation and proceed with other available information.',
-        created_at: doc.created_at
+        created_at: doc.uploaded_at
       };
     }
   } catch (error) {
@@ -3344,17 +3344,18 @@ async function reviewCreatedDocuments(params, userId, firmId) {
     const results = { documents: [], notes: [], summary: '' };
     
     // Find recently created documents
+    // Note: documents table uses uploaded_at (not created_at) and size (not file_size)
     const docQuery = matter_id
-      ? `SELECT id, original_name as name, created_at, content_text, file_size 
+      ? `SELECT id, original_name as name, uploaded_at, content_text, size 
          FROM documents 
          WHERE firm_id = $1 AND uploaded_by = $2 AND matter_id = $3
-           AND created_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
-         ORDER BY created_at DESC LIMIT 10`
-      : `SELECT id, original_name as name, created_at, content_text, file_size 
+           AND uploaded_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
+         ORDER BY uploaded_at DESC LIMIT 10`
+      : `SELECT id, original_name as name, uploaded_at, content_text, size 
          FROM documents 
          WHERE firm_id = $1 AND uploaded_by = $2
-           AND created_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
-         ORDER BY created_at DESC LIMIT 10`;
+           AND uploaded_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
+         ORDER BY uploaded_at DESC LIMIT 10`;
     
     const docParams = matter_id ? [firmId, userId, matter_id] : [firmId, userId];
     const docResult = await query(docQuery, docParams);
@@ -3363,8 +3364,8 @@ async function reviewCreatedDocuments(params, userId, firmId) {
       const docEntry = {
         id: doc.id,
         name: doc.name,
-        created_at: doc.created_at,
-        size: doc.file_size,
+        created_at: doc.uploaded_at,
+        size: doc.size,
       };
       
       if (include_content && doc.content_text) {

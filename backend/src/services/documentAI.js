@@ -109,7 +109,7 @@ export async function getMatterDocumentInsights(matterId, firmId) {
       FROM documents d
       LEFT JOIN document_ai_insights i ON i.document_id = d.id
       WHERE d.matter_id = $1 AND d.firm_id = $2 AND d.status != 'deleted'
-      ORDER BY i.importance_score DESC NULLS LAST, d.created_at DESC
+      ORDER BY i.importance_score DESC NULLS LAST, d.uploaded_at DESC
     `, [matterId, firmId]);
 
     return result.rows;

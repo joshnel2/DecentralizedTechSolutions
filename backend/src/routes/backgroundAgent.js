@@ -470,13 +470,14 @@ router.get('/review-queue', authenticate, async (req, res) => {
       }
       
       // Fetch documents created by the agent during this task
+      // Note: documents table uses uploaded_at (not created_at) and size (not file_size)
       try {
         const docsResult = await dbQuery(
-          `SELECT id, original_name as name, content_text, file_size, created_at, matter_id
+          `SELECT id, original_name as name, content_text, size, uploaded_at, matter_id
            FROM documents
            WHERE firm_id = $1 AND uploaded_by = $2
-             AND created_at >= $3 AND created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
-           ORDER BY created_at DESC LIMIT 10`,
+             AND uploaded_at >= $3 AND uploaded_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
+           ORDER BY uploaded_at DESC LIMIT 10`,
           [req.user.firmId, req.user.id, task.created_at, task.completed_at]
         );
         
@@ -512,8 +513,8 @@ router.get('/review-queue', authenticate, async (req, res) => {
             name: doc.name,
             contentPreview,
             contentLength: doc.content_text?.length || 0,
-            fileSize: doc.file_size,
-            createdAt: doc.created_at,
+            fileSize: doc.size,
+            createdAt: doc.uploaded_at,
             matterId: doc.matter_id,
             flags: docFlags,
           });
@@ -555,10 +556,11 @@ router.get('/review-queue', authenticate, async (req, res) => {
       }
       
       // Fetch tasks created during the agent task
+      // Note: tasks are stored in matter_tasks table with 'name' column (not 'title')
       try {
         const tasksCreated = await dbQuery(
-          `SELECT id, title, description, status, priority, due_date, created_at, matter_id
-           FROM tasks
+          `SELECT id, name, description, status, priority, due_date, created_at, matter_id
+           FROM matter_tasks
            WHERE firm_id = $1 AND created_by = $2
              AND created_at >= $3 AND created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
            ORDER BY created_at DESC LIMIT 15`,
@@ -568,7 +570,7 @@ router.get('/review-queue', authenticate, async (req, res) => {
         for (const t of tasksCreated.rows) {
           item.deliverables.tasks.push({
             id: t.id,
-            title: t.title,
+            title: t.name,
             description: t.description,
             status: t.status,
             priority: t.priority,

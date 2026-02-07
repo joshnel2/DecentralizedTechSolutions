@@ -742,11 +742,12 @@ async function _fetchSavedContent(task) {
     const taskStartTime = task.startTime || new Date(Date.now() - 3600000);
     
     // Fetch documents created during this task's runtime
+    // Note: documents table uses uploaded_at (not created_at) and size (not file_size)
     const docResult = await query(
-      `SELECT id, original_name as name, content_text, file_size, created_at
+      `SELECT id, original_name as name, content_text, size, uploaded_at
        FROM documents
-       WHERE firm_id = $1 AND uploaded_by = $2 AND created_at >= $3
-       ORDER BY created_at DESC LIMIT 15`,
+       WHERE firm_id = $1 AND uploaded_by = $2 AND uploaded_at >= $3
+       ORDER BY uploaded_at DESC LIMIT 15`,
       [firmId, userId, taskStartTime]
     );
     
@@ -803,9 +804,10 @@ async function _fetchSavedContent(task) {
     }
     
     // Fetch tasks created during this task's runtime
+    // Note: tasks are stored in matter_tasks table with 'name' column (not 'title')
     const taskResult = await query(
-      `SELECT id, title, created_at
-       FROM tasks
+      `SELECT id, name, created_at
+       FROM matter_tasks
        WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
        ORDER BY created_at DESC LIMIT 15`,
       [firmId, userId, taskStartTime]
@@ -814,7 +816,7 @@ async function _fetchSavedContent(task) {
     for (const t of (taskResult?.rows || [])) {
       result.tasks.push({
         id: t.id,
-        title: t.title || 'untitled',
+        title: t.name || 'untitled',
       });
     }
     
