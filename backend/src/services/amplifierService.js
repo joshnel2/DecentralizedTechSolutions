@@ -1225,11 +1225,14 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
   /**
    * Verify deliverables actually exist in the database.
    * 
-   * This prevents hallucinated summaries by cross-checking the agent's
-   * claimed work (from actionsHistory) against what was actually saved.
-   * Returns an object with verified counts and lists.
+   * Runs all 4 verification queries in PARALLEL for speed, then cross-checks
+   * against what the agent claimed via actionsHistory.
+   * Caches result so it can be reused without re-querying.
    */
   async verifyDeliverablesInDB() {
+    // Return cached result if available (avoid redundant queries within the same completion flow)
+    if (this._dbVerificationCache) return this._dbVerificationCache;
+    
     const result = {
       verified: false,
       documents: { claimed: 0, confirmed: 0, items: [] },
@@ -1249,152 +1252,209 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       result.tasks.claimed = successActions.filter(a => a.tool === 'create_task').length;
       result.events.claimed = successActions.filter(a => a.tool === 'create_calendar_event').length;
       
-      // Verify documents in DB (documents table uses uploaded_at, not created_at)
-      try {
-        const docResult = await query(
+      // Run ALL verification queries in parallel - no reason to wait sequentially
+      const [docResult, noteResult, taskResult, eventResult] = await Promise.all([
+        query(
           `SELECT id, original_name as name FROM documents 
            WHERE firm_id = $1 AND uploaded_by = $2 AND uploaded_at >= $3
            ORDER BY uploaded_at DESC LIMIT 20`,
           [this.firmId, this.userId, taskStartTime]
-        );
-        result.documents.confirmed = docResult.rows.length;
-        result.documents.items = docResult.rows.map(r => r.name || 'untitled');
-      } catch (e) {
-        result.warnings.push(`Document verification query failed: ${e.message}`);
-      }
-      
-      // Verify notes in DB
-      try {
-        const noteResult = await query(
+        ).catch(e => { result.warnings.push(`Document query failed: ${e.message}`); return { rows: [] }; }),
+        
+        query(
           `SELECT mn.id, LEFT(mn.content, 80) as preview FROM matter_notes mn
            JOIN matters m ON mn.matter_id = m.id
            WHERE m.firm_id = $1 AND mn.created_by = $2 AND mn.created_at >= $3
            ORDER BY mn.created_at DESC LIMIT 20`,
           [this.firmId, this.userId, taskStartTime]
-        );
-        result.notes.confirmed = noteResult.rows.length;
-        result.notes.items = noteResult.rows.map(r => r.preview || 'note');
-      } catch (e) {
-        result.warnings.push(`Note verification query failed: ${e.message}`);
-      }
-      
-      // Verify tasks in DB (matter_tasks table uses name, not title)
-      try {
-        const taskResult = await query(
+        ).catch(e => { result.warnings.push(`Note query failed: ${e.message}`); return { rows: [] }; }),
+        
+        query(
           `SELECT id, name FROM matter_tasks 
            WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
            ORDER BY created_at DESC LIMIT 20`,
           [this.firmId, this.userId, taskStartTime]
-        );
-        result.tasks.confirmed = taskResult.rows.length;
-        result.tasks.items = taskResult.rows.map(r => r.name || 'task');
-      } catch (e) {
-        result.warnings.push(`Task verification query failed: ${e.message}`);
-      }
-      
-      // Verify events in DB
-      try {
-        const eventResult = await query(
+        ).catch(e => { result.warnings.push(`Task query failed: ${e.message}`); return { rows: [] }; }),
+        
+        query(
           `SELECT id, title FROM calendar_events 
            WHERE firm_id = $1 AND created_by = $2 AND created_at >= $3
            ORDER BY created_at DESC LIMIT 20`,
           [this.firmId, this.userId, taskStartTime]
-        );
-        result.events.confirmed = eventResult.rows.length;
-        result.events.items = eventResult.rows.map(r => r.title || 'event');
-      } catch (e) {
-        result.warnings.push(`Event verification query failed: ${e.message}`);
-      }
+        ).catch(e => { result.warnings.push(`Event query failed: ${e.message}`); return { rows: [] }; }),
+      ]);
       
-      // Build warnings for mismatches
-      if (result.documents.claimed > 0 && result.documents.confirmed === 0) {
-        result.warnings.push(`Agent claimed ${result.documents.claimed} document(s) but 0 found in database`);
-      }
-      if (result.notes.claimed > 0 && result.notes.confirmed === 0) {
-        result.warnings.push(`Agent claimed ${result.notes.claimed} note(s) but 0 found in database`);
-      }
-      if (result.tasks.claimed > 0 && result.tasks.confirmed === 0) {
-        result.warnings.push(`Agent claimed ${result.tasks.claimed} task(s) but 0 found in database`);
+      result.documents.confirmed = docResult.rows.length;
+      result.documents.items = docResult.rows.map(r => r.name || 'untitled');
+      result.notes.confirmed = noteResult.rows.length;
+      result.notes.items = noteResult.rows.map(r => r.preview || 'note');
+      result.tasks.confirmed = taskResult.rows.length;
+      result.tasks.items = taskResult.rows.map(r => r.name || 'task');
+      result.events.confirmed = eventResult.rows.length;
+      result.events.items = eventResult.rows.map(r => r.title || 'event');
+      
+      // Flag mismatches where agent claimed work but DB has nothing
+      for (const [type, label] of [['documents', 'document'], ['notes', 'note'], ['tasks', 'task']]) {
+        if (result[type].claimed > 0 && result[type].confirmed === 0) {
+          result.warnings.push(`Claimed ${result[type].claimed} ${label}(s) but 0 found in DB`);
+        }
       }
       
       result.verified = true;
-      console.log(`[Amplifier] DB verification: docs=${result.documents.confirmed}/${result.documents.claimed}, notes=${result.notes.confirmed}/${result.notes.claimed}, tasks=${result.tasks.confirmed}/${result.tasks.claimed}, events=${result.events.confirmed}/${result.events.claimed}`);
+      
+      // Compute convenience totals
+      result.totalClaimed = result.documents.claimed + result.notes.claimed + result.tasks.claimed + result.events.claimed;
+      result.totalConfirmed = result.documents.confirmed + result.notes.confirmed + result.tasks.confirmed + result.events.confirmed;
+      
+      console.log(`[Amplifier] DB verification: ${result.totalConfirmed}/${result.totalClaimed} deliverables confirmed (docs=${result.documents.confirmed}, notes=${result.notes.confirmed}, tasks=${result.tasks.confirmed}, events=${result.events.confirmed})`);
       
     } catch (error) {
       console.warn('[Amplifier] DB verification failed (non-fatal):', error.message);
       result.warnings.push(`DB verification failed: ${error.message}`);
     }
     
+    this._dbVerificationCache = result;
     return result;
   }
 
   /**
-   * Extract matter context from goal if a matter is mentioned
-   * This pre-loads relevant matter info so the agent starts with context
+   * Find and load matter context for the agent.
+   * 
+   * Resolution order (first match wins):
+   *   1. options.matter_id → direct DB lookup by ID (from frontend context, 100% reliable)
+   *   2. Regex patterns on goal text → LIKE search on name/number
+   *   3. Word-level search → split goal into significant words, match against all matters
+   * 
+   * If a matter_id is provided by the frontend, this should NEVER fail to find it.
    */
   async extractMatterContext() {
     try {
-      const goalLower = this.goal.toLowerCase();
-      
-      // Look for matter name patterns in the goal
-      // Common patterns: "for [matter]", "on [matter]", "matter [name]", "[name] matter"
-      const matterPatterns = [
-        /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']?([^"'.,]+)["']?/i,
-        /matter\s+(?:named?\s+)?["']?([^"'.,]+)["']?/i,
-        /["']([^"']+)["']\s+(?:matter|case)/i,
-      ];
-      
-      let potentialMatterName = null;
-      for (const pattern of matterPatterns) {
-        const match = this.goal.match(pattern);
-        if (match && match[1] && match[1].length > 2) {
-          potentialMatterName = match[1].trim();
-          break;
-        }
-      }
-      
-      if (!potentialMatterName) {
-        return null;
-      }
-      
-      // Search for the matter
-      const matterResult = await query(`
+      // The base query used for all lookups - fetches matter + stats in one shot
+      const MATTER_SELECT = `
         SELECT m.id, m.name, m.number, m.status, m.type, m.description, m.billing_type,
                m.created_at, m.open_date, c.display_name as client_name, c.email as client_email,
                (SELECT COUNT(*) FROM documents d WHERE d.matter_id = m.id) as doc_count,
                (SELECT COUNT(*) FROM matter_notes mn WHERE mn.matter_id = m.id) as note_count,
                (SELECT COUNT(*) FROM matter_tasks mt WHERE mt.matter_id = m.id) as task_count
         FROM matters m
-        LEFT JOIN clients c ON m.client_id = c.id
-        WHERE m.firm_id = $1 
-          AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
-        ORDER BY 
-          CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END,
-          m.created_at DESC
-        LIMIT 1
-      `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
+        LEFT JOIN clients c ON m.client_id = c.id`;
       
-      if (matterResult.rows.length === 0) {
-        // Goal mentions a matter but it doesn't exist in the database.
-        // Warn the agent so it doesn't hallucinate work on a non-existent matter.
-        console.warn(`[Amplifier] Matter not found for goal pattern: "${potentialMatterName}"`);
+      let matter = null;
+      
+      // ===== STRATEGY 1: Direct ID lookup (from frontend / options) =====
+      const explicitMatterId = this.options?.matter_id;
+      if (explicitMatterId) {
+        const byId = await query(
+          `${MATTER_SELECT} WHERE m.id::text = $1 AND m.firm_id = $2 LIMIT 1`,
+          [explicitMatterId, this.firmId]
+        );
+        if (byId.rows.length > 0) {
+          matter = byId.rows[0];
+          console.log(`[Amplifier] Matter resolved by ID: ${matter.name} (${matter.id})`);
+        } else {
+          // ID was given but doesn't exist — try treating it as a name/number search
+          console.warn(`[Amplifier] matter_id "${explicitMatterId}" not found by ID, trying as search term`);
+          const byIdFallback = await query(
+            `${MATTER_SELECT} WHERE m.firm_id = $1 AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2) ORDER BY m.created_at DESC LIMIT 1`,
+            [this.firmId, `%${explicitMatterId.toLowerCase()}%`]
+          );
+          if (byIdFallback.rows.length > 0) {
+            matter = byIdFallback.rows[0];
+            console.log(`[Amplifier] Matter resolved by ID-as-search: ${matter.name}`);
+          }
+        }
+      }
+      
+      // ===== STRATEGY 2: Regex pattern extraction from goal text =====
+      if (!matter) {
+        const matterPatterns = [
+          /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?["']([^"']+)["']/i,   // quoted: for "Smith v Jones"
+          /(?:for|on|about|regarding|re:?)\s+(?:the\s+)?(?:matter\s+)?([^"'.,;!?\n]+)/i,      // unquoted: for Smith v Jones
+          /matter\s+(?:named?\s+)?["']?([^"'.,;!?\n]+)["']?/i,                                 // matter named X
+          /["']([^"']+)["']\s+(?:matter|case)/i,                                                // "X" matter
+          /(?:review|analyze|work on|check|update|prepare)\s+(?:the\s+)?([^"'.,;!?\n]{3,60})/i, // review the Smith case
+        ];
+        
+        for (const pattern of matterPatterns) {
+          const match = this.goal.match(pattern);
+          if (match && match[1] && match[1].trim().length > 2) {
+            const candidate = match[1].trim();
+            const byName = await query(
+              `${MATTER_SELECT} WHERE m.firm_id = $1 AND (LOWER(m.name) LIKE $2 OR LOWER(m.number) LIKE $2)
+               ORDER BY CASE WHEN LOWER(m.name) = LOWER($3) THEN 0 ELSE 1 END, m.created_at DESC LIMIT 1`,
+              [this.firmId, `%${candidate.toLowerCase()}%`, candidate]
+            );
+            if (byName.rows.length > 0) {
+              matter = byName.rows[0];
+              console.log(`[Amplifier] Matter resolved by pattern match "${candidate}": ${matter.name}`);
+              break;
+            }
+          }
+        }
+      }
+      
+      // ===== STRATEGY 3: Word-level fuzzy search =====
+      // Split goal into significant words and try matching each against matter names
+      if (!matter) {
+        const stopWords = new Set(['the','a','an','for','on','and','or','of','to','in','is','it','my','me',
+          'this','that','with','from','at','by','do','be','as','but','not','you','all','can','had','her',
+          'was','one','our','out','review','analyze','prepare','draft','check','update','create','write',
+          'work','task','matter','case','please','help','need','want','should','would','could']);
+        const words = this.goal.split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()));
+        
+        // Try pairs of consecutive words first (more specific), then single words
+        const candidates = [];
+        for (let i = 0; i < words.length - 1; i++) {
+          candidates.push(`${words[i]} ${words[i + 1]}`);
+        }
+        for (const w of words) {
+          if (w.length > 3) candidates.push(w);
+        }
+        
+        for (const candidate of candidates) {
+          const byWord = await query(
+            `${MATTER_SELECT} WHERE m.firm_id = $1 AND LOWER(m.name) LIKE $2 ORDER BY m.created_at DESC LIMIT 1`,
+            [this.firmId, `%${candidate.toLowerCase()}%`]
+          );
+          if (byWord.rows.length > 0) {
+            matter = byWord.rows[0];
+            console.log(`[Amplifier] Matter resolved by word search "${candidate}": ${matter.name}`);
+            break;
+          }
+        }
+      }
+      
+      // ===== STRATEGY 4: If firm has only one active matter, use it =====
+      if (!matter) {
+        const singleMatter = await query(
+          `${MATTER_SELECT} WHERE m.firm_id = $1 AND m.status = 'active' LIMIT 2`,
+          [this.firmId]
+        );
+        if (singleMatter.rows.length === 1) {
+          matter = singleMatter.rows[0];
+          console.log(`[Amplifier] Matter resolved by single-active-matter: ${matter.name}`);
+        }
+      }
+      
+      // If no matter was found after all strategies, return a warning
+      if (!matter) {
+        console.warn(`[Amplifier] No matter found for goal: "${this.goal.substring(0, 80)}"`);
         return `
 ## ⚠️ MATTER NOT FOUND
 
-Your goal mentions "${potentialMatterName}" but NO matching matter was found in the database.
+No matching matter could be identified from your goal. 
 
 **CRITICAL INSTRUCTION:** Do NOT invent or hallucinate matter details. Instead:
 1. Call \`search_matters\` to find real matters in the system
-2. If the matter truly doesn't exist, state that clearly in your response
+2. If the matter truly doesn't exist, state that clearly
 3. Do NOT create notes, documents, or tasks for a non-existent matter
-4. Call \`task_complete\` explaining that the referenced matter was not found
 
 NEVER proceed as if you found a matter when you did not.
 `;
       }
       
-      const matter = matterResult.rows[0];
-      const isEmpty = matter.doc_count === 0 && matter.note_count === 0;
+      // Matter was found by one of the strategies above
+      const isEmpty = parseInt(matter.doc_count) === 0 && parseInt(matter.note_count) === 0;
       
       let contextStr = `
 ## PRE-LOADED MATTER CONTEXT
@@ -2193,48 +2253,31 @@ You have your brief above. Follow the approach order and time budget. Call think
           console.warn('[Amplifier] Timeout evaluation failed (non-fatal):', evalErr.message);
         }
         
-        // ===== DB VERIFICATION: Check what actually exists in the database =====
-        // Don't trust actionsHistory alone - verify deliverables were actually saved.
-        // This prevents hallucinated summaries where the agent claims work it didn't do.
-        const dbVerification = await this.verifyDeliverablesInDB();
-        
-        // Build detailed completion summary using DB-VERIFIED counts (not just claimed)
+        // ===== DB VERIFICATION: Single source of truth for what was actually created =====
+        const dbv = await this.verifyDeliverablesInDB();
         const elapsedMin = Math.round(elapsedMs / 60000);
-        const successActions = this.actionsHistory.filter(a => a.success !== false);
         
-        // Use DB-verified items if available, fall back to claimed
-        const createdDocs = dbVerification.verified && dbVerification.documents.confirmed > 0
-          ? dbVerification.documents.items
-          : (dbVerification.verified && dbVerification.documents.confirmed === 0 ? [] : successActions.filter(a => a.tool === 'create_document').map(a => a.args?.name || 'document'));
-        const createdNotes = dbVerification.verified 
-          ? dbVerification.notes.confirmed 
-          : successActions.filter(a => a.tool === 'add_matter_note').length;
-        const createdTasks = dbVerification.verified && dbVerification.tasks.confirmed > 0
-          ? dbVerification.tasks.items
-          : (dbVerification.verified && dbVerification.tasks.confirmed === 0 ? [] : successActions.filter(a => a.tool === 'create_task').map(a => a.args?.title || 'task'));
-        const createdEvents = dbVerification.verified && dbVerification.events.confirmed > 0
-          ? dbVerification.events.items
-          : (dbVerification.verified && dbVerification.events.confirmed === 0 ? [] : successActions.filter(a => a.tool === 'create_calendar_event').map(a => a.args?.title || 'event'));
+        // Always use DB-verified counts. If verification failed, fall back to empty.
+        const createdDocs = dbv.documents.items;
+        const createdNotes = dbv.notes.confirmed;
+        const createdTasks = dbv.tasks.items;
+        const createdEvents = dbv.events.items;
         const keyFindings = (this.structuredPlan?.keyFindings || []).slice(-5);
         
         const summaryParts = [`Task ran for ${elapsedMin} minutes (${this.progress.iterations} iterations, phase: ${this.executionPhase}).`];
         
+        // Report only what the DB confirms
         if (createdDocs.length > 0) summaryParts.push(`Documents created: ${createdDocs.join(', ')}`);
         if (createdNotes > 0) summaryParts.push(`Notes added: ${createdNotes}`);
         if (createdTasks.length > 0) summaryParts.push(`Tasks created: ${createdTasks.join(', ')}`);
         if (createdEvents.length > 0) summaryParts.push(`Events scheduled: ${createdEvents.join(', ')}`);
         if (keyFindings.length > 0) summaryParts.push(`Key findings: ${keyFindings.join('; ')}`);
         
-        // Add DB verification warnings to summary
-        if (dbVerification.warnings.length > 0) {
-          summaryParts.push(`⚠️ DB VERIFICATION WARNINGS: ${dbVerification.warnings.join('; ')}`);
+        if (dbv.warnings.length > 0) {
+          summaryParts.push(`⚠️ ${dbv.warnings.join('; ')}`);
         }
-        
-        // If nothing was actually saved to DB, flag the entire task
-        const totalConfirmed = (dbVerification.documents.confirmed || 0) + (dbVerification.notes.confirmed || 0) + 
-                               (dbVerification.tasks.confirmed || 0) + (dbVerification.events.confirmed || 0);
-        if (dbVerification.verified && totalConfirmed === 0 && successActions.length > 3) {
-          summaryParts.push('⚠️ WARNING: No deliverables were confirmed in the database despite agent claiming to have created them. The agent may have encountered errors or worked on non-existent data.');
+        if (dbv.verified && dbv.totalConfirmed === 0 && this.actionsHistory.length > 3) {
+          summaryParts.push('⚠️ No deliverables confirmed in database. Agent may have encountered errors or worked on non-existent data.');
         }
         
         // ===== STRUCTURED WHAT-DONE / WHAT-REMAINS =====
@@ -2291,14 +2334,16 @@ You have your brief above. Follow the approach order and time budget. Call think
             tasks: createdTasks,
             events: createdEvents,
           },
-          db_verified: dbVerification.verified,
-          db_verification: dbVerification.verified ? {
-            documents_confirmed: dbVerification.documents.confirmed,
-            notes_confirmed: dbVerification.notes.confirmed,
-            tasks_confirmed: dbVerification.tasks.confirmed,
-            events_confirmed: dbVerification.events.confirmed,
-            warnings: dbVerification.warnings,
-          } : null,
+          db_verified: dbv.verified,
+          db_verification: {
+            total_confirmed: dbv.totalConfirmed || 0,
+            total_claimed: dbv.totalClaimed || 0,
+            documents_confirmed: dbv.documents.confirmed,
+            notes_confirmed: dbv.notes.confirmed,
+            tasks_confirmed: dbv.tasks.confirmed,
+            events_confirmed: dbv.events.confirmed,
+            warnings: dbv.warnings,
+          },
           phase_reached: this.executionPhase,
           phases_completed: completedPhases,
           phases_remaining: remainingPhases,
@@ -2313,7 +2358,7 @@ You have your brief above. Follow the approach order and time budget. Call think
           stats: {
             duration_minutes: elapsedMin,
             total_actions: this.actionsHistory.length,
-            successful_actions: successActions.length,
+            successful_actions: this.actionsHistory.filter(a => a.success !== false).length,
             iterations: this.progress.iterations,
           }
         };
@@ -2322,11 +2367,13 @@ You have your brief above. Follow the approach order and time budget. Call think
         await this.persistCompletion(TaskStatus.COMPLETED);
         await sleep(400);
         
-        this.streamEvent('task_complete', `✅ ${summaryParts[0]} ${createdDocs.length + createdNotes + createdTasks.length} deliverable(s) created. Quality: ${timeoutEvaluation?.overallScore ?? '?'}/100.`, { 
+        const confirmedCount = dbv.totalConfirmed || 0;
+        this.streamEvent('task_complete', `✅ ${summaryParts[0]} ${confirmedCount} verified deliverable(s). Quality: ${timeoutEvaluation?.overallScore ?? '?'}/100.`, { 
           actions_count: this.actionsHistory.length,
           evaluation_score: timeoutEvaluation?.overallScore,
+          db_confirmed: confirmedCount,
           icon: 'check-circle', 
-          color: 'green' 
+          color: confirmedCount > 0 ? 'green' : 'yellow'
         });
         this.streamProgress();
         await sleep(300);
@@ -2846,6 +2893,27 @@ Keep working on: "${this.goal}"`
               
               console.log(`[Amplifier] Task ${this.id} passed quality gates [${workTypeId}] (${elapsedSeconds.toFixed(0)}s, ${actionCount} actions, ${substantiveActions} substantive)`);
               
+              // ===== DB VERIFICATION (runs BEFORE evaluation to avoid wasting API calls) =====
+              this.progress.progressPercent = 91;
+              this.progress.currentStep = 'Verifying deliverables in database...';
+              this.streamProgress();
+              
+              const completionVerification = await this.verifyDeliverablesInDB();
+              
+              if (completionVerification.verified && completionVerification.totalClaimed >= 3 && completionVerification.totalConfirmed === 0) {
+                console.warn(`[Amplifier] Task ${this.id} DB verification mismatch: claimed ${completionVerification.totalClaimed}, confirmed 0`);
+                this.messages.push({
+                  role: 'tool',
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({
+                    rejected: true,
+                    reason: `DB VERIFICATION FAILED: You claimed to create ${completionVerification.totalClaimed} deliverable(s) but 0 were found in the database. Your work was not saved. Call get_matter to verify you are working on a REAL matter, then re-create your deliverables.`
+                  })
+                });
+                this._dbVerificationCache = null; // Clear cache so next attempt re-queries
+                continue;
+              }
+              
               // ===== POST-TASK SELF-EVALUATION (Generator-Critic pattern) =====
               this.progress.progressPercent = 92;
               this.progress.currentStep = 'Self-evaluating work quality...';
@@ -2861,14 +2929,13 @@ Keep working on: "${this.goal}"`
               const timeLeftMs = this.maxRuntimeMs - (Date.now() - this.startTime.getTime());
               this._revisionAttempts = (this._revisionAttempts || 0);
               if (evaluation.revisionNeeded && timeLeftMs > 60000 && this._revisionAttempts < 3) {
-                this._revisionAttempts++; // Allow up to 3 revision passes (up from 1)
+                this._revisionAttempts++;
                 console.log(`[Amplifier] Task ${this.id} needs revision (score: ${evaluation.overallScore}/100)`);
                 
                 this.streamEvent('revision', `⚠️ Self-evaluation score: ${evaluation.overallScore}/100 - revising...`, {
                   score: evaluation.overallScore, icon: 'edit', color: 'yellow'
                 });
                 
-                // Inject evaluation feedback and continue the loop
                 this.messages.push({
                   role: 'tool',
                   tool_call_id: toolCall.id,
@@ -2877,33 +2944,12 @@ Keep working on: "${this.goal}"`
                     reason: `Self-evaluation scored ${evaluation.overallScore}/100. ${formatEvaluationForAgent(evaluation)}\n\nFix the issues listed above, then call task_complete again.`
                   })
                 });
-                continue; // Go back to the agent loop for revision
+                this._dbVerificationCache = null; // Clear cache for next attempt
+                continue;
               }
               
               console.log(`[Amplifier] Task ${this.id} passed evaluation (score: ${evaluation.overallScore}/100)`);
-              
-              // ===== DB VERIFICATION: Confirm deliverables actually exist =====
-              const completionVerification = await this.verifyDeliverablesInDB();
-              
-              // If agent claims work but DB shows nothing, reject completion
-              const totalClaimed = this.substantiveActions.notes + this.substantiveActions.documents + this.substantiveActions.tasks;
-              const totalConfirmedCompletion = (completionVerification.documents.confirmed || 0) + 
-                                               (completionVerification.notes.confirmed || 0) + 
-                                               (completionVerification.tasks.confirmed || 0);
-              
-              if (completionVerification.verified && totalClaimed >= 3 && totalConfirmedCompletion === 0) {
-                // Agent claims to have created lots of stuff but nothing exists in DB
-                console.warn(`[Amplifier] Task ${this.id} DB verification mismatch: claimed ${totalClaimed} deliverables, confirmed 0`);
-                this.messages.push({
-                  role: 'tool',
-                  tool_call_id: toolCall.id,
-                  content: JSON.stringify({
-                    rejected: true,
-                    reason: `DB VERIFICATION FAILED: You claimed to create ${totalClaimed} deliverable(s) but 0 were found in the database. Your work may not have been saved properly. Re-do your work: call get_matter to verify you are working on a REAL matter, then create your deliverables again.`
-                  })
-                });
-                continue; // Go back to the agent loop
-              }
+
               
               // ===== UPDATE LAWYER PROFILE (learn from this task) =====
               try {

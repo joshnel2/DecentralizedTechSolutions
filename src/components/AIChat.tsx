@@ -251,7 +251,8 @@ export function AIChat({ isOpen, onClose, additionalContext = {} }: AIChatProps)
         // Skip if it's just a greeting under 15 chars
         if (!isVerySimpleGreeting || lowerText.length > 15) {
           const result = await aiApi.startBackgroundTask(
-            text || `Analyze and summarize this document: ${currentFile?.name}`
+            text || `Analyze and summarize this document: ${currentFile?.name}`,
+            { matter_id: mergedContext.matterId }
           )
           
           const assistantMessage: Message = {

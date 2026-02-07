@@ -141,7 +141,7 @@ function sanitizeGoal(goal) {
  */
 router.post('/tasks', authenticate, async (req, res) => {
   try {
-    const { goal: rawGoal, options = {}, extended = false, mode } = req.body;
+    const { goal: rawGoal, options = {}, extended = false, mode, matter_id } = req.body;
     
     // Sanitize and validate input
     const goal = sanitizeGoal(rawGoal);
@@ -161,10 +161,12 @@ router.post('/tasks', authenticate, async (req, res) => {
       });
     }
     
-    // Merge extended mode into options
+    // Merge extended mode and matter context into options
+    // matter_id can come from the request body directly or from nested options
     const taskOptions = {
       ...options,
-      extended: extended || mode === 'extended' || mode === 'long'
+      extended: extended || mode === 'extended' || mode === 'long',
+      matter_id: matter_id || options?.matter_id || null,
     };
     
     console.log(`[BackgroundAgent] Task start request from user ${req.user.id}: ${goal?.substring(0, 100)} (extended: ${taskOptions.extended})`);
