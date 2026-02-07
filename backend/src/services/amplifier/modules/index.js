@@ -23,6 +23,9 @@ import { legalResearchModule } from './legalResearch.js';
 import { discoveryPrepModule } from './discoveryPrep.js';
 import { contractAnalysisModule } from './contractAnalysis.js';
 import { complianceCheckModule } from './complianceCheck.js';
+// Junior attorney litigation modules
+import { motionDraftingModule } from './motionDrafting.js';
+import { depositionPrepModule } from './depositionPrep.js';
 
 /**
  * All available modules
@@ -38,6 +41,9 @@ export const MODULES = {
   'discovery-prep': discoveryPrepModule,
   'contract-analysis': contractAnalysisModule,
   'compliance-check': complianceCheckModule,
+  // Junior attorney litigation modules
+  'motion-drafting': motionDraftingModule,
+  'deposition-prep': depositionPrepModule,
 };
 
 /**
@@ -83,6 +89,17 @@ const MODULE_TRIGGERS = {
   'compliance-check': [
     'compliance', 'trust account', 'ethical', 'conflict check',
     'iola', 'retainer', 'engagement letter'
+  ],
+  'motion-drafting': [
+    'draft motion', 'motion to dismiss', 'motion for summary judgment',
+    'summary judgment', 'motion to compel', 'preliminary injunction',
+    'motion in limine', 'write motion', 'prepare motion',
+    'memorandum of law', 'brief', 'opposition'
+  ],
+  'deposition-prep': [
+    'deposition preparation', 'deposition prep', 'prepare deposition',
+    'deposition outline', 'examination outline', 'depose',
+    'witness preparation', 'deposition questions', 'defend deposition'
   ],
 };
 
@@ -232,4 +249,7 @@ export {
   discoveryPrepModule,
   contractAnalysisModule,
   complianceCheckModule,
+  // Junior attorney litigation modules
+  motionDraftingModule,
+  depositionPrepModule,
 };

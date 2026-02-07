@@ -13,6 +13,9 @@ export * from './legalChecklists.js';
 // Statutes Database
 export * from './statutesDatabase.js';
 
+// Lawyer Resources (Standards of Review, Objections, Deadlines, etc.)
+export * from './lawyerResources.js';
+
 // Knowledge Manager (Main Interface)
 export * from './knowledgeManager.js';
 
@@ -29,6 +32,7 @@ export function createKnowledgeSystem() {
     templates: require('./documentTemplates.js'),
     checklists: require('./legalChecklists.js'),
     statutes: require('./statutesDatabase.js'),
+    lawyerResources: require('./lawyerResources.js'),
     reinforcer: require('../decisionReinforcer.js')
   };
 }
@@ -87,6 +91,7 @@ export default {
   documentTemplates: require('./documentTemplates.js'),
   legalChecklists: require('./legalChecklists.js'),
   statutesDatabase: require('./statutesDatabase.js'),
+  lawyerResources: require('./lawyerResources.js'),
   decisionReinforcer: require('../decisionReinforcer.js'),
   
   // Utilities

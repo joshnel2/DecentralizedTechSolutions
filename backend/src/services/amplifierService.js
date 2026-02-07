@@ -24,6 +24,10 @@ import { getUserDocumentProfile, formatProfileForPrompt, onDocumentAccessed } fr
 import { createCheckpointRewindManager } from './amplifier/checkpointRewind.js';
 import { createAgentMemory, recursiveCompact, AgentMemory } from './amplifier/recursiveSummarizer.js';
 import { generateBrief, classifyWork, getTimeBudget } from './amplifier/juniorAttorneyBrief.js';
+// Junior Attorney Persona: identity, ethics, communication style, reasoning framework
+import { buildPersonaPrompt, buildDocumentWritingPrompt } from './amplifier/juniorAttorneyPersona.js';
+// Lawyer Resources: standards of review, objections, deadlines, letter frameworks, billing
+import { getTaskResourceBundle, formatResourceBundleForPrompt } from './amplifier/knowledge/lawyerResources.js';
 
 // ===== NEWLY CONNECTED: Previously-dormant Amplifier harness modules =====
 // Decision Reinforcer: real-time learning from every tool outcome
@@ -1575,11 +1579,12 @@ Follow the EMPTY MATTER PROTOCOL to build the foundation this matter needs.
         console.error('[Amplifier] Error getting CPLR guidance:', cplrError.message);
       }
       
-      // Store matter ID for quick reference
+      // Store matter ID and type for quick reference
       this.preloadedMatterId = matter.id;
       this.preloadedMatterName = matter.name;
+      this.preloadedMatterType = matter.type || null;
       
-      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'})`);
+      console.log(`[Amplifier] Pre-loaded matter context: ${matter.name} (${isEmpty ? 'EMPTY' : 'has content'}, type: ${matter.type || 'general'})`);
       
       return contextStr;
       
@@ -2205,6 +2210,41 @@ ${hasMatterPreloaded
     const needsCPLR = /\b(?:cplr|ny |new york|litigation|motion|discovery|filing|statute|deadline|sol\b)/i.test(this.goal);
     if (needsCPLR) {
       prompt += getCPLRContextForPrompt() + '\n';
+    }
+
+    // ===== JUNIOR ATTORNEY PERSONA =====
+    // Inject the persona identity, ethical framework, and reasoning standards.
+    // Uses compact mode for simple tasks, full mode for complex/major tasks.
+    try {
+      const practiceArea = this.preloadedMatterType || null;
+      const useCompact = this.complexity === 'simple' || this.complexity === 'moderate';
+      const personaPrompt = buildPersonaPrompt({
+        complexity: this.complexity,
+        compact: useCompact,
+        practiceArea,
+      });
+      if (personaPrompt) {
+        prompt += personaPrompt;
+      }
+    } catch (e) {
+      // Non-fatal: persona is an enhancement, not a requirement
+      console.log('[Amplifier] Persona injection note:', e.message);
+    }
+
+    // ===== LAWYER RESOURCES =====
+    // Inject task-specific legal resources (standards of review, objection
+    // frameworks, letter templates, deadline rules, etc.) when relevant.
+    try {
+      const resourceBundle = getTaskResourceBundle(this.goal);
+      if (resourceBundle && resourceBundle.resources.length > 0) {
+        const resourcePrompt = formatResourceBundleForPrompt(resourceBundle);
+        if (resourcePrompt) {
+          prompt += resourcePrompt;
+        }
+      }
+    } catch (e) {
+      // Non-fatal: resources are supplementary
+      console.log('[Amplifier] Resource injection note:', e.message);
     }
 
     // Only include rewind/failed paths if they exist
