@@ -1375,7 +1375,22 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       `, [this.firmId, `%${potentialMatterName.toLowerCase()}%`, potentialMatterName]);
       
       if (matterResult.rows.length === 0) {
-        return null;
+        // Goal mentions a matter but it doesn't exist in the database.
+        // Warn the agent so it doesn't hallucinate work on a non-existent matter.
+        console.warn(`[Amplifier] Matter not found for goal pattern: "${potentialMatterName}"`);
+        return `
+## ⚠️ MATTER NOT FOUND
+
+Your goal mentions "${potentialMatterName}" but NO matching matter was found in the database.
+
+**CRITICAL INSTRUCTION:** Do NOT invent or hallucinate matter details. Instead:
+1. Call \`search_matters\` to find real matters in the system
+2. If the matter truly doesn't exist, state that clearly in your response
+3. Do NOT create notes, documents, or tasks for a non-existent matter
+4. Call \`task_complete\` explaining that the referenced matter was not found
+
+NEVER proceed as if you found a matter when you did not.
+`;
       }
       
       const matter = matterResult.rows[0];
@@ -1972,6 +1987,7 @@ ${this.learningContext || ''}
 - NEVER give up early. If an approach fails, try a different one. You have plenty of time and iterations.
 - PUSH THROUGH difficulty. If a tool fails, try alternatives. If research is thin, search harder.
 - STAY ON TASK. Do not call task_complete until you have produced HIGH-QUALITY, SUBSTANTIVE work product.
+- **NEVER HALLUCINATE DATA.** Only work with matters, clients, and documents that ACTUALLY EXIST in the system. If get_matter or search_matters returns nothing, do NOT invent details. Report that the item was not found.
 
 ## TOOL QUICK REFERENCE
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
@@ -2728,7 +2744,13 @@ You have your brief above. Follow the approach order and time budget. Call think
               // If the agent created documents or notes, it MUST call review_created_documents
               // to re-read its own work product and verify quality before completing.
               // This closes the blind spot where the agent never verifies what it actually saved.
-              if ((hasDocument || this.substantiveActions.notes >= 1) && !hasSelfReview) {
+              //
+              // EXCEPTION: If review_created_documents failed with a system_error (DB schema bug),
+              // don't block completion forever - the DB verification at completion will catch fakes.
+              const reviewAttempts = this.actionsHistory.filter(a => a.tool === 'review_created_documents');
+              const hasReviewSystemError = reviewAttempts.some(a => a.result?.system_error === true);
+              
+              if ((hasDocument || this.substantiveActions.notes >= 1) && !hasSelfReview && !hasReviewSystemError) {
                 missing.push('MISSING: You created documents/notes but did NOT call review_created_documents. You MUST review your own work product before completing. Call review_created_documents NOW to verify quality.');
               }
               

@@ -3459,6 +3459,20 @@ async function reviewCreatedDocuments(params, userId, firmId) {
     
   } catch (error) {
     console.error('[ToolBridge] reviewCreatedDocuments error:', error.message);
+    
+    // Distinguish DB schema errors from other failures
+    const isSchemaError = error.message?.includes('does not exist') || 
+                          error.message?.includes('column') ||
+                          error.message?.includes('relation');
+    
+    if (isSchemaError) {
+      return { 
+        error: 'Database schema error in review_created_documents - this is a system bug, not your fault. Report this error and proceed with task_complete.',
+        system_error: true,
+        details: error.message
+      };
+    }
+    
     return { error: 'Failed to review created documents: ' + error.message };
   }
 }
