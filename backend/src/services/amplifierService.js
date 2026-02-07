@@ -2150,7 +2150,6 @@ ${hasMatterPreloaded
     }
 
     prompt += `\nBEGIN NOW. ${hasMatterPreloaded ? `Start with think_and_plan, then immediately work on matter "${this.preloadedMatterName}".` : 'Call think_and_plan first, then execute tools.'}\n`;
-`;
 
     // Add comprehensive lawyer profile (personalization that improves over time)
     if (this.lawyerProfile) {
@@ -2253,6 +2252,11 @@ ${hasMatterPreloaded
           ? { role: 'system', content: this.agentMemory.buildLongTermHeader() }
           : null;
         
+        // Build initial messages - more concise when matter is pre-loaded
+        const executionPrompt = this.preloadedMatterId
+          ? `EXECUTE NOW: ${this.goal}\n\nMatter "${this.preloadedMatterName}" (ID: ${this.preloadedMatterId}) is pre-loaded. Follow the brief above. Call think_and_plan then start calling tools immediately. Do NOT respond with text only.`
+          : `EXECUTE THIS TASK NOW: ${this.goal}\n\nFollow the brief above. Call think_and_plan to create your execution plan, then immediately start calling tools. Do NOT respond with just text - you MUST call tools.`;
+        
         this.messages = [
           { role: 'system', content: this.systemPrompt },
           longTermHeader, // Long-Term Memory: mission goal + key facts
@@ -2262,9 +2266,7 @@ ${hasMatterPreloaded
           },
           { 
             role: 'user', 
-            content: `EXECUTE THIS TASK NOW: ${this.goal}
-
-You have your brief above. Follow the approach order and time budget. Call think_and_plan to create your execution plan based on the brief, then immediately start calling tools. Do NOT respond with just text - you MUST call tools to take action.`
+            content: executionPrompt
           }
         ].filter(Boolean);
       }
@@ -3010,17 +3012,39 @@ Keep working on: "${this.goal}"`
               this.status = TaskStatus.COMPLETED;
               this.progress.progressPercent = 100;
               this.progress.currentStep = 'Completed successfully';
+              this.endTime = new Date();
+              
+              // Calculate efficiency metrics for the completed task
+              const efficiencyMetrics = {
+                duration_seconds: elapsedSeconds,
+                total_actions: actionCount,
+                substantive_actions: substantiveActions,
+                total_iterations: this.progress.iterations,
+                iterations_per_action: actionCount > 0 ? Math.round((this.progress.iterations / actionCount) * 100) / 100 : 0,
+                actions_per_minute: elapsedSeconds > 60 ? Math.round((actionCount / (elapsedSeconds / 60)) * 10) / 10 : actionCount,
+                matter_preloaded: !!this.preloadedMatterId,
+                cache_entries: this.toolCache.size,
+                rate_limits_hit: this.rateLimitCount,
+                phases_completed: Object.entries(this.phaseIterationCounts).filter(([_, c]) => c > 0).map(([p]) => p),
+              };
+              
+              console.log(`[Amplifier] Task ${this.id} EFFICIENCY REPORT:`,
+                `Duration: ${Math.round(elapsedSeconds)}s |`,
+                `Iterations: ${this.progress.iterations} |`,
+                `Actions: ${actionCount} |`,
+                `Iter/Action: ${efficiencyMetrics.iterations_per_action} |`,
+                `Actions/min: ${efficiencyMetrics.actions_per_minute} |`,
+                `Cache entries: ${this.toolCache.size} |`,
+                `Matter pre-loaded: ${!!this.preloadedMatterId} |`,
+                `Rate limits: ${this.rateLimitCount}`
+              );
+              
               this.result = {
                 summary: toolArgs.summary || 'Task completed',
                 actions: toolArgs.actions_taken || this.actionsHistory.map(a => a.tool),
                 recommendations: toolArgs.recommendations || [],
-                stats: {
-                  duration_seconds: elapsedSeconds,
-                  total_actions: actionCount,
-                  substantive_actions: substantiveActions
-                }
+                stats: efficiencyMetrics,
               };
-              this.endTime = new Date();
               
               // Save to history and extract learnings (endTime must be set first)
               await this.saveTaskHistory();
@@ -3820,6 +3844,13 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
    * Get current status
    */
   getStatus() {
+    // Compute efficiency metrics
+    const cacheHits = [...this.toolCache.values()].filter(v => v.result?._preloaded).length;
+    const totalTools = this.actionsHistory.length;
+    const successfulTools = this.actionsHistory.filter(a => a.success !== false).length;
+    const uniqueTools = [...new Set(this.actionsHistory.map(a => a.tool))].length;
+    const elapsedSec = (this.endTime || new Date()) - this.startTime;
+    
     return {
       id: this.id,
       userId: this.userId,
@@ -3832,9 +3863,7 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
       error: this.error,
       startTime: this.startTime,
       endTime: this.endTime,
-      duration: this.endTime 
-        ? (this.endTime - this.startTime) / 1000 
-        : (new Date() - this.startTime) / 1000,
+      duration: elapsedSec / 1000,
       // Work type classification from Junior Attorney Brief
       workType: this.workType ? { id: this.workType.id, name: this.workType.name } : null,
       // Rewind system status
@@ -3848,7 +3877,22 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
       } : null,
       // Follow-up messages sent by the user
       followUps: this.followUps || [],
-      pendingFollowUps: this.pendingFollowUps?.length || 0
+      pendingFollowUps: this.pendingFollowUps?.length || 0,
+      // Efficiency metrics
+      efficiency: {
+        matterPreloaded: !!this.preloadedMatterId,
+        preloadedMatterName: this.preloadedMatterName || null,
+        cacheHits: this.toolCache.size,
+        totalToolCalls: totalTools,
+        successfulToolCalls: successfulTools,
+        uniqueToolsUsed: uniqueTools,
+        toolSuccessRate: totalTools > 0 ? Math.round((successfulTools / totalTools) * 100) : 0,
+        iterationsPerAction: totalTools > 0 ? Math.round((this.progress.iterations / totalTools) * 100) / 100 : 0,
+        actionsPerMinute: elapsedSec > 60000 ? Math.round((totalTools / (elapsedSec / 60000)) * 10) / 10 : totalTools,
+        rateLimitsHit: this.rateLimitCount,
+        textOnlyResponses: this.textOnlyStreak,
+        messageCompactions: this.agentMemory?.midTerm?.totalMessagesSummarized || 0,
+      }
     };
   }
 }

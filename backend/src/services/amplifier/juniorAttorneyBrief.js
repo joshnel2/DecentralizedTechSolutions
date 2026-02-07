@@ -485,66 +485,77 @@ export function classifyWork(goal) {
 export function generateBrief(goal, matterContext = null, options = {}) {
   const workType = classifyWork(goal);
   const totalMinutes = options.totalMinutes || 30;
+  const isCompact = options.compact || !!matterContext; // Use compact brief when matter is pre-loaded
   
-  let brief = `== JUNIOR ATTORNEY BRIEF ==\n`;
-  brief += `(Read this carefully before you start working. This is your supervising partner's guidance.)\n\n`;
+  let brief = `== JUNIOR ATTORNEY BRIEF ==\n\n`;
   
   // 1. What type of work this is
-  brief += `### Assignment Classification\n`;
   brief += `**Work Type:** ${workType.name}\n`;
-  brief += `**Your Task:** ${goal}\n`;
+  brief += `**Task:** ${goal}\n`;
   if (matterContext) {
-    brief += `**Matter Context:** You have pre-loaded matter data available. USE IT.\n`;
+    brief += `**Matter:** Pre-loaded. Use the matter ID from the context above directly.\n`;
   }
   brief += `\n`;
   
-  // 2. What "good" looks like -- this is the quality bar
-  brief += `### What a Good Job Looks Like\n`;
-  brief += workType.whatGoodLooksLike + '\n\n';
+  // 2. What "good" looks like (concise for compact mode)
+  brief += `### Quality Bar\n`;
+  if (isCompact) {
+    // Extract just the bullet points from whatGoodLooksLike
+    const bullets = workType.whatGoodLooksLike.split('\n').filter(l => l.trim().startsWith('-')).slice(0, 4);
+    brief += bullets.join('\n') + '\n\n';
+  } else {
+    brief += workType.whatGoodLooksLike + '\n\n';
+  }
   
-  // 3. Common mistakes to avoid -- this is the trap-spotting
-  brief += `### Mistakes to Avoid\n`;
-  brief += `These are the most common ways junior attorneys mess up this type of work:\n`;
-  for (const mistake of workType.commonMistakes) {
-    brief += `- DO NOT: ${mistake}\n`;
+  // 3. Common mistakes (top 3 only for efficiency)
+  brief += `### Avoid\n`;
+  const mistakeLimit = isCompact ? 3 : workType.commonMistakes.length;
+  for (const mistake of workType.commonMistakes.slice(0, mistakeLimit)) {
+    brief += `- ${mistake}\n`;
   }
   brief += `\n`;
   
-  // 4. Expected deliverables -- concrete outputs
-  brief += `### Expected Deliverables\n`;
-  brief += `When you are done, you MUST have produced:\n`;
+  // 4. Expected deliverables
+  brief += `### Required Deliverables\n`;
   for (const deliverable of workType.expectedDeliverables) {
     brief += `- ${deliverable}\n`;
   }
   brief += `\n`;
   
-  // 5. Step-by-step approach -- the order of operations
-  brief += `### Approach (Follow This Order)\n`;
-  for (const step of workType.approachOrder) {
+  // 5. Approach order (condensed for pre-loaded matters)
+  brief += `### Approach\n`;
+  const approachSteps = isCompact 
+    ? workType.approachOrder.filter(s => !s.toLowerCase().includes('first: read the matter') || !matterContext)
+    : workType.approachOrder;
+  for (const step of approachSteps) {
     brief += `${step}\n`;
   }
   brief += `\n`;
   
-  // 6. Time budget -- how long each phase should take
-  brief += `### Time Budget (~${totalMinutes} minutes total)\n`;
-  for (const [phase, allocation] of Object.entries(workType.timeBudget)) {
-    const minutes = Math.round(totalMinutes * parseInt(allocation) / 100);
-    brief += `- **${phase.toUpperCase()}** (${allocation}): ~${minutes} minutes\n`;
+  // 6. Time budget (compact: single line)
+  if (isCompact) {
+    const phases = Object.entries(workType.timeBudget).map(([phase, alloc]) => 
+      `${phase}(${parseInt(alloc)}%)`
+    ).join(' → ');
+    brief += `**Time:** ~${totalMinutes}min total: ${phases}\n\n`;
+  } else {
+    brief += `### Time Budget (~${totalMinutes} minutes total)\n`;
+    for (const [phase, allocation] of Object.entries(workType.timeBudget)) {
+      const minutes = Math.round(totalMinutes * parseInt(allocation) / 100);
+      brief += `- **${phase.toUpperCase()}** (${allocation}): ~${minutes} minutes\n`;
+    }
+    brief += `\n`;
   }
+  
+  // 7. Partner check (compact: just 3 key checks)
+  brief += `### Before Completing\n`;
+  brief += `1. Did I READ the matter and produce SPECIFIC (not generic) work?\n`;
+  brief += `2. Did I create REAL content (no placeholders)?\n`;
+  brief += `3. Are there follow-up tasks and clear next steps?\n`;
   brief += `\n`;
   
-  // 7. The "partner check" -- what the partner will look for
-  brief += `### Partner Review Criteria\n`;
-  brief += `Before you call task_complete, ask yourself:\n`;
-  brief += `1. Did I actually READ the matter before acting? (not just skim)\n`;
-  brief += `2. Is my work SPECIFIC to this matter? (would it make sense to someone unfamiliar with it?)\n`;
-  brief += `3. Did I produce REAL content? (no placeholders, no generic boilerplate)\n`;
-  brief += `4. Are there CLEAR NEXT STEPS? (tasks created, deadlines set)\n`;
-  brief += `5. Would I be comfortable putting my name on this work product?\n`;
-  brief += `\n`;
-  
-  brief += `== END BRIEF - NOW BEGIN WORK ==\n`;
-  brief += `Call think_and_plan to create your execution plan based on the approach above, then start executing.\n`;
+  brief += `== BEGIN WORK ==\n`;
+  brief += `Call think_and_plan, then execute.\n`;
   
   return brief;
 }
