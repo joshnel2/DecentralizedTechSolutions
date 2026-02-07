@@ -185,6 +185,39 @@ async function runMigrations(client) {
       console.log('Migration note:', error.message);
     }
   }
+
+  // Run migration SQL files from the migrations/ directory
+  // These create the background agent, learning, and harness intelligence tables
+  const migrationFiles = [
+    'add_ai_background_tasks.sql',
+    'add_ai_learnings.sql',
+    'add_ai_learning_patterns.sql',
+    'add_learning_pattern_levels.sql',
+    'add_ai_task_checkpoints.sql',
+    'add_review_queue.sql',
+    'add_background_agent_indexes.sql',
+    'add_document_learning.sql',
+    'add_document_ai_insights.sql',
+    'add_harness_intelligence.sql',
+  ];
+
+  const migrationsDir = join(__dirname, 'migrations');
+  for (const file of migrationFiles) {
+    try {
+      const filePath = join(migrationsDir, file);
+      const sql = readFileSync(filePath, 'utf8');
+      await client.query(sql);
+      console.log(`  Applied migration: ${file}`);
+    } catch (error) {
+      // Migrations are idempotent (IF NOT EXISTS, DO $$ checks)
+      // so errors here usually mean the migration was already applied
+      if (error.message?.includes('already exists') || error.message?.includes('duplicate')) {
+        // Expected for re-runs
+      } else {
+        console.log(`  Migration note (${file}): ${error.message}`);
+      }
+    }
+  }
 }
 
 async function initDatabase() {

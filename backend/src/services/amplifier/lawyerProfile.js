@@ -116,7 +116,7 @@ export async function getLawyerProfile(userId, firmId) {
     const patternsResult = await query(
       `SELECT pattern_type, pattern_data, confidence, occurrences 
        FROM ai_learning_patterns 
-       WHERE (user_id = $1 OR (firm_id = $2 AND level = 'firm'))
+       WHERE (user_id = $1 OR (firm_id = $2 AND user_id IS NULL))
        AND confidence > 0.5
        ORDER BY confidence DESC, occurrences DESC 
        LIMIT 10`,

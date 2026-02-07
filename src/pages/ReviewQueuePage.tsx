@@ -26,6 +26,20 @@ interface ReviewDeliverable {
   createdAt?: string
 }
 
+interface ConfidenceSection {
+  name: string
+  confidence: number
+  needsReview: boolean
+  detail: string
+}
+
+interface ConfidenceReport {
+  overall: number
+  reviewGuidance: string
+  estimatedReviewMinutes: number
+  sections: ConfidenceSection[]
+}
+
 interface ReviewItem {
   id: string
   goal: string
@@ -39,10 +53,12 @@ interface ReviewItem {
   result?: {
     summary?: string
     evaluation?: { score?: number; issues?: string[]; strengths?: string[] }
+    confidence?: ConfidenceReport
     deliverables?: { documents?: string[]; notes?: number; tasks?: string[]; events?: string[] }
     remaining_work?: string[]
     key_findings?: string[]
   }
+  confidence?: ConfidenceReport
   evaluationScore?: number
   evaluationIssues?: string[]
   evaluationStrengths?: string[]
@@ -238,6 +254,48 @@ export function ReviewQueuePage() {
                     {item.result.summary.length > 200 && !expanded && '...'}
                   </div>
                 )}
+
+                {/* Confidence Report */}
+                {(item.confidence || item.result?.confidence) && (() => {
+                  const conf = item.confidence || item.result?.confidence
+                  if (!conf) return null
+                  return (
+                    <div className={styles.confidenceReport}>
+                      <div className={styles.confidenceHeader}>
+                        <div className={styles.confidenceOverall} style={{
+                          color: conf.overall >= 75 ? '#22c55e' : conf.overall >= 50 ? '#eab308' : '#ef4444'
+                        }}>
+                          {conf.overall}% confidence
+                        </div>
+                        <div className={styles.confidenceGuidance}>
+                          <Clock size={12} /> ~{conf.estimatedReviewMinutes} min review &middot; {conf.reviewGuidance}
+                        </div>
+                      </div>
+                      {expanded && conf.sections && (
+                        <div className={styles.confidenceSections}>
+                          {conf.sections.map((section: ConfidenceSection, i: number) => (
+                            <div key={i} className={styles.confidenceSection}>
+                              <div className={styles.confidenceBar}>
+                                <div 
+                                  className={styles.confidenceFill} 
+                                  style={{ 
+                                    width: `${section.confidence}%`,
+                                    backgroundColor: section.needsReview ? '#eab308' : '#22c55e'
+                                  }} 
+                                />
+                              </div>
+                              <div className={styles.confidenceLabel}>
+                                {section.needsReview && <AlertTriangle size={12} color="#eab308" />}
+                                <span>{section.name}: {section.confidence}%</span>
+                                <span className={styles.confidenceDetail}>{section.detail}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
 
                 {/* Flags */}
                 {item.flags.length > 0 && (

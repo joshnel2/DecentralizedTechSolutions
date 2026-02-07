@@ -381,3 +381,72 @@
   color: #64748b;
   gap: 8px;
 }
+
+/* Confidence Report */
+.confidenceReport {
+  margin: 8px 20px;
+  padding: 10px 14px;
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 8px;
+}
+
+.confidenceHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.confidenceOverall {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.confidenceGuidance {
+  font-size: 12px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.confidenceSections {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.confidenceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.confidenceBar {
+  height: 4px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.confidenceFill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.confidenceLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.confidenceDetail {
+  margin-left: auto;
+  color: #64748b;
+  font-size: 10px;
+}

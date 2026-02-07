@@ -98,6 +98,98 @@ router.get('/status', authenticate, async (req, res) => {
 });
 
 /**
+ * Deep health check - verifies the full pipeline is ready
+ * Checks: Azure OpenAI, database tables, tool availability
+ * Use this before relying on background agent functionality
+ */
+router.get('/health', authenticate, async (req, res) => {
+  const checks = {
+    azureOpenAI: { ok: false, detail: '' },
+    database: { ok: false, detail: '' },
+    agentTables: { ok: false, detail: '' },
+    toolBridge: { ok: false, detail: '' },
+    harnessTables: { ok: false, detail: '' },
+  };
+
+  // 1. Azure OpenAI credentials
+  const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+  const apiKey = process.env.AZURE_OPENAI_API_KEY;
+  const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+  checks.azureOpenAI.ok = !!(endpoint && apiKey && deployment);
+  checks.azureOpenAI.detail = checks.azureOpenAI.ok
+    ? `${deployment} @ ${endpoint?.substring(0, 30)}...`
+    : `Missing: ${[!endpoint && 'ENDPOINT', !apiKey && 'API_KEY', !deployment && 'DEPLOYMENT'].filter(Boolean).join(', ')}`;
+
+  // 2. Database connection
+  try {
+    const { query: dbQuery } = await import('../db/connection.js');
+    const result = await dbQuery('SELECT 1 as ok');
+    checks.database.ok = result.rows[0]?.ok === 1;
+    checks.database.detail = 'Connected';
+  } catch (e) {
+    checks.database.detail = e.message?.substring(0, 80) || 'Connection failed';
+  }
+
+  // 3. Agent tables exist
+  if (checks.database.ok) {
+    try {
+      const { query: dbQuery } = await import('../db/connection.js');
+      const tables = await dbQuery(`
+        SELECT table_name FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+          AND table_name IN ('ai_background_tasks', 'ai_learning_patterns', 'ai_task_history')
+      `);
+      const found = tables.rows.map(r => r.table_name);
+      const missing = ['ai_background_tasks', 'ai_learning_patterns', 'ai_task_history'].filter(t => !found.includes(t));
+      checks.agentTables.ok = missing.length === 0;
+      checks.agentTables.detail = missing.length === 0
+        ? `All 3 core tables present`
+        : `Missing: ${missing.join(', ')}. Run database init.`;
+    } catch (e) {
+      checks.agentTables.detail = e.message?.substring(0, 80) || 'Query failed';
+    }
+  }
+
+  // 4. Tool bridge
+  try {
+    const { AMPLIFIER_OPENAI_TOOLS } = await import('../services/amplifier/toolBridge.js');
+    checks.toolBridge.ok = Array.isArray(AMPLIFIER_OPENAI_TOOLS) && AMPLIFIER_OPENAI_TOOLS.length > 20;
+    checks.toolBridge.detail = `${AMPLIFIER_OPENAI_TOOLS?.length || 0} tools loaded`;
+  } catch (e) {
+    checks.toolBridge.detail = e.message?.substring(0, 80) || 'Failed to load';
+  }
+
+  // 5. Harness intelligence tables
+  if (checks.database.ok) {
+    try {
+      const { query: dbQuery } = await import('../db/connection.js');
+      const tables = await dbQuery(`
+        SELECT table_name FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+          AND table_name IN ('matter_agent_memory', 'harness_quality_overrides', 'proven_tool_chains')
+      `);
+      const found = tables.rows.map(r => r.table_name);
+      const missing = ['matter_agent_memory', 'harness_quality_overrides', 'proven_tool_chains'].filter(t => !found.includes(t));
+      checks.harnessTables.ok = missing.length === 0;
+      checks.harnessTables.detail = missing.length === 0
+        ? `All 3 harness tables present`
+        : `Missing: ${missing.join(', ')}. Run migration: add_harness_intelligence.sql`;
+    } catch (e) {
+      checks.harnessTables.detail = e.message?.substring(0, 80) || 'Query failed';
+    }
+  }
+
+  const allOk = Object.values(checks).every(c => c.ok);
+
+  res.json({
+    healthy: allOk,
+    ready: checks.azureOpenAI.ok && checks.database.ok && checks.agentTables.ok && checks.toolBridge.ok,
+    checks,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * Sanitize and validate user input
  * Prevents injection attacks and ensures clean input
  */
