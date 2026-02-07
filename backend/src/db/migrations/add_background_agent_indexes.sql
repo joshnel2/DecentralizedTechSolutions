@@ -29,9 +29,11 @@ CREATE INDEX IF NOT EXISTS idx_matter_tasks_due_date ON matter_tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_matter_tasks_matter_status ON matter_tasks(matter_id, status);
 
 -- Documents indexes for document search
+-- Note: documents table uses uploaded_at (NOT created_at) and size (NOT file_size)
 CREATE INDEX IF NOT EXISTS idx_documents_matter_id ON documents(matter_id);
 CREATE INDEX IF NOT EXISTS idx_documents_firm_id ON documents(firm_id);
-CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_uploaded_at ON documents(uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_documents_firm_uploaded ON documents(firm_id, uploaded_by, uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_documents_name_search ON documents USING gin(to_tsvector('english', original_name));
 
 -- Calendar Events indexes for deadline tracking
