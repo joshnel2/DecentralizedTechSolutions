@@ -1396,6 +1396,19 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         }
       }
       
+      // ===== AUTO-BACKFILL: Index existing documents for semantic search =====
+      // On the first task for a firm, check if documents need embedding.
+      // Runs a small batch (50 docs) in the background without blocking the task.
+      try {
+        const { autoBackfillIfNeeded } = await import('./amplifier/embeddingBackfill.js');
+        const backfillResult = await autoBackfillIfNeeded(this.firmId);
+        if (backfillResult.triggered) {
+          console.log(`[Amplifier] Auto-embedding backfill triggered: ${backfillResult.docsRemaining} documents to index`);
+        }
+      } catch (e) {
+        // Non-fatal: embedding is optional
+      }
+      
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
     }

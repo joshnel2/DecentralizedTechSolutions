@@ -1154,4 +1154,77 @@ router.post('/execute-tool', async (req, res) => {
   }
 });
 
+/**
+ * Embedding backfill - index existing documents for semantic search
+ * 
+ * POST: Start a backfill run (indexes all documents that have content but no embeddings)
+ * GET: Check backfill status and stats
+ */
+router.post('/embed-backfill', authenticate, async (req, res) => {
+  try {
+    const { maxDocuments = 200, batchSize = 5 } = req.body || {};
+    
+    const { runBackfill, getBackfillStatus } = await import('../services/amplifier/embeddingBackfill.js');
+    
+    // Check if already running
+    const status = getBackfillStatus(req.user.firmId);
+    if (status.running) {
+      return res.json({ 
+        message: 'Backfill already in progress',
+        ...status
+      });
+    }
+    
+    // Start backfill in background (don't await - return immediately)
+    runBackfill(req.user.firmId, {
+      batchSize: Math.min(batchSize, 10),
+      maxDocuments: Math.min(maxDocuments, 1000),
+      delayMs: 2000,
+    }).then(result => {
+      console.log(`[BackgroundAgent] Embedding backfill complete for firm ${req.user.firmId}:`, result);
+    }).catch(err => {
+      console.error(`[BackgroundAgent] Embedding backfill error:`, err.message);
+    });
+    
+    res.json({
+      success: true,
+      message: `Embedding backfill started for up to ${Math.min(maxDocuments, 1000)} documents. This runs in the background.`,
+    });
+  } catch (error) {
+    console.error('[BackgroundAgent] Embed backfill error:', error);
+    res.status(500).json({ error: 'Failed to start embedding backfill' });
+  }
+});
+
+router.get('/embed-status', authenticate, async (req, res) => {
+  try {
+    const { needsBackfill, getBackfillStatus } = await import('../services/amplifier/embeddingBackfill.js');
+    const { getEmbeddingStats } = await import('../services/embeddingService.js');
+    
+    const [backfillNeeded, status, stats] = await Promise.all([
+      needsBackfill(req.user.firmId),
+      Promise.resolve(getBackfillStatus(req.user.firmId)),
+      getEmbeddingStats(req.user.firmId),
+    ]);
+    
+    res.json({
+      backfill: {
+        needed: backfillNeeded.needed,
+        docsWithContent: backfillNeeded.docsWithContent,
+        docsEmbedded: backfillNeeded.docsEmbedded,
+        docsRemaining: backfillNeeded.docsRemaining,
+        running: status.running,
+        processed: status.processed || 0,
+      },
+      embeddings: {
+        totalChunks: parseInt(stats.total_chunks) || 0,
+        totalDocuments: parseInt(stats.total_documents) || 0,
+      },
+    });
+  } catch (error) {
+    console.error('[BackgroundAgent] Embed status error:', error);
+    res.status(500).json({ error: 'Failed to get embedding status' });
+  }
+});
+
 export default router;
