@@ -65,6 +65,8 @@ router.get('/status', authenticate, async (req, res) => {
         recursiveSummarizer: 'active',
         checkpointRewind: 'active',
         juniorAttorneyBrief: 'active',
+        juniorAttorneyPersona: 'active',
+        lawyerResources: 'active',
         documentLearning: 'active',
         selfReinforcement: 'active',
         amplifierHooks: 'active',
