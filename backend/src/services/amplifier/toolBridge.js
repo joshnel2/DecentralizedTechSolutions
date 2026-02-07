@@ -1119,7 +1119,7 @@ async function recordPayment(params, userId, firmId) {
 async function listDocuments(params, userId, firmId) {
   const { matter_id, client_id, search, limit = 20 } = params;
   
-  let sql = 'SELECT * FROM documents WHERE firm_id = $1';
+  let sql = 'SELECT id, name, original_name, type, size, status, matter_id, client_id, uploaded_at, uploaded_by, tags, content_text IS NOT NULL as has_content FROM documents WHERE firm_id = $1';
   const values = [firmId];
   let idx = 2;
   
@@ -1136,7 +1136,7 @@ async function listDocuments(params, userId, firmId) {
     values.push(`%${search.toLowerCase()}%`);
   }
   
-  sql += ` ORDER BY created_at DESC LIMIT $${idx}`;
+  sql += ` ORDER BY uploaded_at DESC LIMIT $${idx}`;
   values.push(limit);
   
   const result = await query(sql, values);
@@ -1380,15 +1380,18 @@ async function createDocument(params, userId, firmId) {
     const filePath = path.join(uploadsDir, filename);
     const relativePath = `uploads/ai-generated/${filename}`;
     
+    // Look up matter info once (reused for folder path + success message)
+    let matterInfo = null;
     let folderPath = 'ai-generated';
     if (matter_id) {
       const matterResult = await query(
-        'SELECT name FROM matters WHERE id = $1 AND firm_id = $2',
+        'SELECT name, number FROM matters WHERE id = $1 AND firm_id = $2',
         [matter_id, firmId]
       );
       if (matterResult.rows.length > 0) {
-        const matterName = matterResult.rows[0].name.replace(/[^a-zA-Z0-9 ]/g, '_');
-        folderPath = `matters/${matterName}/ai-generated`;
+        matterInfo = matterResult.rows[0];
+        const safeMatterName = matterInfo.name.replace(/[^a-zA-Z0-9 ]/g, '_');
+        folderPath = `matters/${safeMatterName}/ai-generated`;
       }
     }
     const azurePath = `${folderPath}/${filename}`;
@@ -1509,12 +1512,12 @@ async function createDocument(params, userId, firmId) {
         ? tags.split(',').map(tag => tag.trim()).filter(Boolean)
         : ['ai-generated'];
     
-    // Use base schema columns only to avoid migration issues
+    // Insert document WITH content_text so review_created_documents can read it
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, status, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
+        tags, status, uploaded_by, content_text, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11, $12)
       RETURNING id, name`,
       [
         firmId,
@@ -1527,9 +1530,9 @@ async function createDocument(params, userId, firmId) {
         azureResult ? azureResult.path : relativePath,
         tagList,
         userId,
+        content,
         JSON.stringify({ 
           ai_generated: true, 
-          content_text: content,
           azure_path: azureResult?.path || null
         })
       ]
@@ -1586,11 +1589,8 @@ async function createDocument(params, userId, firmId) {
     }
     
     let locationInfo = '';
-    if (matter_id) {
-      const matterRes = await query('SELECT name, number FROM matters WHERE id = $1', [matter_id]);
-      if (matterRes.rows.length > 0) {
-        locationInfo = ` and attached to matter "${matterRes.rows[0].name}" (${matterRes.rows[0].number})`;
-      }
+    if (matterInfo) {
+      locationInfo = ` and attached to matter "${matterInfo.name}" (${matterInfo.number || 'no number'})`;
     } else if (client_id) {
       const clientRes = await query('SELECT display_name FROM clients WHERE id = $1', [client_id]);
       if (clientRes.rows.length > 0) {
