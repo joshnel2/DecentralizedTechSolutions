@@ -50,6 +50,9 @@ import aiAgentRoutes, { resumeIncompleteTasks } from './routes/aiAgent.js';
 import stripeConnectRoutes from './routes/stripeConnect.js';
 import notificationRoutes from './routes/notifications.js';
 
+// Legal Research (COMPLETELY ISOLATED — uses OpenRouter, NOT Azure OpenAI)
+import legalResearchRoutes from './routes/legalResearch.js';
+
 // Background Agent (Amplifier-powered)
 import backgroundAgentRoutes from './routes/backgroundAgent.js';
 import agentStreamRoutes from './routes/agentStream.js';
@@ -131,6 +134,9 @@ app.use('/api/drive', desktopDriveRoutes);  // Apex Drive desktop client API
 app.use('/api/desktop-client', desktopClientRoutes);  // Desktop client download & connection
 app.use('/api/document-ai', documentAIRoutes);  // AI-powered document insights
 app.use('/api/permissions', permissionsRoutes);  // Advanced permissions management
+
+// Legal Research (ISOLATED — OpenRouter, not Azure OpenAI)
+app.use('/api/legal-research', legalResearchRoutes);
 
 // AI Agent Tool Routes (v1 API - optimized for AI interaction)
 app.use('/api/v1/billing', billingRoutes);

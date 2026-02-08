@@ -21,7 +21,7 @@ import {
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
   Play, Pause, Square, Mail, Cloud, FileText, Video, MessageSquare, 
-  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck
+  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck, Scale
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -261,6 +261,15 @@ export function Layout() {
           )}
 
           <NavLink
+            to="/app/legal-research"
+            className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
+            style={{ '--mode-color': '#06B6D4' } as any}
+          >
+            <Scale size={20} />
+            {(sidebarOpen || isMobile) && <span>Legal Research</span>}
+          </NavLink>
+
+          <NavLink
             to="/app/ai"
             className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
           >
@@ -353,7 +362,8 @@ export function Layout() {
             <h1 className={styles.pageTitle}>
               {navItems.find(i => location.pathname.startsWith(i.path))?.label || 
                settingsItems.find(i => location.pathname === i.path)?.label ||
-               (location.pathname === '/app/ai' ? 'AI Assistant' : 'Dashboard')}
+               (location.pathname === '/app/ai' ? 'AI Assistant' : 
+                location.pathname === '/app/legal-research' ? 'Legal Research' : 'Dashboard')}
             </h1>
           </div>
 

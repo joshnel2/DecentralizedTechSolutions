@@ -68,6 +68,7 @@ import { TextMessagingPage } from './pages/TextMessagingPage'
 import { AIConfigPage } from './pages/AIConfigPage'
 import { ReportingSettingsPage } from './pages/ReportingSettingsPage'
 import { RedlineAIPage } from './pages/RedlineAIPage'
+import { LegalResearchPage } from './pages/LegalResearchPage'
 import { ApexPayPage } from './pages/ApexPayPage'
 import { ApexPaySettingsPage } from './pages/ApexPaySettingsPage'
 // Drive Integration Pages
@@ -227,6 +228,7 @@ function AppContent() {
         <Route path="documents/templates" element={<DocumentTemplatesPage />} />
         <Route path="document-automation" element={<DocumentAutomationPage />} />
         <Route path="ai" element={<AIAssistantPage />} />
+        <Route path="legal-research" element={<LegalResearchPage />} />
         <Route path="background-agent" element={<BackgroundAgentPage />} />
         <Route path="review-queue" element={<ReviewQueuePage />} />
         <Route path="agent-console/:taskId" element={<AgentConsolePage />} />
