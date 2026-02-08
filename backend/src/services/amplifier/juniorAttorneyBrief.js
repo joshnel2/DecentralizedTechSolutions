@@ -479,23 +479,57 @@ export function classifyWork(goal) {
 }
 
 /**
- * Generate the Junior Attorney Brief.
+ * Generate the Junior Attorney Brief — NOW ADAPTIVE.
  * 
- * This is the core function. It takes the user's goal and produces a
- * structured brief that tells the agent exactly how a competent junior
- * attorney would approach this work.
+ * The brief is TRAINING WHEELS that progressively FADE as the system
+ * learns who this attorney is. The more the attorney uses the system,
+ * the more the generic brief gets replaced by their actual identity.
+ * 
+ * Maturity levels (from attorneyIdentity.js):
+ * - NASCENT (0-15):    Full brief. System knows nothing about this attorney.
+ * - EMERGING (16-35):  Full brief + identity injected alongside.
+ * - DEVELOPING (36-55): Thinned brief (approach + deliverables only) + identity drives style.
+ * - STRONG (56-75):    Minimal brief (deliverables only) + identity drives everything.
+ * - MIRROR (76-100):   NO BRIEF. Identity completely replaces it.
  * 
  * @param {string} goal - The user's task description
  * @param {object} matterContext - Pre-loaded matter context (if available)
  * @param {object} options - Additional options (timebudget, complexity, etc.)
+ * @param {object} options.attorneyIdentity - The attorney's identity profile (if loaded)
  * @returns {string} The brief text to inject into the agent's messages
  */
 export function generateBrief(goal, matterContext = null, options = {}) {
   const workType = classifyWork(goal);
   const totalMinutes = options.totalMinutes || 30;
-  const isCompact = options.compact || !!matterContext; // Use compact brief when matter is pre-loaded
+  const isCompact = options.compact || !!matterContext;
   
-  let brief = `== JUNIOR ATTORNEY BRIEF ==\n\n`;
+  // ===== ADAPTIVE BRIEF: Check attorney identity maturity =====
+  const identity = options.attorneyIdentity || null;
+  const maturity = identity?.maturity || 0;
+  const maturityLevel = identity?.maturityLevel?.label || 'nascent';
+  const briefWeight = identity?.maturityLevel?.briefWeight ?? 1.0;
+  
+  // At MIRROR level (76+), the brief is completely replaced by identity
+  if (briefWeight === 0.0 && maturity >= 76) {
+    return _generateMirrorBrief(goal, workType, totalMinutes, identity);
+  }
+  
+  // At STRONG level (56-75), minimal brief: just deliverables and approach skeleton
+  if (briefWeight <= 0.2 && maturity >= 56) {
+    return _generateMinimalBrief(goal, workType, totalMinutes, matterContext, identity);
+  }
+  
+  // At DEVELOPING level (36-55), thinned brief: skip "what good looks like" and mistakes
+  if (briefWeight <= 0.5 && maturity >= 36) {
+    return _generateThinnedBrief(goal, workType, totalMinutes, matterContext, identity);
+  }
+  
+  // At NASCENT/EMERGING (0-35), full brief as before
+  let brief = `== JUNIOR ATTORNEY BRIEF ==\n`;
+  if (maturityLevel !== 'nascent' && maturity > 0) {
+    brief += `(Identity maturity: ${maturity}/100 — ${maturityLevel}. Adapting to your style as I learn more.)\n`;
+  }
+  brief += `\n`;
   
   // 1. What type of work this is
   brief += `**Work Type:** ${workType.name}\n`;
@@ -508,7 +542,6 @@ export function generateBrief(goal, matterContext = null, options = {}) {
   // 2. What "good" looks like (concise for compact mode)
   brief += `### Quality Bar\n`;
   if (isCompact) {
-    // Extract just the bullet points from whatGoodLooksLike
     const bullets = workType.whatGoodLooksLike.split('\n').filter(l => l.trim().startsWith('-')).slice(0, 4);
     brief += bullets.join('\n') + '\n\n';
   } else {
@@ -561,6 +594,126 @@ export function generateBrief(goal, matterContext = null, options = {}) {
   brief += `2. Did I create REAL content (no placeholders)?\n`;
   brief += `3. Are there follow-up tasks and clear next steps?\n`;
   brief += `\n`;
+  
+  brief += `== BEGIN WORK ==\n`;
+  brief += `Call think_and_plan, then execute.\n`;
+  
+  return brief;
+}
+
+/**
+ * MIRROR MODE BRIEF (maturity 76-100)
+ * No generic brief at all. The identity IS the brief.
+ * The agent writes as the attorney would write.
+ */
+function _generateMirrorBrief(goal, workType, totalMinutes, identity) {
+  let brief = `== YOUR ASSIGNMENT ==\n\n`;
+  brief += `**Task:** ${goal}\n`;
+  brief += `**Work Type:** ${workType.name}\n`;
+  brief += `**Budget:** ~${totalMinutes} minutes\n\n`;
+  
+  brief += `You know this attorney deeply. Write as THEY would write. Think as THEY would think.\n`;
+  brief += `Match their style, their level of detail, their tone, their structure preferences.\n`;
+  brief += `Their identity is loaded in the system prompt — follow it precisely.\n\n`;
+  
+  // Still include deliverables (these are task-type-specific, not attorney-specific)
+  brief += `### Expected Deliverables\n`;
+  for (const deliverable of workType.expectedDeliverables) {
+    brief += `- ${deliverable}\n`;
+  }
+  brief += `\n`;
+  
+  // Include approach skeleton (but not the verbose version)
+  brief += `### Approach\n`;
+  brief += workType.approachOrder.slice(0, 4).map(s => s.replace(/^[A-Z]+:\s*/, '')).join(' → ') + '\n\n';
+  
+  brief += `== BEGIN WORK ==\n`;
+  brief += `Call think_and_plan, then execute. Produce work this attorney would be proud of.\n`;
+  
+  return brief;
+}
+
+/**
+ * MINIMAL BRIEF (maturity 56-75)
+ * Just the structural essentials. Identity drives everything else.
+ */
+function _generateMinimalBrief(goal, workType, totalMinutes, matterContext, identity) {
+  let brief = `== ASSIGNMENT BRIEF ==\n`;
+  brief += `(Your identity profile for this attorney is strong — match their style.)\n\n`;
+  
+  brief += `**Work Type:** ${workType.name}\n`;
+  brief += `**Task:** ${goal}\n`;
+  if (matterContext) {
+    brief += `**Matter:** Pre-loaded. Use the matter ID directly.\n`;
+  }
+  brief += `**Budget:** ~${totalMinutes} minutes\n\n`;
+  
+  // Deliverables (always include — these are task-specific)
+  brief += `### Required Deliverables\n`;
+  for (const deliverable of workType.expectedDeliverables) {
+    brief += `- ${deliverable}\n`;
+  }
+  brief += `\n`;
+  
+  // Condensed approach
+  brief += `### Approach\n`;
+  for (const step of workType.approachOrder) {
+    brief += `${step}\n`;
+  }
+  brief += `\n`;
+  
+  brief += `== BEGIN WORK ==\n`;
+  brief += `Call think_and_plan, then execute.\n`;
+  
+  return brief;
+}
+
+/**
+ * THINNED BRIEF (maturity 36-55)
+ * Skip "what good looks like" and "common mistakes" — identity provides that.
+ * Keep deliverables, approach, and time budget.
+ */
+function _generateThinnedBrief(goal, workType, totalMinutes, matterContext, identity) {
+  let brief = `== JUNIOR ATTORNEY BRIEF ==\n`;
+  brief += `(Adapting to this attorney's personality — identity profile is developing.)\n\n`;
+  
+  brief += `**Work Type:** ${workType.name}\n`;
+  brief += `**Task:** ${goal}\n`;
+  if (matterContext) {
+    brief += `**Matter:** Pre-loaded. Use the matter ID directly.\n`;
+  }
+  brief += `\n`;
+  
+  // Skip "Quality Bar" — identity drives quality expectations now
+  // Skip "Common mistakes" — correction principles handle this
+  
+  // Deliverables (always needed)
+  brief += `### Required Deliverables\n`;
+  for (const deliverable of workType.expectedDeliverables) {
+    brief += `- ${deliverable}\n`;
+  }
+  brief += `\n`;
+  
+  // Approach (always needed — this is task-type-specific, not personality)
+  brief += `### Approach\n`;
+  const approachSteps = matterContext 
+    ? workType.approachOrder.filter(s => !s.toLowerCase().includes('first: read the matter'))
+    : workType.approachOrder;
+  for (const step of approachSteps) {
+    brief += `${step}\n`;
+  }
+  brief += `\n`;
+  
+  // Condensed time budget
+  const phases = Object.entries(workType.timeBudget).map(([phase, alloc]) => 
+    `${phase}(${parseInt(alloc)}%)`
+  ).join(' → ');
+  brief += `**Time:** ~${totalMinutes}min total: ${phases}\n\n`;
+  
+  brief += `### Before Completing\n`;
+  brief += `1. SPECIFIC to this matter (not generic)?\n`;
+  brief += `2. REAL content (no placeholders)?\n`;
+  brief += `3. Follow-up tasks and next steps included?\n\n`;
   
   brief += `== BEGIN WORK ==\n`;
   brief += `Call think_and_plan, then execute.\n`;

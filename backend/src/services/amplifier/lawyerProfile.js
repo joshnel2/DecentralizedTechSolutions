@@ -206,6 +206,9 @@ export function formatProfileForPrompt(profile) {
 /**
  * Update the lawyer profile after a task completes.
  * Extracts patterns and stores them for future use.
+ * 
+ * NOW ENHANCED: Also extracts identity signals from the task result
+ * to feed the attorney identity system.
  */
 export async function updateProfileAfterTask(userId, firmId, task) {
   try {
@@ -241,6 +244,19 @@ export async function updateProfileAfterTask(userId, firmId, task) {
         feedback: task.feedback_text,
         what_worked: task.feedback_rating >= 4 ? 'positive' : 'needs_improvement',
       }, task.feedback_rating >= 4 ? 0.8 : 0.5);
+    }
+    
+    // ===== 4. ATTORNEY IDENTITY: Learn from corrections/feedback =====
+    // If there was negative feedback, extract principles for the identity system
+    if (task.feedback_rating && task.feedback_rating <= 2 && task.feedback_text) {
+      try {
+        const { learnFromCorrection } = await import('./attorneyIdentity.js');
+        await learnFromCorrection(userId, firmId, task.feedback_text, task.goal);
+        console.log(`[LawyerProfile] Fed negative feedback into attorney identity system`);
+      } catch (e) {
+        // Non-fatal: identity system may not be fully set up yet
+        console.log('[LawyerProfile] Attorney identity learning note:', e.message);
+      }
     }
     
     // Invalidate cache so next task gets fresh profile
