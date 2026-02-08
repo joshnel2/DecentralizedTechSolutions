@@ -115,7 +115,7 @@ router.get('/status', authenticate, async (req, res) => {
 router.post('/scan-azure', authenticate, async (req, res) => {
   try {
     const firmId = req.user.firmId;
-    console.log(`[SYNC] Quick scan triggered for firm ${firmId}`);
+    console.log(`[SYNC] Quick scan triggered for firm ${firmId} by ${req.user.email}`);
     
     // Check if Azure is configured
     const azureEnabled = await isAzureConfigured();
@@ -126,118 +126,24 @@ router.post('/scan-azure', authenticate, async (req, res) => {
       });
     }
     
-    // Get the share client
-    const shareClient = await getShareClient();
-    const firmFolder = `firm-${firmId}`;
+    // Use the background sync service which handles per-user folders properly
+    const { syncFirm } = await import('../services/driveSync.js');
+    const result = await syncFirm(firmId);
     
-    // Pre-load all matters for this firm
-    const mattersResult = await query(
-      `SELECT id, name, number FROM matters WHERE firm_id = $1`,
-      [firmId]
-    );
-    const matters = mattersResult.rows;
-    console.log(`[SYNC] Loaded ${matters.length} matters for matching`);
-    
-    // Pre-load all clients
-    const clientsResult = await query(
-      `SELECT id, name FROM clients WHERE firm_id = $1`,
-      [firmId]
-    );
-    const clients = clientsResult.rows;
-    
-    // Recursively scan Azure file share
-    const allFiles = await scanAzureDirectory(shareClient, firmFolder, '');
-    console.log(`[SYNC] Found ${allFiles.length} files in Azure`);
-    
-    const results = { 
-      scanned: allFiles.length,
-      created: 0, 
-      updated: 0, 
-      matched: 0,
-      unmatched: 0,
-      errors: [] 
-    };
-    
-    for (const file of allFiles) {
-      try {
-        // Check if document exists
-        const existing = await query(
-          `SELECT id, matter_id, size, external_etag FROM documents 
-           WHERE firm_id = $1 AND external_path = $2`,
-          [firmId, file.path]
-        );
-        
-        // Match folder to matter
-        const { matterId, clientId } = matchFolderToPermissions(file.folder, matters, clients);
-        const ext = path.extname(file.name).toLowerCase();
-        const mimeType = getFileType(ext);
-        
-        if (matterId) {
-          results.matched++;
-        } else {
-          results.unmatched++;
-        }
-        
-        if (existing.rows.length > 0) {
-          // Update if changed
-          const doc = existing.rows[0];
-          const hasChanged = file.etag !== doc.external_etag || file.size !== doc.size;
-          
-          if (hasChanged || (!doc.matter_id && matterId)) {
-            await query(
-              `UPDATE documents SET 
-                matter_id = COALESCE($1, matter_id),
-                size = $2,
-                external_etag = $3,
-                external_modified_at = $4,
-                updated_at = NOW()
-               WHERE id = $5`,
-              [matterId, file.size, file.etag, file.lastModified, doc.id]
-            );
-            results.updated++;
-          }
-        } else {
-          // Create new document record
-          await query(
-            `INSERT INTO documents (
-              firm_id, matter_id, name, original_name, path, folder_path,
-              type, size, external_path, external_etag, external_modified_at,
-              uploaded_by, owner_id, privacy_level, status, storage_location
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-            [
-              firmId,
-              matterId,
-              file.name,
-              file.name,
-              file.path,
-              file.folder,
-              mimeType,
-              file.size,
-              file.path,
-              file.etag,
-              file.lastModified,
-              req.user.id,
-              req.user.id,
-              matterId ? 'team' : 'firm',
-              'final',
-              'azure'
-            ]
-          );
-          results.created++;
-        }
-        
-      } catch (err) {
-        console.error(`[SYNC] Error processing ${file.path}:`, err.message);
-        results.errors.push({ path: file.path, error: err.message });
-      }
+    if (result.error) {
+      return res.status(500).json({ error: result.error });
     }
     
-    console.log(`[SYNC] Complete: ${results.created} created, ${results.updated} updated, ${results.matched} matched to matters`);
+    console.log(`[SYNC] Complete: ${result.inserted} created, ${result.updated} updated, ${result.matched} matched to matters`);
     
     res.json({
       success: true,
-      ...results,
-      message: `Scanned ${results.scanned} files: ${results.created} new, ${results.updated} updated, ${results.matched} matched to matters`
+      scanned: result.filesFound,
+      created: result.inserted,
+      updated: result.updated,
+      matched: result.matched,
+      usersScanned: result.usersScanned || 0,
+      message: `Scanned ${result.filesFound} files: ${result.inserted} new, ${result.updated} updated, ${result.matched} matched to matters, ${result.usersScanned || 0} user folders`
     });
     
   } catch (error) {
