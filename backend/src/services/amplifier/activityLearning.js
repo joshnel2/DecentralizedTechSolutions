@@ -121,7 +121,7 @@ async function buildActivityContext(userId, firmId) {
   // 4. Recent tasks created (what they're tracking)
   try {
     const recentTasks = await query(`
-      SELECT t.title, t.status, t.priority, t.due_date, m.name as matter_name
+      SELECT t.name as title, t.status, t.priority, t.due_date, m.name as matter_name
       FROM matter_tasks t
       LEFT JOIN matters m ON t.matter_id = m.id
       WHERE t.firm_id = $1 AND t.created_by = $2
@@ -147,7 +147,7 @@ async function buildActivityContext(userId, firmId) {
       SELECT ce.title, ce.type, ce.start_time, m.name as matter_name
       FROM calendar_events ce
       LEFT JOIN matters m ON ce.matter_id = m.id
-      WHERE ce.firm_id = $1 AND ce.user_id = $2
+      WHERE ce.firm_id = $1 AND ce.created_by = $2
         AND ce.start_time > NOW() AND ce.start_time < NOW() + INTERVAL '14 days'
       ORDER BY ce.start_time ASC
       LIMIT 5

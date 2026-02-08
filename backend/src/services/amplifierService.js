@@ -1381,8 +1381,22 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         twoFactorEnabled: user.two_factor_enabled,
       } : null;
       
-      this.userContext = getUserContext(user, firm);
-      this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      // Each context source is independently guarded so one failure
+      // never kills the rest. The agent must always get real data.
+      
+      try {
+        this.userContext = getUserContext(user, firm);
+      } catch (e) {
+        console.error('[Amplifier] Failed to build user context:', e.message);
+        this.userContext = null;
+      }
+      
+      try {
+        this.learningContext = await getLearningContext(query, this.firmId, this.userId);
+      } catch (e) {
+        console.error('[Amplifier] Failed to load learning context:', e.message);
+        this.learningContext = null;
+      }
       
       // Load user's document profile (PRIVATE per-user learnings from their documents)
       try {
@@ -1407,15 +1421,24 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       }
       
       // Get workflow templates
-      const workflowResult = await query(
-        'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
-        [this.firmId]
-      );
-      
-      this.workflowTemplates = workflowResult.rows;
+      try {
+        const workflowResult = await query(
+          'SELECT name, description, trigger_phrases, steps FROM ai_workflow_templates WHERE firm_id = $1 AND is_active = true',
+          [this.firmId]
+        );
+        this.workflowTemplates = workflowResult.rows;
+      } catch (e) {
+        console.log('[Amplifier] Workflow templates not available:', e.message);
+        this.workflowTemplates = [];
+      }
       
       // Try to extract matter context from goal if mentioned
-      this.matterContext = await this.extractMatterContext();
+      try {
+        this.matterContext = await this.extractMatterContext();
+      } catch (e) {
+        console.error('[Amplifier] Failed to extract matter context:', e.message);
+        this.matterContext = null;
+      }
       
       // ===== INTERACTION LEARNING: How this lawyer uses the software =====
       try {

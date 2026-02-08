@@ -1679,7 +1679,7 @@ async function createCalendarEvent(params, userId, firmId) {
   const { title, start_time, end_time, type = 'meeting', matter_id, location, description } = params;
   
   const result = await query(`
-    INSERT INTO calendar_events (firm_id, user_id, title, start_time, end_time, type, matter_id, location, description)
+    INSERT INTO calendar_events (firm_id, created_by, title, start_time, end_time, type, matter_id, location, description)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     RETURNING *
   `, [firmId, userId, title, start_time, end_time || null, type, matter_id || null, location || null, description || null]);
@@ -1784,10 +1784,10 @@ async function createTask(params, userId, firmId) {
   }
   
   const result = await query(`
-    INSERT INTO matter_tasks (firm_id, matter_id, name, due_date, priority, assignee, status)
-    VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+    INSERT INTO matter_tasks (firm_id, matter_id, name, due_date, priority, assignee, status, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
     RETURNING *
-  `, [firmId, matter_id || null, title, due_date || null, priority, assigneeId]);
+  `, [firmId, matter_id || null, title, due_date || null, priority, assigneeId, userId]);
   
   return { success: true, task: result.rows[0] };
 }
@@ -2037,13 +2037,13 @@ async function setCriticalDeadline(params, userId, firmId) {
   const deadlineTitle = `⚠️ DEADLINE: ${description}`;
   const deadlineResult = await query(`
     INSERT INTO calendar_events (
-      firm_id, user_id, title, start_time, end_time, type, matter_id, 
-      description, all_day, priority
+      firm_id, created_by, title, start_time, end_time, type, matter_id, 
+      description, all_day
     )
-    VALUES ($1, $2, $3, $4, $4, 'deadline', $5, $6, true, 'urgent')
+    VALUES ($1, $2, $3, $4, $4, 'deadline', $5, $6, true)
     RETURNING id, title, start_time
   `, [firmId, userId, deadlineTitle, date, matterId, 
-      `${deadline_type.toUpperCase()}: ${description}\n\nThis is a critical legal deadline. Missing this deadline may constitute malpractice.`]);
+      `URGENT - ${deadline_type.toUpperCase()}: ${description}\n\nThis is a critical legal deadline. Missing this deadline may constitute malpractice.`]);
   
   const deadlineEvent = deadlineResult.rows[0];
   const reminders = [];
@@ -2059,10 +2059,10 @@ async function setCriticalDeadline(params, userId, firmId) {
     const reminderTitle = `🔔 ${daysBefore} DAYS UNTIL: ${description}`;
     await query(`
       INSERT INTO calendar_events (
-        firm_id, user_id, title, start_time, end_time, type, matter_id,
-        description, all_day, priority
+        firm_id, created_by, title, start_time, end_time, type, matter_id,
+        description, all_day
       )
-      VALUES ($1, $2, $3, $4, $4, 'reminder', $5, $6, true, 'high')
+      VALUES ($1, $2, $3, $4, $4, 'reminder', $5, $6, true)
     `, [firmId, userId, reminderTitle, reminderDate.toISOString().split('T')[0], matterId,
         `Reminder: ${daysBefore} days until ${deadline_type}: ${description}`]);
     
@@ -2074,8 +2074,8 @@ async function setCriticalDeadline(params, userId, firmId) {
   
   // Also create a task for tracking
   await query(`
-    INSERT INTO matter_tasks (firm_id, matter_id, name, due_date, priority, status, assignee)
-    VALUES ($1, $2, $3, $4, 'urgent', 'pending', $5)
+    INSERT INTO matter_tasks (firm_id, matter_id, name, due_date, priority, status, assignee, created_by)
+    VALUES ($1, $2, $3, $4, 'urgent', 'pending', $5, $5)
   `, [firmId, matterId, `DEADLINE: ${description}`, date, userId]);
   
   return {

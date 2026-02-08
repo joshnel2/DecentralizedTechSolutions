@@ -218,22 +218,39 @@ Pay attention to:
 
 /**
  * Generate user-specific context
+ * Handles both camelCase (frontend) and snake_case (DB row) field names
  */
 export function getUserContext(user, firm) {
+  if (!user) {
+    return `
+## CURRENT USER CONTEXT
+User: Unknown
+Role: unknown
+Firm: ${firm?.name || 'Unknown Firm'}
+`;
+  }
+  
+  // Support both camelCase and snake_case field names (DB rows use snake_case)
+  const firstName = user.firstName || user.first_name || 'Unknown';
+  const lastName = user.lastName || user.last_name || '';
+  const role = user.role || 'staff';
+  const email = user.email || 'unknown';
+  const hourlyRate = user.hourlyRate || user.hourly_rate;
+
   return `
 ## CURRENT USER CONTEXT
 
-User: ${user.firstName} ${user.lastName}
-Role: ${user.role}
-Email: ${user.email}
+User: ${firstName} ${lastName}
+Role: ${role}
+Email: ${email}
 Firm: ${firm?.name || 'Unknown Firm'}
-Hourly Rate: ${user.hourlyRate ? `$${user.hourlyRate}/hr` : 'Not set'}
+Hourly Rate: ${hourlyRate ? `$${hourlyRate}/hr` : 'Not set'}
 
 ## PERMISSIONS
 
-Based on role "${user.role}":
-- ${user.role === 'admin' || user.role === 'partner' ? 'FULL access to all firm data' : 'Access to assigned matters'}
-- ${user.role === 'admin' ? 'Can manage team and settings' : 'Standard user permissions'}
+Based on role "${role}":
+- ${role === 'admin' || role === 'partner' ? 'FULL access to all firm data' : 'Access to assigned matters'}
+- ${role === 'admin' ? 'Can manage team and settings' : 'Standard user permissions'}
 - Can create and manage clients, matters, time entries
 - Can view and create documents
 - Can schedule events and create tasks
