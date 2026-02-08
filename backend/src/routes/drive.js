@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildDocumentAccessFilter, FULL_ACCESS_ROLES, canAccessDocument } from '../middleware/documentAccess.js';
-import { ensureDirectory, isAzureConfigured, getAzureConfig } from '../utils/azureStorage.js';
+import { ensureDirectory, isAzureConfigured, getAzureConfig, ensureUserFolder, getUserFolderPath } from '../utils/azureStorage.js';
 import { 
   uploadVersion as uploadVersionToBlob, 
   downloadVersion as downloadVersionFromBlob,
@@ -149,16 +149,14 @@ router.get('/configurations/:id', authenticate, async (req, res) => {
 });
 
 // ============================================
-// GET AZURE FILE SHARE CONNECTION INFO (Admin only)
+// GET AZURE FILE SHARE CONNECTION INFO
 // ============================================
-// Returns the direct path for admins to map their firm's folder
+// Returns per-user drive mapping paths.
+// Each user gets their own isolated folder: firm-{firmId}/users/{userId}/
+// This ensures users only see their own documents on the mapped drive.
+// Admins can also request the firm-wide root path for administration.
 router.get('/connection-info', authenticate, async (req, res) => {
   try {
-    // Only admins can get connection info
-    if (!['admin', 'owner', 'super_admin'].includes(req.user.role)) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
     // Get Azure config from platform settings or env vars
     const azureConfig = await getAzureConfig();
     
@@ -171,7 +169,18 @@ router.get('/connection-info', authenticate, async (req, res) => {
 
     const { accountName, accountKey, shareName } = azureConfig;
     const firmId = req.user.firmId;
-    const firmFolder = `firm-${firmId}`;
+    const userId = req.user.id;
+    const isAdmin = ['admin', 'owner', 'super_admin'].includes(req.user.role);
+
+    // Per-user folder path - this is what users map their drive to
+    const userFolder = getUserFolderPath(firmId, userId);
+
+    // Ensure user's personal folder exists in Azure
+    try {
+      await ensureUserFolder(firmId, userId);
+    } catch (folderErr) {
+      console.error('[DRIVE] Could not create user folder:', folderErr.message);
+    }
 
     // Get firm name for display
     const firmResult = await query(
@@ -180,61 +189,81 @@ router.get('/connection-info', authenticate, async (req, res) => {
     );
     const firmName = firmResult.rows[0]?.name || 'Your Firm';
 
-    res.json({
+    // Get user name for display
+    const userName = `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || req.user.email;
+
+    const response = {
       configured: true,
       firmId,
       firmName,
-      firmFolder,
+      userId,
+      userName,
+      userFolder,
       storageAccount: accountName,
       shareName: shareName,
       
-      // Direct paths for mapping the drive
+      // Per-user paths for mapping the drive (user ONLY sees their own documents)
       paths: {
-        windows: `\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`,
-        mac: `smb://${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
-        linux: `//${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
-        azurePortal: `https://portal.azure.com/#view/Microsoft_Azure_Storage/FileShareMenuBlade/~/overview/storageAccountId/%2Fsubscriptions%2F{subscriptionId}%2FresourceGroups%2F{resourceGroup}%2Fproviders%2FMicrosoft.Storage%2FstorageAccounts%2F${accountName}/path/${shareName}/protocol/SMB`,
+        windows: `\\\\${accountName}.file.core.windows.net\\${shareName}\\${userFolder}`,
+        mac: `smb://${accountName}.file.core.windows.net/${shareName}/${userFolder}`,
+        linux: `//${accountName}.file.core.windows.net/${shareName}/${userFolder}`,
       },
       
-      // Folder structure info
+      // Folder structure inside the user's drive
       structure: {
-        root: firmFolder,
-        matters: `${firmFolder}/Matters/{ClientName}/{MatterNumber - MatterName}`,
-        clients: `${firmFolder}/Clients/{ClientName}`,
-        versions: `${firmFolder}/versions/{documentId}`,
+        root: userFolder,
+        myDocuments: `${userFolder}/My Documents`,
+        matters: `${userFolder}/Matters`,
+        description: 'Your personal drive. Files saved here are private to you. Use the "Matters" folder to organize by case.',
       },
       
-      // Connection instructions
+      // Connection instructions (per-user paths)
       instructions: {
         windows: [
           '1. Open File Explorer',
           '2. Right-click "This PC" → "Map network drive"',
           '3. Choose a drive letter (e.g., Z:)',
-          `4. Folder: \\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`,
+          `4. Folder: \\\\${accountName}.file.core.windows.net\\${shareName}\\${userFolder}`,
           '5. Check "Connect using different credentials"',
           '6. Click "Finish"',
           `7. Username: AZURE\\${accountName}`,
-          '8. Password: (Your storage account access key)',
+          '8. Password: (Your storage account access key - ask your admin)',
         ],
         mac: [
           '1. Open Finder',
           '2. Press Cmd+K (Connect to Server)',
-          `3. Enter: smb://${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
+          `3. Enter: smb://${accountName}.file.core.windows.net/${shareName}/${userFolder}`,
           '4. Click "Connect"',
           `5. Username: ${accountName}`,
-          '6. Password: (Your storage account access key)',
+          '6. Password: (Your storage account access key - ask your admin)',
         ],
         powershell: [
           '# Run in PowerShell as Admin:',
           `$connectTestResult = Test-NetConnection -ComputerName ${accountName}.file.core.windows.net -Port 445`,
           `cmd.exe /C "cmdkey /add:\`"${accountName}.file.core.windows.net\`" /user:\`"AZURE\\${accountName}\`" /pass:\`"YOUR_STORAGE_KEY\`""`,
-          `New-PSDrive -Name Z -PSProvider FileSystem -Root "\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}" -Persist`,
+          `New-PSDrive -Name Z -PSProvider FileSystem -Root "\\\\${accountName}.file.core.windows.net\\${shareName}\\${userFolder}" -Persist`,
         ],
       },
       
-      // Note about credentials
-      credentialNote: 'The storage account access key can be found in Azure Portal → Storage Account → Access keys. Share this only with authorized admins.',
-    });
+      credentialNote: 'Ask your firm administrator for the storage account access key to map this drive.',
+    };
+
+    // Admins also get the firm-wide root path for administration
+    if (isAdmin) {
+      const firmFolder = `firm-${firmId}`;
+      response.adminPaths = {
+        firmRoot: {
+          windows: `\\\\${accountName}.file.core.windows.net\\${shareName}\\${firmFolder}`,
+          mac: `smb://${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
+          linux: `//${accountName}.file.core.windows.net/${shareName}/${firmFolder}`,
+        },
+        description: 'Admin-only: This path shows ALL firm documents across all users. Use for administration only.',
+        azurePortal: `https://portal.azure.com/#view/Microsoft_Azure_Storage/FileShareMenuBlade/~/overview`,
+      };
+      response.storageKeyNote = 'The storage account access key can be found in Azure Portal → Storage Account → Access keys. Share per-user drive paths with team members, not the firm root.';
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Get connection info error:', error);
     res.status(500).json({ error: 'Failed to get connection info' });

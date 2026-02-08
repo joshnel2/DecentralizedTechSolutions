@@ -9,7 +9,7 @@ import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildDocumentAccessFilter, canAccessDocument, requireDocumentAccess, FULL_ACCESS_ROLES } from '../middleware/documentAccess.js';
 import mammoth from 'mammoth';
-import { uploadFile, isAzureConfigured, downloadFile } from '../utils/azureStorage.js';
+import { uploadFile, isAzureConfigured, downloadFile, ensureUserFolder, getUserFolderPath } from '../utils/azureStorage.js';
 import { learnFromDocument } from '../services/manualLearning.js';
 import { onDocumentAccessed } from '../services/amplifier/documentLearning.js';
 import MsgReader from 'msgreader';
@@ -1258,9 +1258,9 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       // Continue without text - not critical
     }
 
-    // Build Clio-style folder path for Azure
-    // Structure: Matters/{ClientName}/{MatterNumber} - {MatterName}/{ResponsibleAttorney}/
-    let folderPath = 'documents';
+    // Build folder path for Azure - stored in per-user folder
+    // Structure: users/{userId}/Matters/{MatterName}/ or users/{userId}/My Documents/
+    let folderPath = 'My Documents';
     if (matterId) {
       // Get matter details including client and responsible attorney
       const matterResult = await query(`
@@ -1280,20 +1280,13 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
         const row = matterResult.rows[0];
         const sanitize = (str) => (str || '').replace(/[^a-zA-Z0-9 -]/g, '_').trim();
         
-        // Build hierarchical folder path like Clio
-        const clientName = sanitize(row.client_name) || 'No Client';
+        // Build hierarchical folder path
         const matterNumber = sanitize(row.matter_number) || '';
         const matterName = sanitize(row.matter_name) || 'Untitled Matter';
-        const attorneyName = row.attorney_first && row.attorney_last 
-          ? sanitize(`${row.attorney_first} ${row.attorney_last}`)
-          : '';
         
-        // Format: Matters/ClientName/MatterNumber - MatterName/AttorneyName
+        // Format: Matters/MatterNumber - MatterName
         let matterFolder = matterNumber ? `${matterNumber} - ${matterName}` : matterName;
-        folderPath = `Matters/${clientName}/${matterFolder}`;
-        if (attorneyName) {
-          folderPath += `/${attorneyName}`;
-        }
+        folderPath = `Matters/${matterFolder}`;
       }
     } else if (clientId) {
       // Client document without matter
@@ -1303,15 +1296,20 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
         folderPath = `Clients/${clientName}`;
       }
     }
-    const azurePath = `${folderPath}/${req.file.originalname}`;
+    
+    // Azure path is within the user's personal folder
+    // Full Azure path: firm-{firmId}/users/{userId}/{folderPath}/{filename}
+    const userRelativePath = `users/${req.user.id}/${folderPath}/${req.file.originalname}`;
 
-    // Upload to Azure File Share if configured
+    // Upload to Azure File Share if configured (into user's personal folder)
     let azureResult = null;
     try {
       const azureEnabled = await isAzureConfigured();
       if (azureEnabled) {
-        azureResult = await uploadFile(req.file.path, azurePath, req.user.firmId);
-        console.log(`[UPLOAD] Also uploaded to Azure: ${azureResult.path}`);
+        // Ensure user folder exists
+        await ensureUserFolder(req.user.firmId, req.user.id);
+        azureResult = await uploadFile(req.file.path, userRelativePath, req.user.firmId);
+        console.log(`[UPLOAD] Uploaded to user's Azure folder: ${azureResult.path}`);
       }
     } catch (azureError) {
       console.error('[UPLOAD] Azure upload failed (continuing with local):', azureError.message);

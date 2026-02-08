@@ -505,6 +505,28 @@ export async function ensureFirmFolder(firmId) {
   }
 }
 
+// Create per-user folder within firm folder
+// Structure: firm-{firmId}/users/{userId}/
+export async function ensureUserFolder(firmId, userId) {
+  try {
+    const userPath = `firm-${firmId}/users/${userId}`;
+    await ensureDirectory(userPath);
+    // Also create standard subfolders
+    await ensureDirectory(`${userPath}/My Documents`);
+    await ensureDirectory(`${userPath}/Matters`);
+    console.log(`[AZURE] Created user folder: ${userPath}`);
+    return { success: true, path: userPath };
+  } catch (error) {
+    console.error('[AZURE] Failed to create user folder:', error.message);
+    return { success: false, error: error.message };
+  }
+}
+
+// Get the per-user folder path
+export function getUserFolderPath(firmId, userId) {
+  return `firm-${firmId}/users/${userId}`;
+}
+
 // List all files recursively in a directory path
 export async function listFilesRecursive(directoryPath) {
   try {
@@ -594,5 +616,7 @@ export default {
   listFilesRecursive,
   isAzureConfigured,
   ensureFirmFolder,
+  ensureUserFolder,
+  getUserFolderPath,
   getConnectionInfo
 };
