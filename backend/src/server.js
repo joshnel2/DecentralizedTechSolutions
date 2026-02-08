@@ -55,6 +55,9 @@ import backgroundAgentRoutes from './routes/backgroundAgent.js';
 import agentStreamRoutes from './routes/agentStream.js';
 import amplifierService from './services/amplifierService.js';
 
+// Legal AI Research Integration
+import legalResearchRoutes from './routes/legalResearch.js';
+
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
 
@@ -139,6 +142,9 @@ app.use('/api/v1/agent', aiAgentRoutes);
 app.use('/api/stripe/connect', stripeConnectRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+// Legal AI Research Integration - plugs into AI's legal research mastery
+app.use('/api/legal-research', legalResearchRoutes);
+
 // Background Agent (Amplifier-powered) - separate from normal AI
 app.use('/api/v1/background-agent', backgroundAgentRoutes);
 
@@ -204,6 +210,7 @@ app.listen(PORT, () => {
 ║     • Analytics:  /api/v1/analytics                       ║
 ║     • AI Agent:   /api/v1/agent                           ║
 ║     • Background: /api/v1/background-agent (Amplifier)    ║
+║     • Legal Research: /api/legal-research (AI-powered)   ║
 ║                                                           ║
 ╚═══════════════════════════════════════════════════════════╝
   `);

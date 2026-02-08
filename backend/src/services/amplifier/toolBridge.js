@@ -556,6 +556,168 @@ const BACKGROUND_AGENT_ONLY_TOOLS = [
       }
     }
   },
+  // ============== LEGAL RESEARCH TOOLS ==============
+  // These tools plug the background agent into AI's legal research mastery
+  {
+    type: 'function',
+    function: {
+      name: 'conduct_legal_research',
+      description: 'Start a structured legal research session. Leverages AI legal research mastery to find case law, statutes, regulations, and authority on a legal issue. Returns a research session with structured findings. Use this for any legal research task -- it orchestrates multi-step research workflows.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The legal research question or issue to research' },
+          research_type: { 
+            type: 'string', 
+            enum: ['case_law', 'statutory', 'regulatory', 'multi_jurisdiction', 'issue_spotting', 'precedent_analysis', 'compliance_check', 'contract_review', 'legislative_history', 'secondary_sources'],
+            description: 'Type of legal research to conduct' 
+          },
+          jurisdiction: { 
+            type: 'string', 
+            enum: ['federal', 'ny', 'ca', 'tx', 'il', 'fl'],
+            description: 'Jurisdiction to focus research in' 
+          },
+          practice_area: { 
+            type: 'string', 
+            enum: ['litigation', 'corporate', 'real_estate', 'employment', 'intellectual_property', 'family', 'criminal', 'immigration', 'bankruptcy', 'tax'],
+            description: 'Practice area context for the research' 
+          },
+          matter_id: { type: 'string', description: 'Optional: link research to a specific matter' },
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_research_finding',
+      description: 'Add a finding to an active legal research session. Use this to record each discrete legal finding, case holding, statutory provision, or analytical point discovered during research.',
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'string', description: 'The research session ID' },
+          title: { type: 'string', description: 'Brief title of the finding' },
+          content: { type: 'string', description: 'Detailed content of the finding' },
+          issue: { type: 'string', description: 'The legal issue this finding addresses' },
+          rule: { type: 'string', description: 'The legal rule or principle identified' },
+          application: { type: 'string', description: 'How this rule applies to the facts' },
+          conclusion: { type: 'string', description: 'Conclusion from applying the rule' },
+          authority_type: { type: 'string', enum: ['binding', 'persuasive', 'secondary'], description: 'Strength of authority' },
+          citations: { type: 'array', items: { type: 'string' }, description: 'Legal citations supporting this finding' },
+        },
+        required: ['session_id', 'title', 'content']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_research_citation',
+      description: 'Add a legal citation to a research session. Records the full citation, source type, and relevance. Citations are automatically validated for format.',
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'string', description: 'The research session ID' },
+          citation: { type: 'string', description: 'Full legal citation (e.g., "Smith v. Jones, 500 U.S. 123 (2020)")' },
+          source_type: { type: 'string', enum: ['case', 'statute', 'regulation', 'treatise', 'law_review', 'restatement', 'other'], description: 'Type of legal source' },
+          relevance: { type: 'string', description: 'Why this citation is relevant to the research question' },
+          holding: { type: 'string', description: 'For cases: the key holding' },
+          court: { type: 'string', description: 'For cases: the deciding court' },
+          year: { type: 'integer', description: 'Year of the authority' },
+          is_adverse: { type: 'boolean', description: 'Whether this is adverse authority (supports opposing position)' },
+        },
+        required: ['session_id', 'citation', 'source_type']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'generate_research_memo',
+      description: 'Generate a formal IRAC-format legal research memorandum from the findings in a research session. Produces an attorney-ready memo with Question Presented, Brief Answer, Discussion, and Conclusion sections. Call this after completing research to deliver the final work product.',
+      parameters: {
+        type: 'object',
+        properties: {
+          session_id: { type: 'string', description: 'The research session ID' },
+          brief_answer: { type: 'string', description: 'Brief answer to the research question (1-2 sentences)' },
+          facts: { type: 'string', description: 'Statement of relevant facts' },
+          conclusion: { type: 'string', description: 'Overall conclusion and recommendation' },
+          recommendations: { type: 'array', items: { type: 'string' }, description: 'Practical recommendations for the attorney' },
+        },
+        required: ['session_id', 'brief_answer', 'conclusion']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_legal_authority',
+      description: 'Search for legal authority on a specific topic. Uses AI legal knowledge to find relevant cases, statutes, regulations, and secondary sources. Returns structured results with citations and summaries.',
+      parameters: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string', description: 'The legal topic or issue to search for' },
+          jurisdiction: { type: 'string', description: 'Jurisdiction to focus on (e.g., "federal", "ny", "ca")' },
+          source_types: { type: 'array', items: { type: 'string' }, description: 'Types of sources to search (case, statute, regulation, secondary)' },
+          date_range: { type: 'string', description: 'Optional date range (e.g., "last 5 years", "2020-present")' },
+          max_results: { type: 'integer', description: 'Maximum number of results (default: 10)' },
+        },
+        required: ['topic']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'analyze_legal_issue',
+      description: 'Perform deep analysis of a legal issue using IRAC methodology. Identifies the issue, applicable rules, applies rules to facts, and reaches a conclusion. Use this for complex legal questions that need structured analytical treatment.',
+      parameters: {
+        type: 'object',
+        properties: {
+          issue: { type: 'string', description: 'The legal issue to analyze' },
+          facts: { type: 'string', description: 'Relevant facts of the situation' },
+          jurisdiction: { type: 'string', description: 'Applicable jurisdiction' },
+          favorable_position: { type: 'string', description: 'The position you want to support (for advocacy research)' },
+          include_counterarguments: { type: 'boolean', description: 'Whether to include counter-arguments (default: true)' },
+        },
+        required: ['issue', 'facts']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_statute_of_limitations',
+      description: 'Check the statute of limitations for a specific type of claim in a jurisdiction. Returns the limitations period, any tolling provisions, discovery rules, and key dates based on the incident date.',
+      parameters: {
+        type: 'object',
+        properties: {
+          claim_type: { type: 'string', description: 'Type of claim (e.g., "personal injury", "breach of contract", "fraud")' },
+          jurisdiction: { type: 'string', description: 'Jurisdiction (e.g., "ny", "ca", "federal")' },
+          incident_date: { type: 'string', description: 'Date of the incident or discovery (YYYY-MM-DD)' },
+          discovery_date: { type: 'string', description: 'Date the injury was discovered, if different from incident date (YYYY-MM-DD)' },
+        },
+        required: ['claim_type', 'jurisdiction']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'compare_jurisdictions',
+      description: 'Compare how different jurisdictions treat a specific legal issue. Useful for multi-state matters, forum selection analysis, and choice of law determinations.',
+      parameters: {
+        type: 'object',
+        properties: {
+          issue: { type: 'string', description: 'The legal issue to compare across jurisdictions' },
+          jurisdictions: { type: 'array', items: { type: 'string' }, description: 'Jurisdictions to compare (e.g., ["ny", "ca", "federal"])' },
+          include_trends: { type: 'boolean', description: 'Whether to include trend analysis (default: true)' },
+        },
+        required: ['issue', 'jurisdictions']
+      }
+    }
+  },
 ];
 
 // Add background-agent-only tools to the OpenAI tool list
@@ -681,6 +843,31 @@ export async function executeTool(toolName, params, context) {
       // Quality assurance: let the agent review what it created
       case 'review_created_documents':
         return await reviewCreatedDocuments(params, userId, firmId);
+      
+      // ============== LEGAL RESEARCH TOOLS ==============
+      case 'conduct_legal_research':
+        return await conductLegalResearchTool(params, userId, firmId);
+      
+      case 'add_research_finding':
+        return await addResearchFindingTool(params, userId, firmId);
+      
+      case 'add_research_citation':
+        return await addResearchCitationTool(params, userId, firmId);
+      
+      case 'generate_research_memo':
+        return await generateResearchMemoTool(params, userId, firmId);
+      
+      case 'search_legal_authority':
+        return await searchLegalAuthorityTool(params, userId, firmId);
+      
+      case 'analyze_legal_issue':
+        return await analyzeLegalIssueTool(params, userId, firmId);
+      
+      case 'check_statute_of_limitations':
+        return await checkStatuteOfLimitationsTool(params, userId, firmId);
+      
+      case 'compare_jurisdictions':
+        return await compareJurisdictionsTool(params, userId, firmId);
       
       default:
         // Delegate to the standard AI agent tool executor (same as normal AI chat)
@@ -3460,6 +3647,438 @@ async function reviewCreatedDocuments(params, userId, firmId) {
   } catch (error) {
     console.error('[ToolBridge] reviewCreatedDocuments error:', error.message);
     return { error: 'Failed to review created documents: ' + error.message };
+  }
+}
+
+// ============== LEGAL RESEARCH TOOL IMPLEMENTATIONS ==============
+
+/**
+ * Conduct structured legal research using AI's legal mastery
+ */
+async function conductLegalResearchTool(params, userId, firmId) {
+  try {
+    const { 
+      query: researchQuery, 
+      research_type = 'case_law', 
+      jurisdiction = 'federal',
+      practice_area = 'litigation',
+      matter_id 
+    } = params;
+    
+    if (!researchQuery) {
+      return { error: 'Research query is required' };
+    }
+    
+    // Import the research integration service
+    const { conductResearch, RESEARCH_TYPES, JURISDICTIONS, PRACTICE_AREAS } = 
+      await import('./legalResearchIntegration.js');
+    
+    const session = await conductResearch(userId, firmId, {
+      type: research_type,
+      jurisdiction,
+      practiceArea: practice_area,
+      query: researchQuery,
+      matterId: matter_id,
+    });
+    
+    const jurisdictionInfo = JURISDICTIONS[jurisdiction] || JURISDICTIONS.federal;
+    const practiceInfo = PRACTICE_AREAS[practice_area] || PRACTICE_AREAS.litigation;
+    
+    return {
+      success: true,
+      session_id: session.id,
+      research_type,
+      jurisdiction: jurisdictionInfo.name,
+      practice_area: practiceInfo.name,
+      courts: jurisdictionInfo.courts,
+      primary_sources: jurisdictionInfo.primarySources,
+      citation_format: jurisdictionInfo.citationFormat,
+      focus_areas: practiceInfo.focusAreas,
+      status: session.status,
+      message: `Legal research session started. Session ID: ${session.id}. ` +
+        `Researching: "${researchQuery}" in ${jurisdictionInfo.name} (${practiceInfo.name}). ` +
+        `Use add_research_finding and add_research_citation to record your findings, ` +
+        `then generate_research_memo to produce the final memo.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] conductLegalResearch error:', error.message);
+    return { error: 'Failed to start research session: ' + error.message };
+  }
+}
+
+/**
+ * Add a finding to a research session
+ */
+async function addResearchFindingTool(params, userId, firmId) {
+  try {
+    const { session_id, title, content, issue, rule, application, conclusion, authority_type, citations } = params;
+    
+    if (!session_id || !title || !content) {
+      return { error: 'session_id, title, and content are required' };
+    }
+    
+    const { getSession } = await import('./legalResearchIntegration.js');
+    const session = getSession(session_id);
+    
+    if (!session) {
+      return { error: `Research session ${session_id} not found` };
+    }
+    
+    session.addFinding({
+      title,
+      content,
+      issue: issue || '',
+      rule: rule || '',
+      application: application || '',
+      conclusion: conclusion || '',
+      authorityType: authority_type || 'persuasive',
+      citations: citations || [],
+    });
+    
+    return {
+      success: true,
+      session_id,
+      findings_count: session.findings.length,
+      message: `Finding added: "${title}". Total findings: ${session.findings.length}.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] addResearchFinding error:', error.message);
+    return { error: 'Failed to add research finding: ' + error.message };
+  }
+}
+
+/**
+ * Add a citation to a research session
+ */
+async function addResearchCitationTool(params, userId, firmId) {
+  try {
+    const { session_id, citation, source_type, relevance, holding, court, year, is_adverse } = params;
+    
+    if (!session_id || !citation || !source_type) {
+      return { error: 'session_id, citation, and source_type are required' };
+    }
+    
+    const { getSession, parseCitation } = await import('./legalResearchIntegration.js');
+    const session = getSession(session_id);
+    
+    if (!session) {
+      return { error: `Research session ${session_id} not found` };
+    }
+    
+    // Validate citation format
+    const parsed = parseCitation(citation);
+    
+    session.addCitation({
+      citation,
+      sourceType: source_type,
+      relevance: relevance || '',
+      holding: holding || '',
+      court: court || '',
+      year: year || null,
+      isAdverse: is_adverse || false,
+      parsed,
+    });
+    
+    // Also add as authority
+    const authorityType = source_type === 'case' || source_type === 'statute' || source_type === 'regulation'
+      ? 'primary' : 'secondary';
+    
+    session.addAuthority(authorityType, {
+      citation,
+      sourceType: source_type,
+      court: court || '',
+      year: year || null,
+      relevance: relevance || '',
+    });
+    
+    return {
+      success: true,
+      session_id,
+      citation_count: session.citationCount,
+      citation_valid: parsed.valid,
+      citation_type: parsed.type,
+      message: `Citation added: "${citation}" (${source_type}). ` +
+        `${parsed.valid ? 'Citation format validated.' : 'Citation format could not be auto-validated -- please verify.'} ` +
+        `Total citations: ${session.citationCount}.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] addResearchCitation error:', error.message);
+    return { error: 'Failed to add citation: ' + error.message };
+  }
+}
+
+/**
+ * Generate a formal research memo from session findings
+ */
+async function generateResearchMemoTool(params, userId, firmId) {
+  try {
+    const { session_id, brief_answer, facts, conclusion, recommendations } = params;
+    
+    if (!session_id || !brief_answer || !conclusion) {
+      return { error: 'session_id, brief_answer, and conclusion are required' };
+    }
+    
+    const { getSession, generateResearchMemo, formatMemoAsText } = 
+      await import('./legalResearchIntegration.js');
+    const session = getSession(session_id);
+    
+    if (!session) {
+      return { error: `Research session ${session_id} not found` };
+    }
+    
+    // Set analysis data before generating memo
+    session.setAnalysis({
+      briefAnswer: brief_answer,
+      facts: facts || '',
+      conclusion,
+      recommendations: recommendations || [],
+    });
+    
+    // Generate the memo
+    const memo = generateResearchMemo(session);
+    const memoText = formatMemoAsText(memo);
+    
+    // Mark session complete
+    session.complete();
+    
+    // If linked to a matter, also create a document
+    if (session.matterId) {
+      try {
+        const docResult = await query(`
+          INSERT INTO documents (id, firm_id, name, type, size_bytes, matter_id, tags, content_text, uploaded_by, created_at)
+          VALUES (gen_random_uuid(), $1, $2, 'text/plain', $3, $4, $5, $6, $7, NOW())
+          RETURNING id, name
+        `, [
+          firmId,
+          `Research Memo - ${session.query.substring(0, 50)}`,
+          Buffer.byteLength(memoText, 'utf8'),
+          session.matterId,
+          JSON.stringify(['legal-research', 'memo', session.type]),
+          memoText,
+          userId,
+        ]);
+        
+        if (docResult.rows.length > 0) {
+          memo.documentId = docResult.rows[0].id;
+          memo.documentName = docResult.rows[0].name;
+        }
+      } catch (docError) {
+        console.error('[ToolBridge] Failed to create research memo document:', docError.message);
+      }
+    }
+    
+    return {
+      success: true,
+      session_id,
+      memo_generated: true,
+      quality_score: session.qualityScore,
+      citation_count: session.citationCount,
+      findings_count: session.findings.length,
+      document_id: memo.documentId || null,
+      memo_preview: memoText.substring(0, 500) + '...',
+      message: `Research memo generated successfully. Quality score: ${session.qualityScore}/100. ` +
+        `${session.citationCount} citations, ${session.findings.length} findings. ` +
+        (memo.documentId ? `Saved as document: ${memo.documentName}` : 'Not linked to a matter document.'),
+    };
+  } catch (error) {
+    console.error('[ToolBridge] generateResearchMemo error:', error.message);
+    return { error: 'Failed to generate research memo: ' + error.message };
+  }
+}
+
+/**
+ * Search for legal authority on a topic
+ */
+async function searchLegalAuthorityTool(params, userId, firmId) {
+  try {
+    const { topic, jurisdiction, source_types, date_range, max_results = 10 } = params;
+    
+    if (!topic) {
+      return { error: 'Topic is required' };
+    }
+    
+    const { JURISDICTIONS, PRACTICE_AREAS } = await import('./legalResearchIntegration.js');
+    const jurisdictionInfo = JURISDICTIONS[jurisdiction] || JURISDICTIONS.federal;
+    
+    // This tool provides the AI with structured context about what to search for
+    // The AI itself has the legal knowledge -- this tool structures the query
+    return {
+      success: true,
+      search_context: {
+        topic,
+        jurisdiction: jurisdictionInfo.name,
+        courts: jurisdictionInfo.courts,
+        primary_sources: jurisdictionInfo.primarySources,
+        citation_format: jurisdictionInfo.citationFormat,
+        source_types: source_types || ['case', 'statute', 'regulation'],
+        date_range: date_range || 'all time',
+        max_results,
+      },
+      instructions: `Search for legal authority on: "${topic}" in ${jurisdictionInfo.name}. ` +
+        `Focus on ${(source_types || ['case', 'statute', 'regulation']).join(', ')} sources. ` +
+        `Use ${jurisdictionInfo.citationFormat} citation format. ` +
+        `Prioritize: binding authority from ${jurisdictionInfo.courts[0]}, then lower courts, then persuasive authority. ` +
+        `Note: You have comprehensive legal knowledge -- use it to identify the most relevant authorities. ` +
+        `Record each authority found using add_research_citation.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] searchLegalAuthority error:', error.message);
+    return { error: 'Failed to search legal authority: ' + error.message };
+  }
+}
+
+/**
+ * Deep IRAC analysis of a legal issue
+ */
+async function analyzeLegalIssueTool(params, userId, firmId) {
+  try {
+    const { issue, facts, jurisdiction, favorable_position, include_counterarguments = true } = params;
+    
+    if (!issue || !facts) {
+      return { error: 'Issue and facts are required' };
+    }
+    
+    const { JURISDICTIONS } = await import('./legalResearchIntegration.js');
+    const jurisdictionInfo = JURISDICTIONS[jurisdiction] || JURISDICTIONS.federal;
+    
+    return {
+      success: true,
+      analysis_framework: {
+        methodology: 'IRAC',
+        issue,
+        facts,
+        jurisdiction: jurisdictionInfo.name,
+        favorable_position: favorable_position || null,
+        include_counterarguments,
+      },
+      instructions: `Perform a comprehensive IRAC analysis:\n\n` +
+        `**ISSUE:** ${issue}\n\n` +
+        `**FACTS:** ${facts}\n\n` +
+        `**JURISDICTION:** ${jurisdictionInfo.name}\n\n` +
+        `Analysis steps:\n` +
+        `1. ISSUE: Precisely frame the legal question\n` +
+        `2. RULE: Identify governing law (statutes, cases, regulations)\n` +
+        `3. APPLICATION: Apply the rule to these specific facts\n` +
+        `4. CONCLUSION: Reach a reasoned conclusion\n\n` +
+        (favorable_position ? `Position to support: ${favorable_position}\n` : '') +
+        (include_counterarguments ? `Include counter-arguments and how to address them.\n` : '') +
+        `Record your analysis using add_research_finding with issue, rule, application, and conclusion fields.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] analyzeLegalIssue error:', error.message);
+    return { error: 'Failed to analyze legal issue: ' + error.message };
+  }
+}
+
+/**
+ * Check statute of limitations for a claim type
+ */
+async function checkStatuteOfLimitationsTool(params, userId, firmId) {
+  try {
+    const { claim_type, jurisdiction, incident_date, discovery_date } = params;
+    
+    if (!claim_type || !jurisdiction) {
+      return { error: 'claim_type and jurisdiction are required' };
+    }
+    
+    const { JURISDICTIONS } = await import('./legalResearchIntegration.js');
+    const jurisdictionInfo = JURISDICTIONS[jurisdiction] || JURISDICTIONS.federal;
+    
+    // Common SOL periods by jurisdiction (AI will provide precise details)
+    const commonSOL = {
+      'personal_injury': { ny: '3 years', ca: '2 years', tx: '2 years', federal: 'varies', fl: '4 years', il: '2 years' },
+      'breach_of_contract': { ny: '6 years', ca: '4 years (written)', tx: '4 years', federal: 'varies', fl: '5 years', il: '10 years (written)' },
+      'fraud': { ny: '6 years', ca: '3 years', tx: '4 years', federal: 'varies', fl: '4 years', il: '5 years' },
+      'medical_malpractice': { ny: '2.5 years', ca: '1-3 years', tx: '2 years', federal: 'varies', fl: '2 years', il: '2 years' },
+      'property_damage': { ny: '3 years', ca: '3 years', tx: '2 years', federal: 'varies', fl: '4 years', il: '5 years' },
+      'wrongful_death': { ny: '2 years', ca: '2 years', tx: '2 years', federal: 'varies', fl: '2 years', il: '2 years' },
+      'defamation': { ny: '1 year', ca: '1 year', tx: '1 year', federal: 'varies', fl: '2 years', il: '1 year' },
+    };
+    
+    const claimKey = claim_type.toLowerCase().replace(/\s+/g, '_');
+    const solInfo = commonSOL[claimKey];
+    const period = solInfo ? solInfo[jurisdiction] || 'research required' : 'research required';
+    
+    let deadlineInfo = null;
+    if (incident_date) {
+      const incident = new Date(incident_date);
+      if (!isNaN(incident.getTime())) {
+        deadlineInfo = {
+          incident_date,
+          discovery_date: discovery_date || incident_date,
+          warning: 'Deadline calculations are approximate. Verify with jurisdiction-specific rules, tolling provisions, and any applicable discovery rules.',
+        };
+      }
+    }
+    
+    return {
+      success: true,
+      claim_type,
+      jurisdiction: jurisdictionInfo.name,
+      approximate_period: period,
+      deadline_info: deadlineInfo,
+      instructions: `Research the statute of limitations for "${claim_type}" claims in ${jurisdictionInfo.name}.\n\n` +
+        `Provide:\n` +
+        `1. The exact limitations period with statutory citation\n` +
+        `2. When the period begins to run (accrual date)\n` +
+        `3. Any discovery rule that might delay accrual\n` +
+        `4. Tolling provisions (minority, insanity, absence from state, etc.)\n` +
+        `5. Any special notice requirements (e.g., notice of claim for government entities)\n` +
+        `6. Savings provisions (e.g., CPLR 205(a) in NY)\n` +
+        (incident_date ? `7. Calculate the deadline from incident date: ${incident_date}\n` : '') +
+        `\nRecord findings using add_research_finding and cite specific statutory sections.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] checkStatuteOfLimitations error:', error.message);
+    return { error: 'Failed to check statute of limitations: ' + error.message };
+  }
+}
+
+/**
+ * Compare legal treatment across jurisdictions
+ */
+async function compareJurisdictionsTool(params, userId, firmId) {
+  try {
+    const { issue, jurisdictions, include_trends = true } = params;
+    
+    if (!issue || !jurisdictions || jurisdictions.length < 2) {
+      return { error: 'Issue and at least 2 jurisdictions are required' };
+    }
+    
+    const { JURISDICTIONS } = await import('./legalResearchIntegration.js');
+    
+    const jurisdictionDetails = jurisdictions.map(j => {
+      const info = JURISDICTIONS[j] || { name: j, courts: [], primarySources: [] };
+      return {
+        key: j,
+        name: info.name,
+        highest_court: info.courts?.[0] || 'Unknown',
+        primary_sources: info.primarySources || [],
+      };
+    });
+    
+    return {
+      success: true,
+      issue,
+      jurisdictions: jurisdictionDetails,
+      instructions: `Compare how these jurisdictions treat: "${issue}"\n\n` +
+        `Jurisdictions to compare:\n` +
+        jurisdictionDetails.map(j => `- ${j.name} (highest court: ${j.highest_court})`).join('\n') + '\n\n' +
+        `For each jurisdiction, identify:\n` +
+        `1. The governing law (statute + leading case)\n` +
+        `2. The specific rule or standard applied\n` +
+        `3. Key differences in application\n` +
+        `4. Practical implications for litigants\n\n` +
+        `Then provide:\n` +
+        `- Majority vs. minority rule classification\n` +
+        `- Which jurisdiction is most/least favorable and why\n` +
+        (include_trends ? `- Emerging trends and recent changes\n` : '') +
+        `- Choice of law and forum selection implications\n\n` +
+        `Record each jurisdiction's treatment as a separate finding using add_research_finding.`,
+    };
+  } catch (error) {
+    console.error('[ToolBridge] compareJurisdictions error:', error.message);
+    return { error: 'Failed to compare jurisdictions: ' + error.message };
   }
 }
 
