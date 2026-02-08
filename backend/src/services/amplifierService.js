@@ -27,6 +27,9 @@ import { generateBrief, classifyWork, getTimeBudget } from './amplifier/juniorAt
 // Attorney Identity: deep learning of WHO the attorney is (writing style, thinking patterns, corrections)
 // This progressively replaces the generic junior attorney brief as it learns
 import { getAttorneyIdentity, formatIdentityForPrompt, learnFromCorrection } from './amplifier/attorneyIdentity.js';
+// Attorney Exemplars: approved work samples + correction pairs, matched by embedding similarity
+// "Show don't tell" — actual excerpts of the attorney's voice, not abstract trait labels
+import { getRelevantExemplars, formatExemplarsForPrompt } from './amplifier/attorneyExemplars.js';
 
 // ===== NEWLY CONNECTED: Previously-dormant Amplifier harness modules =====
 // Decision Reinforcer: real-time learning from every tool outcome
@@ -580,6 +583,9 @@ class BackgroundTask extends EventEmitter {
     
     // Attorney identity (deep identity learning: writing style, thinking patterns, corrections)
     this.attorneyIdentity = null;
+    
+    // Attorney exemplars (approved work samples + correction pairs for voice matching)
+    this.attorneyExemplars = null;
     
     // ===== FOLLOW-UP MESSAGE QUEUE =====
     // Pending follow-ups are queued here and injected at the START of the next
@@ -1441,6 +1447,27 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       } catch (identityError) {
         console.log('[Amplifier] Attorney identity not available:', identityError.message);
         this.attorneyIdentity = null;
+      }
+      
+      // ===== ATTORNEY EXEMPLARS: Load style samples matched to this task =====
+      // Uses embedding similarity to find the most relevant approved work and
+      // correction pairs. These are actual excerpts of the attorney's voice —
+      // "show don't tell" style matching.
+      try {
+        const workType = classifyWork(this.goal);
+        this.attorneyExemplars = await getRelevantExemplars(
+          this.userId, this.firmId, this.goal, workType.id
+        );
+        if (this.attorneyExemplars) {
+          const exCount = this.attorneyExemplars.exemplars?.length || 0;
+          const corrCount = this.attorneyExemplars.corrections?.length || 0;
+          if (exCount > 0 || corrCount > 0) {
+            console.log(`[Amplifier] Loaded ${exCount} exemplars + ${corrCount} corrections (method: ${this.attorneyExemplars.matchMethod})`);
+          }
+        }
+      } catch (exError) {
+        console.log('[Amplifier] Exemplars not available:', exError.message);
+        this.attorneyExemplars = null;
       }
       
       // Get workflow templates
@@ -2550,6 +2577,17 @@ ${hasMatterPreloaded && matterIsVerified
       const identityPrompt = formatIdentityForPrompt(this.attorneyIdentity);
       if (identityPrompt) {
         prompt += identityPrompt + '\n';
+      }
+    }
+
+    // ===== ATTORNEY EXEMPLARS: Show, don't tell =====
+    // Instead of "short sentences, semiformal tone" (labels that lose texture),
+    // inject actual excerpts of the attorney's approved work and corrections.
+    // The model matches rhythm, word choices, structure — the REAL voice.
+    if (this.attorneyExemplars) {
+      const exemplarPrompt = formatExemplarsForPrompt(this.attorneyExemplars);
+      if (exemplarPrompt) {
+        prompt += exemplarPrompt + '\n';
       }
     }
 

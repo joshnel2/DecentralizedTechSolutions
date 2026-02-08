@@ -729,6 +729,53 @@ router.post('/review-queue/:id/approve', authenticate, async (req, res) => {
       // Non-fatal
     }
     
+    // ===== ATTORNEY EXEMPLARS: Capture approved work as style reference =====
+    // This is the "write like this" system. The agent's approved work becomes
+    // a reference sample that future tasks use to match the attorney's voice.
+    try {
+      const { captureApprovedExemplar } = await import('../services/amplifier/attorneyExemplars.js');
+      const { classifyWork } = await import('../services/amplifier/juniorAttorneyBrief.js');
+      
+      // Get the task details and deliverables
+      const taskResult = await dbQuery(
+        `SELECT goal, result FROM ai_background_tasks WHERE id = $1`,
+        [req.params.id]
+      );
+      const taskGoal = taskResult.rows[0]?.goal || '';
+      const taskResultData = taskResult.rows[0]?.result;
+      const parsedResult = typeof taskResultData === 'string' ? JSON.parse(taskResultData) : taskResultData;
+      const workType = classifyWork(taskGoal);
+      
+      // Get actual deliverables content
+      const deliverables = { documents: [], notes: [] };
+      
+      const docsResult = await dbQuery(
+        `SELECT content_text, original_name FROM documents
+         WHERE firm_id = $1 AND uploaded_by = $2
+           AND uploaded_at >= (SELECT created_at FROM ai_background_tasks WHERE id = $3)
+         ORDER BY uploaded_at DESC LIMIT 3`,
+        [req.user.firmId, req.user.id, req.params.id]
+      );
+      deliverables.documents = docsResult.rows.map(r => ({ content_text: r.content_text, name: r.original_name }));
+      
+      const notesResult = await dbQuery(
+        `SELECT mn.content FROM matter_notes mn
+         JOIN matters m ON mn.matter_id = m.id
+         WHERE m.firm_id = $1 AND mn.created_by = $2
+           AND mn.created_at >= (SELECT created_at FROM ai_background_tasks WHERE id = $3)
+         ORDER BY mn.created_at DESC LIMIT 3`,
+        [req.user.firmId, req.user.id, req.params.id]
+      );
+      deliverables.notes = notesResult.rows.map(r => ({ content: r.content }));
+      
+      await captureApprovedExemplar(
+        req.user.id, req.user.firmId, req.params.id,
+        taskGoal, workType.id, deliverables
+      );
+    } catch (e) {
+      console.log('[ReviewQueue] Exemplar capture note:', e.message);
+    }
+    
     console.log(`[ReviewQueue] Task ${req.params.id} approved by user ${req.user.id}`);
     
     res.json({ success: true, message: 'Task approved' });
@@ -826,6 +873,51 @@ router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
       console.log(`[ReviewQueue] Attorney identity: ${principles.length} correction principles extracted`);
     } catch (e) {
       console.log('[ReviewQueue] Attorney identity learning note:', e.message);
+    }
+    
+    // ===== ATTORNEY EXEMPLARS: Capture correction pair =====
+    // Store what the agent wrote alongside what the attorney wanted.
+    // This is "don't write X, write Y" — the most powerful style signal.
+    try {
+      const { captureCorrectionPair } = await import('../services/amplifier/attorneyExemplars.js');
+      const { classifyWork } = await import('../services/amplifier/juniorAttorneyBrief.js');
+      
+      const taskResult2 = await dbQuery(
+        `SELECT goal, result FROM ai_background_tasks WHERE id = $1`,
+        [req.params.id]
+      );
+      const taskGoal = taskResult2.rows[0]?.goal || '';
+      const workType = classifyWork(taskGoal);
+      
+      // Get deliverables the agent produced (what it wrote)
+      const deliverables = { documents: [], notes: [] };
+      try {
+        const docsResult = await dbQuery(
+          `SELECT content_text FROM documents
+           WHERE firm_id = $1 AND uploaded_by = $2
+             AND uploaded_at >= (SELECT created_at FROM ai_background_tasks WHERE id = $3)
+           ORDER BY uploaded_at DESC LIMIT 2`,
+          [req.user.firmId, req.user.id, req.params.id]
+        );
+        deliverables.documents = docsResult.rows.map(r => ({ content_text: r.content_text }));
+        
+        const notesResult = await dbQuery(
+          `SELECT mn.content FROM matter_notes mn
+           JOIN matters m ON mn.matter_id = m.id
+           WHERE m.firm_id = $1 AND mn.created_by = $2
+             AND mn.created_at >= (SELECT created_at FROM ai_background_tasks WHERE id = $3)
+           ORDER BY mn.created_at DESC LIMIT 2`,
+          [req.user.firmId, req.user.id, req.params.id]
+        );
+        deliverables.notes = notesResult.rows.map(r => ({ content: r.content }));
+      } catch (_) {}
+      
+      await captureCorrectionPair(
+        req.user.id, req.user.firmId, req.params.id,
+        taskGoal, workType.id, feedback, deliverables
+      );
+    } catch (e) {
+      console.log('[ReviewQueue] Correction pair capture note:', e.message);
     }
     
     console.log(`[ReviewQueue] Task ${req.params.id} rejected by user ${req.user.id}: ${feedback.substring(0, 80)}`);
