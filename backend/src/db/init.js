@@ -199,6 +199,7 @@ async function runMigrations(client) {
     'add_document_learning.sql',
     'add_document_ai_insights.sql',
     'add_harness_intelligence.sql',
+    'add_documents_created_at_column.sql',
   ];
 
   const migrationsDir = join(__dirname, 'migrations');

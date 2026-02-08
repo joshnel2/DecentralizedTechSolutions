@@ -564,11 +564,11 @@ router.get('/review-queue', authenticate, async (req, res) => {
       // Fetch documents created by the agent during this task
       try {
         const docsResult = await dbQuery(
-          `SELECT id, original_name as name, content_text, file_size, created_at, matter_id
+          `SELECT id, original_name as name, content_text, file_size, uploaded_at, matter_id
            FROM documents
            WHERE firm_id = $1 AND uploaded_by = $2
-             AND created_at >= $3 AND created_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
-           ORDER BY created_at DESC LIMIT 10`,
+             AND uploaded_at >= $3 AND uploaded_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
+           ORDER BY uploaded_at DESC LIMIT 10`,
           [req.user.firmId, req.user.id, task.created_at, task.completed_at]
         );
         
@@ -605,7 +605,7 @@ router.get('/review-queue', authenticate, async (req, res) => {
             contentPreview,
             contentLength: doc.content_text?.length || 0,
             fileSize: doc.file_size,
-            createdAt: doc.created_at,
+            createdAt: doc.uploaded_at,
             matterId: doc.matter_id,
             flags: docFlags,
           });

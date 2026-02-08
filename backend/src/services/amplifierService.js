@@ -1131,7 +1131,7 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         const docs = result?.documents || [];
         const trimmedDocs = docs.slice(0, 10).map(d => ({
           id: d.id, name: d.original_name || d.name, matter_id: d.matter_id, 
-          type: d.type, created_at: d.created_at,
+          type: d.type, uploaded_at: d.uploaded_at,
         }));
         return JSON.stringify({
           documents: trimmedDocs,

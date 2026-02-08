@@ -229,7 +229,7 @@ ${matters.rows.map(m => `- ${m.name} (${m.number})
             WHERE te.matter_id = $1
             ORDER BY te.date DESC LIMIT 10
           `, [additionalContext.matterId]),
-          query(`SELECT name, type, created_at FROM documents WHERE matter_id = $1 LIMIT 10`, [additionalContext.matterId]),
+          query(`SELECT name, type, uploaded_at FROM documents WHERE matter_id = $1 LIMIT 10`, [additionalContext.matterId]),
           query(`SELECT title, start_time, type FROM calendar_events WHERE matter_id = $1 AND start_time >= NOW() ORDER BY start_time LIMIT 5`, [additionalContext.matterId]),
         ]);
 
@@ -465,7 +465,7 @@ SUGGESTION: Compare calendar events with time entries to identify work that may 
           LEFT JOIN matters m ON d.matter_id = m.id
           LEFT JOIN clients c ON d.client_id = c.id
           WHERE d.firm_id = $1
-          ORDER BY d.created_at DESC
+          ORDER BY d.uploaded_at DESC
           LIMIT 20
         `, [firmId]);
 
@@ -475,7 +475,7 @@ SUGGESTION: Compare calendar events with time entries to identify work that may 
 RECENT DOCUMENTS:
 ${docs.rows.map(d => `- ${d.original_name || d.name} (${d.type || 'unknown type'})
   ${d.matter_name ? `Matter: ${d.matter_name}` : ''}${d.client_name ? ` | Client: ${d.client_name}` : ''}
-  Uploaded: ${formatDate(d.created_at)}`).join('\n\n') || 'No documents'}
+  Uploaded: ${formatDate(d.uploaded_at)}`).join('\n\n') || 'No documents'}
 `;
         break;
       }
