@@ -738,7 +738,9 @@ router.post('/review-queue/:id/approve', authenticate, async (req, res) => {
       
       // Get the task details and deliverables
       const taskResult = await dbQuery(
-        `SELECT goal, result FROM ai_background_tasks WHERE id = $1`,
+        `SELECT goal, result, iterations,
+                EXTRACT(EPOCH FROM (completed_at - started_at)) as duration_seconds
+         FROM ai_background_tasks WHERE id = $1`,
         [req.params.id]
       );
       const taskGoal = taskResult.rows[0]?.goal || '';
@@ -772,6 +774,39 @@ router.post('/review-queue/:id/approve', authenticate, async (req, res) => {
         req.user.id, req.user.firmId, req.params.id,
         taskGoal, workType.id, deliverables
       );
+      
+      // ===== IDENTITY REPLAY: Capture the execution trace =====
+      // This is the "today's Neuralink" system. Store the full decision-making
+      // process so future tasks can REPLAY the attorney's proven approach.
+      try {
+        const { captureReplay } = await import('../services/amplifier/identityReplay.js');
+        
+        // Get the execution trace from task history
+        const traceResult = await dbQuery(
+          `SELECT actions_taken FROM ai_task_history WHERE task_id = $1 LIMIT 1`,
+          [req.params.id]
+        );
+        const actionsTaken = traceResult.rows[0]?.actions_taken;
+        const actionsHistory = typeof actionsTaken === 'string' 
+          ? JSON.parse(actionsTaken) 
+          : (actionsTaken || []);
+        
+        // Mark all as successful (they were approved)
+        const enrichedActions = actionsHistory.map(a => ({ ...a, success: true }));
+        
+        await captureReplay(req.user.id, req.user.firmId, req.params.id, {
+          goal: taskGoal,
+          workType: workType.id,
+          actionsHistory: enrichedActions,
+          result: parsedResult,
+          evaluationScore: parsedResult?.evaluation?.score || null,
+          duration: Math.round(parseFloat(taskResult.rows[0]?.duration_seconds || 0)),
+          iterations: taskResult.rows[0]?.iterations || null,
+          approvalFeedback: feedback || null,
+        });
+      } catch (replayErr) {
+        console.log('[ReviewQueue] Identity replay capture note:', replayErr.message);
+      }
     } catch (e) {
       console.log('[ReviewQueue] Exemplar capture note:', e.message);
     }

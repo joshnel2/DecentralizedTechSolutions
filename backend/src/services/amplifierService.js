@@ -30,6 +30,9 @@ import { getAttorneyIdentity, formatIdentityForPrompt, learnFromCorrection } fro
 // Attorney Exemplars: approved work samples + correction pairs, matched by embedding similarity
 // "Show don't tell" — actual excerpts of the attorney's voice, not abstract trait labels
 import { getRelevantExemplars, formatExemplarsForPrompt } from './amplifier/attorneyExemplars.js';
+// Identity Replay: replay the attorney's actual decision-making process from approved tasks
+// Today's Neuralink — the agent follows the attorney's own recorded footsteps
+import { findMatchingReplays, formatReplayForPrompt, shouldReplayReplaceBrief } from './amplifier/identityReplay.js';
 
 // ===== NEWLY CONNECTED: Previously-dormant Amplifier harness modules =====
 // Decision Reinforcer: real-time learning from every tool outcome
@@ -586,6 +589,10 @@ class BackgroundTask extends EventEmitter {
     
     // Attorney exemplars (approved work samples + correction pairs for voice matching)
     this.attorneyExemplars = null;
+    
+    // Identity replays (approved execution traces for decision replay)
+    this.identityReplays = null;
+    this.replayReplaceBrief = false;
     
     // ===== FOLLOW-UP MESSAGE QUEUE =====
     // Pending follow-ups are queued here and injected at the START of the next
@@ -1468,6 +1475,25 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       } catch (exError) {
         console.log('[Amplifier] Exemplars not available:', exError.message);
         this.attorneyExemplars = null;
+      }
+      
+      // ===== IDENTITY REPLAY: Find matching approved execution traces =====
+      // This is the "today's Neuralink" — replay the attorney's actual decision
+      // process from a similar previously-approved task. When a strong replay
+      // is found, it REPLACES the generic brief entirely.
+      try {
+        const workType = classifyWork(this.goal);
+        this.identityReplays = await findMatchingReplays(
+          this.userId, this.firmId, this.goal, workType.id
+        );
+        if (this.identityReplays && this.identityReplays.length > 0) {
+          this.replayReplaceBrief = shouldReplayReplaceBrief(this.identityReplays);
+          const bestSim = this.identityReplays[0].similarity;
+          console.log(`[Amplifier] Found ${this.identityReplays.length} identity replays (best: ${bestSim ? Math.round(bestSim * 100) + '%' : 'work-type'} match, replaces brief: ${this.replayReplaceBrief})`);
+        }
+      } catch (replayError) {
+        console.log('[Amplifier] Identity replay not available:', replayError.message);
+        this.identityReplays = null;
       }
       
       // Get workflow templates
@@ -2591,6 +2617,18 @@ ${hasMatterPreloaded && matterIsVerified
       }
     }
 
+    // ===== IDENTITY REPLAY: Replay the attorney's decision process =====
+    // This is the highest-fidelity learning signal. Instead of describing
+    // what the attorney wants (labels) or showing excerpts (exemplars),
+    // we replay their actual decision-making process from an approved task.
+    // When a strong replay exists, it becomes the PRIMARY instruction.
+    if (this.identityReplays && this.identityReplays.length > 0) {
+      const replayPrompt = formatReplayForPrompt(this.identityReplays);
+      if (replayPrompt) {
+        prompt += replayPrompt + '\n';
+      }
+    }
+
     // Confidence-aware start instructions
     let startInstruction;
     if (hasMatterPreloaded && matterIsVerified) {
@@ -2669,33 +2707,52 @@ ${hasMatterPreloaded && matterIsVerified
         this.systemPrompt = this.buildSystemPrompt();
         
         // ===== JUNIOR ATTORNEY BRIEF (ADAPTIVE) =====
-        // Before the agent starts working, inject a structured brief that tells it
-        // HOW to approach this specific type of work. The brief FADES as the attorney
-        // identity matures — at high maturity, the identity IS the brief.
+        // The brief now has THREE override layers:
+        // 1. Identity maturity: generic brief fades as identity grows
+        // 2. Identity replay: if a strong replay exists, brief yields entirely
+        // 3. Both can stack: replay provides the PROCESS, identity provides the VOICE
         const workType = classifyWork(this.goal);
         const totalMinutes = Math.round(this.maxRuntimeMs / 60000);
-        const brief = generateBrief(this.goal, this.matterContext, { 
-          totalMinutes,
-          attorneyIdentity: this.attorneyIdentity,
-        });
+        
+        // If a strong replay exists, generate a minimal brief (replay IS the primary instruction)
+        const hasStrongReplay = this.replayReplaceBrief && this.identityReplays?.length > 0;
+        
+        const brief = hasStrongReplay
+          ? generateBrief(this.goal, this.matterContext, {
+              totalMinutes,
+              attorneyIdentity: { 
+                ...(this.attorneyIdentity || {}),
+                // Force MIRROR level when replay replaces brief
+                maturity: Math.max(this.attorneyIdentity?.maturity || 0, 76),
+                maturityLevel: { min: 76, max: 100, briefWeight: 0.0, identityWeight: 1.0, label: 'replay' },
+              },
+            })
+          : generateBrief(this.goal, this.matterContext, { 
+              totalMinutes,
+              attorneyIdentity: this.attorneyIdentity,
+            });
         
         const identityMaturity = this.attorneyIdentity?.maturity || 0;
         const identityLevel = this.attorneyIdentity?.maturityLevel?.label || 'nascent';
-        const briefMode = identityMaturity >= 76 ? 'mirror (identity replaces brief)' :
+        const replayCount = this.identityReplays?.length || 0;
+        const briefMode = hasStrongReplay ? 'replay (attorney\'s own decision path)' :
+                          identityMaturity >= 76 ? 'mirror (identity replaces brief)' :
                           identityMaturity >= 56 ? 'minimal (identity drives style)' :
                           identityMaturity >= 36 ? 'thinned (identity supplements brief)' :
                           'full (learning this attorney)';
         
-        this.streamEvent('brief_generated', `📋 ${workType.name} | Identity: ${identityLevel} (${identityMaturity}/100) | Brief: ${briefMode}`, {
+        this.streamEvent('brief_generated', `📋 ${workType.name} | Identity: ${identityLevel} (${identityMaturity}/100) | Brief: ${briefMode}${replayCount > 0 ? ` | ${replayCount} replay(s)` : ''}`, {
           work_type: workType.id,
           identity_maturity: identityMaturity,
           identity_level: identityLevel,
           brief_mode: briefMode,
-          icon: 'book-open',
-          color: identityMaturity >= 56 ? 'purple' : identityMaturity >= 36 ? 'blue' : 'gray'
+          replay_count: replayCount,
+          replay_replaces_brief: hasStrongReplay,
+          icon: hasStrongReplay ? 'repeat' : 'book-open',
+          color: hasStrongReplay ? 'green' : identityMaturity >= 56 ? 'purple' : identityMaturity >= 36 ? 'blue' : 'gray'
         });
         
-        console.log(`[Amplifier] Task classified as "${workType.name}" - brief: ${briefMode} (${brief.length} chars, identity: ${identityMaturity}/100)`);
+        console.log(`[Amplifier] Task classified as "${workType.name}" - brief: ${briefMode} (${brief.length} chars, identity: ${identityMaturity}/100, replays: ${replayCount})`);
         
         // Store work type for phase budget adjustments
         this.workType = workType;
