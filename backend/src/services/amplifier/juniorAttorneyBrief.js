@@ -143,11 +143,12 @@ const WORK_TYPES = {
     
     whatGoodLooksLike: `Good legal research produces:
 - A CLEAR STATEMENT of the legal issue being researched
-- APPLICABLE STATUTES identified with proper citations
-- KEY CASES summarized with holdings relevant to our facts
+- APPLICABLE STATUTES identified with proper citations FROM ACTUAL SOURCES (web_search + read_webpage)
+- KEY CASES from search_case_law (CourtListener) summarized with holdings relevant to our facts
 - AN ANALYSIS applying the law to our specific facts (IRAC method)
 - A CONCLUSION with the attorney's likely options
-- A RESEARCH MEMO documenting everything found`,
+- A RESEARCH MEMO documenting everything found WITH SOURCE PROVENANCE for every citation
+- Every citation tagged: [CourtListener] for case law, [Cornell LII] for statutes, [UNVERIFIED] for anything else`,
     
     commonMistakes: [
       'Giving a general overview of the law without applying it to the matter',
@@ -155,11 +156,14 @@ const WORK_TYPES = {
       'Missing the statute of limitations analysis',
       'Not checking if the law has been recently amended',
       'Writing conclusions without supporting authority',
-      'Forgetting to check if there are any pending legislative changes'
+      'Forgetting to check if there are any pending legislative changes',
+      'Citing cases from LLM memory instead of actually looking them up with search_case_law',
+      'Not reading the full case opinion (use read_webpage on the CourtListener URL)',
+      'Failing to tag citation sources - every citation must have a provenance tag'
     ],
     
     expectedDeliverables: [
-      'Research memo document (create_document) - IRAC format, minimum 800 words',
+      'Research memo document (create_document) - IRAC format, minimum 800 words, all citations sourced',
       'Matter note with research summary and key findings (add_matter_note)',
       'Tasks for any follow-up research needed (create_task)',
       'Deadline events if SOL or filing deadlines discovered (create_calendar_event)'
@@ -169,17 +173,21 @@ const WORK_TYPES = {
       'FIRST: Read the matter to understand the facts and legal issues',
       'SECOND: Identify the jurisdiction and applicable area of law',
       'THIRD: Look up relevant CPLR sections (if NY) using lookup_cplr',
-      'FOURTH: Search existing documents for relevant precedent or prior research',
-      'FIFTH: Write a research memo using IRAC: Issue, Rule, Application, Conclusion',
-      'SIXTH: Add a note with key findings and practical implications',
-      'SEVENTH: Create tasks for any additional research or action items'
+      'FOURTH: Search for applicable statutes using web_search (site:law.cornell.edu for federal, site:nysenate.gov for NY)',
+      'FIFTH: Read the actual statute text using read_webpage on the best search result',
+      'SIXTH: Search for relevant case law using search_case_law with appropriate jurisdiction filter',
+      'SEVENTH: Read the full opinion of the most relevant 2-3 cases using read_webpage on their CourtListener URLs',
+      'EIGHTH: Search existing matter documents for relevant precedent or prior research',
+      'NINTH: Write a research memo using IRAC with REAL citations from the sources you actually read',
+      'TENTH: Add a note with key findings and practical implications',
+      'ELEVENTH: Create tasks for any additional research or action items'
     ],
     
     timeBudget: {
-      discovery: '40% - Reading matter, searching documents, looking up law',
-      analysis: '25% - Applying law to facts, identifying arguments',
-      action: '25% - Writing research memo and notes',
-      review: '10% - Verify citations, check completeness'
+      discovery: '45% - Reading matter, searching statutes, finding case law, reading sources',
+      analysis: '20% - Applying law to facts, identifying arguments',
+      action: '25% - Writing research memo and notes with sourced citations',
+      review: '10% - Verify all citations have provenance tags, check completeness'
     }
   },
 

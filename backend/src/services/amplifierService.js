@@ -236,7 +236,13 @@ function _scanForHallucinations(content, documentName) {
       continue;
     }
     
-    issues.push(`Unverified case citation: "${citation.substring(0, 80)}". Mark with [UNVERIFIED - VERIFY BEFORE FILING] or remove`);
+    // Skip if tagged with a verified research source provenance
+    // [CourtListener], [Source: courtlistener], [Source: law.cornell.edu], etc.
+    if (/\[(?:CourtListener|Source:\s*(?:courtlistener|law\.cornell\.edu|justia|courts\.gov|uscourts\.gov))\]/i.test(surroundingContext)) {
+      continue;
+    }
+    
+    issues.push(`Unverified case citation: "${citation.substring(0, 80)}". Mark with [UNVERIFIED - VERIFY BEFORE FILING] or tag with source [CourtListener] if from search_case_law`);
     
     // Cap at 3 issues to keep the error message manageable
     if (issues.length >= 3) break;
@@ -531,7 +537,11 @@ class BackgroundTask extends EventEmitter {
       documents: 0,
       tasks: 0,
       events: 0,
-      research: 0
+      research: 0,
+      // Research tool usage counters (for rate limiting)
+      web_searches: 0,
+      page_reads: 0,
+      case_law_searches: 0,
     };
     
     // Track failed tools to avoid repeating failures
@@ -1178,6 +1188,65 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         });
       }
       
+      // ===== RESEARCH TOOL RESULT TRIMMING =====
+      // Keep search results lean, preserve provenance and citation info
+      if (toolName === 'web_search' && Array.isArray(result?.results)) {
+        return JSON.stringify({
+          results: result.results.slice(0, 6).map(r => ({
+            title: r.title,
+            url: r.url,
+            snippet: (r.snippet || '').substring(0, 250),
+            source_quality: r.source_quality,
+            is_trusted_legal: r.is_trusted_legal,
+            provenance: r.provenance,
+          })),
+          query: result.query,
+          result_count: result.result_count,
+          note: result.note,
+          usage_hint: result.usage_hint,
+        });
+      }
+      
+      if (toolName === 'read_webpage' && result?.content) {
+        // Content is already capped by RESEARCH_LIMITS.maxContentCharsPerRead
+        // but trim further if it's still very large for the context window
+        const maxForContext = 12000;
+        const content = result.content.length > maxForContext
+          ? result.content.substring(0, maxForContext) + '\n\n[... trimmed for context window ...]'
+          : result.content;
+        return JSON.stringify({
+          url: result.url,
+          title: result.title,
+          content,
+          word_count: result.word_count,
+          truncated: result.truncated,
+          source_quality: result.source_quality,
+          is_trusted_legal: result.is_trusted_legal,
+          citations_found: result.citations_found?.slice(0, 10),
+          provenance: result.provenance,
+          citation_note: result.citation_note,
+        });
+      }
+      
+      if (toolName === 'search_case_law' && Array.isArray(result?.cases)) {
+        return JSON.stringify({
+          cases: result.cases.slice(0, 8).map(c => ({
+            case_name: c.case_name,
+            citation: c.citation,
+            court: c.court,
+            date_filed: c.date_filed,
+            snippet: (c.snippet || '').substring(0, 400),
+            url: c.url,
+            provenance: c.provenance,
+            citation_ready: c.citation_ready,
+          })),
+          query: result.query,
+          count: result.count,
+          note: result.note,
+          citation_note: result.citation_note,
+        });
+      }
+
       if (toolName === 'get_matter' && result?.matter) {
         const matter = { ...result.matter };
         // Strip description to 300 chars
@@ -1353,6 +1422,18 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
     
     if (toolName === 'log_time' || toolName === 'log_billable_work') {
       return 'NEVER log time. Time entries are for humans to create manually. Skip this and continue with your other work.';
+    }
+    
+    // ===== RESEARCH TOOL RATE LIMITS =====
+    // Prevent runaway research costs by capping per-task usage
+    if (toolName === 'web_search' && this.substantiveActions.web_searches >= 15) {
+      return `Research rate limit: You have used ${this.substantiveActions.web_searches} web searches this task (max 15). Use the information you already gathered to proceed. If you need more research, note it as a follow-up task for the attorney.`;
+    }
+    if (toolName === 'read_webpage' && this.substantiveActions.page_reads >= 20) {
+      return `Research rate limit: You have read ${this.substantiveActions.page_reads} web pages this task (max 20). Use the information you already gathered to proceed.`;
+    }
+    if (toolName === 'search_case_law' && this.substantiveActions.case_law_searches >= 10) {
+      return `Research rate limit: You have done ${this.substantiveActions.case_law_searches} case law searches this task (max 10). Use the cases you already found to proceed.`;
     }
     
     return null; // Valid
@@ -2444,16 +2525,23 @@ ${matterNeedsVerification ? `- **MATTER SAFETY GATE**: Write tools (add_matter_n
 
 ## TOOLS
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
+**Research:** web_search (search the internet), read_webpage (read a URL), search_case_law (search CourtListener for cases)
 **Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
 
+## RESEARCH TOOLS GUIDE
+- **web_search**: Search the internet for statutes, regulations, legal information. Trusted legal sources (.gov, Cornell LII, Justia) are ranked first. Use \`legal_focus: true\` for legal queries.
+- **read_webpage**: Read the full content of any URL from search results. Returns text with source quality rating. Trusted sources can be cited directly; other sources need [UNVERIFIED] tag.
+- **search_case_law**: Search CourtListener for court opinions. Returns case names, citations, courts, dates. CourtListener citations are AUTHORITATIVE - no [UNVERIFIED] tag needed. Use read_webpage on the case URL for full opinion text.
+- **Citation rules**: Mark ALL case citations from web_search with [UNVERIFIED - VERIFY BEFORE FILING]. Citations from search_case_law (CourtListener) and lookup_cplr are verified and can be used directly.
+
 ## PHASES (current: ${this.executionPhase.toUpperCase()})
 ${hasMatterPreloaded && matterIsVerified
-  ? `- **DISCOVERY**: Read documents and notes for the pre-loaded matter. Skip searching.`
-  : `- **DISCOVERY**: ${matterNeedsVerification ? 'FIRST verify the correct matter with get_matter/search_matters, THEN ' : 'Find and '}read the matter, its documents, notes, calendar.`}
-- **ANALYSIS**: Document findings with add_matter_note.
-- **ACTION**: Create deliverables: documents, tasks, events.
-- **REVIEW**: Call review_created_documents, verify quality, then task_complete.
+  ? `- **DISCOVERY**: Read documents and notes for the pre-loaded matter. Use web_search/search_case_law for legal research if the task requires it.`
+  : `- **DISCOVERY**: ${matterNeedsVerification ? 'FIRST verify the correct matter with get_matter/search_matters, THEN ' : 'Find and '}read the matter, its documents, notes, calendar. Use research tools for legal questions.`}
+- **ANALYSIS**: Document findings with add_matter_note. Include source provenance for any external research.
+- **ACTION**: Create deliverables: documents, tasks, events. Cite sources with provenance tags.
+- **REVIEW**: Call review_created_documents, verify quality and citation integrity, then task_complete.
 `;
 
     // Only include CPLR context if task involves NY law or litigation
@@ -3103,6 +3191,15 @@ ${hasMatterPreloaded && matterIsVerified
               } else if (toolName === 'create_calendar_event') {
                 this.substantiveActions.events++;
               } else if (toolName === 'read_document_content' || toolName === 'search_document_content') {
+                this.substantiveActions.research++;
+              } else if (toolName === 'web_search') {
+                this.substantiveActions.web_searches++;
+                this.substantiveActions.research++;
+              } else if (toolName === 'read_webpage') {
+                this.substantiveActions.page_reads++;
+                this.substantiveActions.research++;
+              } else if (toolName === 'search_case_law') {
+                this.substantiveActions.case_law_searches++;
                 this.substantiveActions.research++;
                 // ===== DOCUMENT LEARNING: Feed access event so profile learns =====
                 try {

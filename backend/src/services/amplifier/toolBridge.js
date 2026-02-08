@@ -31,6 +31,15 @@ import {
   formatCPLRCitation
 } from './legalKnowledge/nyCPLR.js';
 
+// Import research tools (web search, page reading, case law search)
+import {
+  webSearch,
+  readWebpage,
+  searchCaseLaw,
+  RESEARCH_TOOL_DEFINITIONS,
+  RESEARCH_LIMITS,
+} from './researchTools.js';
+
 // Import tools from aiAgent.js - these are the EXACT same tools used by the normal AI chat
 // This ensures the background agent has identical capabilities
 let AGENT_TOOLS = [];
@@ -561,6 +570,10 @@ const BACKGROUND_AGENT_ONLY_TOOLS = [
 // Add background-agent-only tools to the OpenAI tool list
 AMPLIFIER_OPENAI_TOOLS.push(...BACKGROUND_AGENT_ONLY_TOOLS);
 
+// Add research tools (web search, page reading, case law)
+AMPLIFIER_OPENAI_TOOLS.push(...RESEARCH_TOOL_DEFINITIONS);
+console.log(`[ToolBridge] Research tools added: ${RESEARCH_TOOL_DEFINITIONS.map(t => t.function.name).join(', ')}`);
+
 // AMPLIFIER_TOOLS = merged tool definitions for backwards compatibility
 const filteredAgentTools = AGENT_TOOLS.filter(
   tool => !BACKGROUND_AGENT_EXCLUDED_TOOLS.includes(tool.function?.name)
@@ -681,6 +694,18 @@ export async function executeTool(toolName, params, context) {
       // Quality assurance: let the agent review what it created
       case 'review_created_documents':
         return await reviewCreatedDocuments(params, userId, firmId);
+      
+      // ===== RESEARCH TOOLS =====
+      // Web search, page reading, and case law search
+      // These give the agent the ability to actually research legal issues
+      case 'web_search':
+        return await webSearch(params);
+      
+      case 'read_webpage':
+        return await readWebpage(params);
+      
+      case 'search_case_law':
+        return await searchCaseLaw(params);
       
       default:
         // Delegate to the standard AI agent tool executor (same as normal AI chat)
