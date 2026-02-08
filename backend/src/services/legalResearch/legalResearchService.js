@@ -8,15 +8,17 @@
  * - Uses OpenRouter (NOT Azure OpenAI)
  * - Has NO access to matter data, client data, billing, or documents
  * - Loads the Anthropic Legal Plugin playbook from disk
- * - Calls Claude via OpenRouter with the playbook as the system prompt
+ * - Calls Claude Opus 4.6 via OpenRouter with the playbook as the system prompt
+ * - Enables Adaptive Thinking (reasoning) mode for deep legal analysis
  * - Stores research sessions in its own isolated database tables
  * 
- * Environment variables (separate from Azure OpenAI):
- * - OPENROUTER_API_KEY
- * - OPENROUTER_BASE_URL (default: https://openrouter.ai/api/v1)
- * - OPENROUTER_MODEL (default: anthropic/claude-sonnet-4)
- * - SITE_URL (for HTTP-Referer header)
- * - APP_NAME (for X-Title header)
+ * Configuration (hardcoded per spec — separate from Azure OpenAI):
+ * - Base URL: https://openrouter.ai/api/v1
+ * - API Key: process.env.OPENROUTER_API_KEY
+ * - Model: anthropic/claude-opus-4.6
+ * - Reasoning: { enabled: true } (Adaptive Thinking mode)
+ * - HTTP-Referer: http://localhost:3000
+ * - X-Title: Legal Research Agent
  */
 
 import fs from 'fs';
@@ -30,11 +32,21 @@ const __dirname = path.dirname(__filename);
 // =====================================================
 // CONFIGURATION — Completely separate from Azure OpenAI
 // =====================================================
+// API Key from environment — the ONLY env var this service reads
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4';
-const SITE_URL = process.env.SITE_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
-const APP_NAME = process.env.APP_NAME || 'Apex Legal Research';
+
+// Everything else is hardcoded per the plugin spec
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const OPENROUTER_MODEL = 'anthropic/claude-opus-4.6';
+const HTTP_REFERER = 'http://localhost:3000';
+const X_TITLE = 'Legal Research Agent';
+
+// Log initialization
+console.log('[LegalResearch] Initializing Legal Research Plugin');
+console.log('[LegalResearch] Base URL:', OPENROUTER_BASE_URL);
+console.log('[LegalResearch] Model:', OPENROUTER_MODEL);
+console.log('[LegalResearch] Reasoning: Adaptive Thinking ENABLED');
+console.log('[LegalResearch] API Key:', OPENROUTER_API_KEY ? 'configured' : 'NOT SET');
 
 // =====================================================
 // PLAYBOOK — Loaded from disk, injected as system prompt
@@ -241,12 +253,14 @@ export async function runLegalPlugin(userInput, conversationHistory = [], option
     }
   ];
 
+  // Request body — Opus 4.6 with Adaptive Thinking enabled
   const requestBody = {
-    model: options.model || OPENROUTER_MODEL,
+    model: OPENROUTER_MODEL,                  // anthropic/claude-opus-4.6
     messages,
     tools: LEGAL_RESEARCH_TOOLS,
+    reasoning: { enabled: true },             // Opus 4.6 Adaptive Thinking mode
     temperature: options.temperature ?? 0.3,  // Lower temp for legal precision
-    max_tokens: options.max_tokens ?? 8000,
+    max_tokens: options.max_tokens ?? 16000,  // Higher limit for reasoning + output
     top_p: 0.95,
   };
 
@@ -257,8 +271,8 @@ export async function runLegalPlugin(userInput, conversationHistory = [], option
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'HTTP-Referer': SITE_URL,
-      'X-Title': APP_NAME,
+      'HTTP-Referer': HTTP_REFERER,           // http://localhost:3000
+      'X-Title': X_TITLE,                     // Legal Research Agent
     },
     body: JSON.stringify(requestBody),
   });
@@ -279,6 +293,7 @@ export async function runLegalPlugin(userInput, conversationHistory = [], option
   return {
     content: choice.message?.content || '',
     toolCalls: choice.message?.tool_calls || null,
+    reasoning: choice.message?.reasoning || null,  // Capture reasoning output if returned
     model: data.model,
     usage: data.usage,
     finishReason: choice.finish_reason,
@@ -301,12 +316,14 @@ export async function runLegalPluginStream(userInput, conversationHistory = [], 
     { role: 'user', content: userInput }
   ];
 
+  // Stream request body — Opus 4.6 with Adaptive Thinking enabled
   const requestBody = {
-    model: options.model || OPENROUTER_MODEL,
+    model: OPENROUTER_MODEL,                  // anthropic/claude-opus-4.6
     messages,
     tools: LEGAL_RESEARCH_TOOLS,
+    reasoning: { enabled: true },             // Opus 4.6 Adaptive Thinking mode
     temperature: options.temperature ?? 0.3,
-    max_tokens: options.max_tokens ?? 8000,
+    max_tokens: options.max_tokens ?? 16000,
     top_p: 0.95,
     stream: true,
   };
@@ -318,8 +335,8 @@ export async function runLegalPluginStream(userInput, conversationHistory = [], 
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'HTTP-Referer': SITE_URL,
-      'X-Title': APP_NAME,
+      'HTTP-Referer': HTTP_REFERER,           // http://localhost:3000
+      'X-Title': X_TITLE,                     // Legal Research Agent
     },
     body: JSON.stringify(requestBody),
   });
@@ -438,9 +455,9 @@ export function isConfigured() {
  */
 export function getAvailableModels() {
   return [
-    { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', description: 'Best balance of speed and intelligence', default: true },
+    { id: 'anthropic/claude-opus-4.6', name: 'Claude Opus 4.6', description: 'Adaptive Thinking — deepest legal reasoning', default: true },
+    { id: 'anthropic/claude-sonnet-4', name: 'Claude Sonnet 4', description: 'Fast and intelligent' },
     { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', description: 'Fast and capable' },
-    { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', description: 'Most capable for deep analysis' },
     { id: 'openai/gpt-4o', name: 'GPT-4o', description: 'OpenAI flagship model' },
     { id: 'google/gemini-2.0-flash-001', name: 'Gemini 2.0 Flash', description: 'Fast Google model' },
     { id: 'perplexity/sonar-pro', name: 'Perplexity Sonar Pro', description: 'Research-focused with web search' },
@@ -455,7 +472,9 @@ export function getConfig() {
     configured: isConfigured(),
     baseUrl: OPENROUTER_BASE_URL,
     defaultModel: OPENROUTER_MODEL,
-    appName: APP_NAME,
+    reasoning: { enabled: true },
+    httpReferer: HTTP_REFERER,
+    xTitle: X_TITLE,
     availableModels: getAvailableModels(),
   };
 }

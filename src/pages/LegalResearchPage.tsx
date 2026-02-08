@@ -221,10 +221,15 @@ export function LegalResearchPage() {
               the Azure OpenAI configuration used by the AI Assistant.
             </p>
             <code>
+              # Only env var needed — everything else is hardcoded:<br />
               OPENROUTER_API_KEY=sk-or-v1-...<br />
-              OPENROUTER_BASE_URL=https://openrouter.ai/api/v1<br />
-              SITE_URL=http://localhost:5173<br />
-              APP_NAME=Apex Legal Research
+              <br />
+              # Hardcoded in service:<br />
+              # Base URL: https://openrouter.ai/api/v1<br />
+              # Model: anthropic/claude-opus-4.6<br />
+              # Reasoning: Adaptive Thinking ENABLED<br />
+              # HTTP-Referer: http://localhost:3000<br />
+              # X-Title: Legal Research Agent
             </code>
           </div>
         </div>
@@ -303,7 +308,7 @@ export function LegalResearchPage() {
           </div>
           <div className={styles.topBarRight}>
             <span className={styles.poweredBy}>
-              Powered by <strong>OpenRouter</strong>
+              Claude Opus 4.6 &middot; <strong>Adaptive Thinking</strong> &middot; OpenRouter
             </span>
           </div>
         </div>
@@ -432,7 +437,7 @@ export function LegalResearchPage() {
             </button>
           </div>
           <div className={styles.inputDisclaimer}>
-            Legal Research uses OpenRouter (not Azure OpenAI). No confidential firm data is sent. Always verify AI-generated legal analysis with qualified counsel.
+            Powered by Claude Opus 4.6 with Adaptive Thinking via OpenRouter. Completely isolated from Azure OpenAI. No confidential firm data is sent. Always verify AI-generated legal analysis with qualified counsel.
           </div>
         </div>
       </div>
