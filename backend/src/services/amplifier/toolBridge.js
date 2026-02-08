@@ -3346,12 +3346,12 @@ async function reviewCreatedDocuments(params, userId, firmId) {
     // Find recently created documents
     // Note: documents table uses 'uploaded_at' not 'created_at'
     const docQuery = matter_id
-      ? `SELECT id, original_name as name, uploaded_at, content_text, file_size 
+      ? `SELECT id, original_name as name, uploaded_at, content_text, size 
          FROM documents 
          WHERE firm_id = $1 AND uploaded_by = $2 AND matter_id = $3
            AND uploaded_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
          ORDER BY uploaded_at DESC LIMIT 10`
-      : `SELECT id, original_name as name, uploaded_at, content_text, file_size 
+      : `SELECT id, original_name as name, uploaded_at, content_text, size 
          FROM documents 
          WHERE firm_id = $1 AND uploaded_by = $2
            AND uploaded_at > NOW() - INTERVAL '${parseInt(minutes_ago)} minutes'
@@ -3365,7 +3365,7 @@ async function reviewCreatedDocuments(params, userId, firmId) {
         id: doc.id,
         name: doc.name,
         created_at: doc.uploaded_at, // Map to created_at for API compatibility
-        size: doc.file_size,
+        size: doc.size,
       };
       
       if (include_content && doc.content_text) {

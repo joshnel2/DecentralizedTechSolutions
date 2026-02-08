@@ -743,10 +743,10 @@ async function _fetchSavedContent(task) {
     
     // Fetch documents created during this task's runtime
     const docResult = await query(
-      `SELECT id, original_name as name, content_text, file_size, created_at
+      `SELECT id, original_name as name, content_text, size, uploaded_at
        FROM documents
-       WHERE firm_id = $1 AND uploaded_by = $2 AND created_at >= $3
-       ORDER BY created_at DESC LIMIT 15`,
+       WHERE firm_id = $1 AND uploaded_by = $2 AND uploaded_at >= $3
+       ORDER BY uploaded_at DESC LIMIT 15`,
       [firmId, userId, taskStartTime]
     );
     

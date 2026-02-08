@@ -564,7 +564,7 @@ router.get('/review-queue', authenticate, async (req, res) => {
       // Fetch documents created by the agent during this task
       try {
         const docsResult = await dbQuery(
-          `SELECT id, original_name as name, content_text, file_size, uploaded_at, matter_id
+          `SELECT id, original_name as name, content_text, size, uploaded_at, matter_id
            FROM documents
            WHERE firm_id = $1 AND uploaded_by = $2
              AND uploaded_at >= $3 AND uploaded_at <= COALESCE($4, NOW()) + INTERVAL '5 minutes'
@@ -604,7 +604,7 @@ router.get('/review-queue', authenticate, async (req, res) => {
             name: doc.name,
             contentPreview,
             contentLength: doc.content_text?.length || 0,
-            fileSize: doc.file_size,
+            fileSize: doc.size,
             createdAt: doc.uploaded_at,
             matterId: doc.matter_id,
             flags: docFlags,
