@@ -61,11 +61,26 @@ export function buildUnifiedLearningContext(params) {
     goal, workTypeId, matterId,
     lawyerProfile, interactionProfile, qualityOverrides,
     provenToolChain, matterMemory, activityContext,
-    documentProfile,
+    documentProfile, attorneyIdentity,
   } = params;
 
   // Collect all learning entries with priority scores
   const entries = [];
+
+  // --- HIGHEST: Attorney identity correction principles (hard-learned rules) ---
+  // These come from actual rejections and corrections — the attorney's own words
+  // turned into actionable principles. They override everything else.
+  if (attorneyIdentity?.correctionPrinciples?.length > 0) {
+    const highConfidence = attorneyIdentity.correctionPrinciples.filter(p => p.confidence >= 0.7);
+    if (highConfidence.length > 0) {
+      const principleLines = highConfidence.slice(0, 6).map(p => `- ${p.principle}`);
+      entries.push({
+        priority: 105, // Higher than quality overrides — these are identity, not just quality
+        section: 'ATTORNEY IDENTITY: HARD RULES (from corrections)',
+        content: principleLines.join('\n') + '\nThese are non-negotiable. This attorney has corrected these specific issues before.',
+      });
+    }
+  }
 
   // --- CRITICAL: Rejection-learned quality requirements (always include) ---
   if (qualityOverrides?.promptModifiers?.length > 0) {

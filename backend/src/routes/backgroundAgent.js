@@ -787,6 +787,7 @@ router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
         [req.params.id]
       );
       const result = taskResult.rows[0]?.result;
+      const goal = taskResult.rows[0]?.goal;
       const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
       
       // Learn quality overrides from the rejection
@@ -803,6 +804,28 @@ router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
       console.log(`[ReviewQueue] Rejection learning: ${overrides?.length || 0} quality overrides created`);
     } catch (e) {
       console.log('[ReviewQueue] Rejection learning note:', e.message);
+    }
+    
+    // ===== ATTORNEY IDENTITY: Extract correction principles =====
+    // This is the deeper learning loop. Instead of just tightening quality gates,
+    // extract PRINCIPLES about WHO this attorney is and HOW they want work done.
+    // These principles persist and compound — making the agent more like them over time.
+    try {
+      const { learnFromCorrection } = await import('../services/amplifier/attorneyIdentity.js');
+      
+      const taskResult = await dbQuery(
+        `SELECT goal FROM ai_background_tasks WHERE id = $1`,
+        [req.params.id]
+      );
+      const goal = taskResult.rows[0]?.goal || '';
+      
+      const principles = await learnFromCorrection(
+        req.user.id, req.user.firmId, feedback, goal
+      );
+      
+      console.log(`[ReviewQueue] Attorney identity: ${principles.length} correction principles extracted`);
+    } catch (e) {
+      console.log('[ReviewQueue] Attorney identity learning note:', e.message);
     }
     
     console.log(`[ReviewQueue] Task ${req.params.id} rejected by user ${req.user.id}: ${feedback.substring(0, 80)}`);
@@ -834,7 +857,10 @@ router.get('/learnings', authenticate, async (req, res) => {
 
 /**
  * Submit feedback on a completed task
- * This helps the agent learn from user satisfaction
+ * This helps the agent learn from user satisfaction.
+ * 
+ * NOW ENHANCED: Negative feedback also feeds the attorney identity system,
+ * extracting PRINCIPLES from corrections that make the agent more like the attorney.
  */
 router.post('/tasks/:id/feedback', authenticate, async (req, res) => {
   try {
@@ -855,6 +881,32 @@ router.post('/tasks/:id/feedback', authenticate, async (req, res) => {
     
     if (!result.success) {
       return res.status(404).json({ error: result.error || 'Task not found' });
+    }
+    
+    // ===== ATTORNEY IDENTITY: Learn from corrections =====
+    // Negative feedback with corrections is the richest signal for identity learning.
+    // Extract principles that make the agent more like THIS attorney.
+    if (rating && rating <= 3 && (feedback || correction)) {
+      try {
+        const { learnFromCorrection } = await import('../services/amplifier/attorneyIdentity.js');
+        const { query: dbQuery } = await import('../db/connection.js');
+        
+        const taskResult = await dbQuery(
+          `SELECT goal FROM ai_background_tasks WHERE id = $1`,
+          [req.params.id]
+        );
+        const goal = taskResult.rows[0]?.goal || '';
+        
+        const correctionText = correction || feedback;
+        const principles = await learnFromCorrection(
+          req.user.id, req.user.firmId, correctionText, goal
+        );
+        
+        console.log(`[Feedback] Attorney identity: ${principles.length} principles extracted from rating=${rating}`);
+      } catch (e) {
+        // Non-fatal
+        console.log('[Feedback] Attorney identity learning note:', e.message);
+      }
     }
     
     res.json({
@@ -878,6 +930,67 @@ router.get('/learning-stats', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Error getting learning stats:', error);
     res.status(500).json({ error: 'Failed to get learning stats' });
+  }
+});
+
+/**
+ * Get attorney identity profile
+ * Returns the deep identity profile including maturity level, writing style,
+ * thinking patterns, correction principles, and how much the brief has faded.
+ * 
+ * This is the "how well does the agent know me" endpoint.
+ */
+router.get('/identity', authenticate, async (req, res) => {
+  try {
+    const { getAttorneyIdentity, MATURITY_LEVELS } = await import('../services/amplifier/attorneyIdentity.js');
+    const identity = await getAttorneyIdentity(req.user.id, req.user.firmId);
+    
+    if (!identity) {
+      return res.json({
+        maturity: 0,
+        maturityLevel: 'nascent',
+        briefWeight: 1.0,
+        message: 'The agent is still learning who you are. Keep using it and providing feedback.',
+      });
+    }
+    
+    const level = identity.maturityLevel;
+    
+    res.json({
+      maturity: identity.maturity,
+      maturityLevel: level.label,
+      briefWeight: level.briefWeight,
+      identityWeight: level.identityWeight,
+      writingStyle: identity.writingStyle,
+      thinkingPatterns: identity.thinkingPatterns,
+      correctionPrinciples: identity.correctionPrinciples.map(p => ({
+        principle: p.principle,
+        confidence: p.confidence,
+        evidenceCount: p.evidenceCount,
+      })),
+      preferenceHierarchy: identity.preferenceHierarchy,
+      communicationStyle: identity.communicationStyle,
+      maturityBreakdown: {
+        writingSamples: identity.writingStyle?.sampleCount || 0,
+        thinkingSamples: identity.thinkingPatterns?.sampleCount || 0,
+        correctionCount: identity.correctionPrinciples?.length || 0,
+        preferenceCount: identity.preferenceHierarchy?.length || 0,
+        commSamples: identity.communicationStyle?.sampleCount || 0,
+      },
+      message: level.label === 'nascent' 
+        ? 'Just getting started. The more you use the agent and give feedback, the more it becomes like you.'
+        : level.label === 'emerging'
+        ? 'Starting to see your patterns. Keep providing feedback on what you like and don\'t like.'
+        : level.label === 'developing'
+        ? 'Your personality is emerging. The generic brief is thinning — your style is taking over.'
+        : level.label === 'strong'
+        ? 'The agent knows you well. The brief is mostly gone — your identity drives the work.'
+        : 'The agent IS your externalized judgment. It writes as you would write.',
+      levels: MATURITY_LEVELS,
+    });
+  } catch (error) {
+    console.error('Error getting attorney identity:', error);
+    res.status(500).json({ error: 'Failed to get attorney identity', details: error.message });
   }
 });
 

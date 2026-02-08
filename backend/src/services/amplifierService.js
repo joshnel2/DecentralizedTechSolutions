@@ -24,6 +24,9 @@ import { getUserDocumentProfile, formatProfileForPrompt, onDocumentAccessed } fr
 import { createCheckpointRewindManager } from './amplifier/checkpointRewind.js';
 import { createAgentMemory, recursiveCompact, AgentMemory } from './amplifier/recursiveSummarizer.js';
 import { generateBrief, classifyWork, getTimeBudget } from './amplifier/juniorAttorneyBrief.js';
+// Attorney Identity: deep learning of WHO the attorney is (writing style, thinking patterns, corrections)
+// This progressively replaces the generic junior attorney brief as it learns
+import { getAttorneyIdentity, formatIdentityForPrompt, learnFromCorrection } from './amplifier/attorneyIdentity.js';
 
 // ===== NEWLY CONNECTED: Previously-dormant Amplifier harness modules =====
 // Decision Reinforcer: real-time learning from every tool outcome
@@ -574,6 +577,9 @@ class BackgroundTask extends EventEmitter {
     
     // Lawyer profile (grows smarter over time)
     this.lawyerProfile = null;
+    
+    // Attorney identity (deep identity learning: writing style, thinking patterns, corrections)
+    this.attorneyIdentity = null;
     
     // ===== FOLLOW-UP MESSAGE QUEUE =====
     // Pending follow-ups are queued here and injected at the START of the next
@@ -1418,6 +1424,23 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       } catch (profileError) {
         console.log('[Amplifier] Lawyer profile not available:', profileError.message);
         this.lawyerProfile = null;
+      }
+      
+      // ===== ATTORNEY IDENTITY: Deep identity learning =====
+      // This is the "become the attorney" system. Loads writing style, thinking
+      // patterns, correction principles, preference hierarchy. As maturity grows,
+      // this progressively replaces the generic junior attorney brief.
+      try {
+        this.attorneyIdentity = await getAttorneyIdentity(this.userId, this.firmId);
+        if (this.attorneyIdentity) {
+          const maturity = this.attorneyIdentity.maturity;
+          const level = this.attorneyIdentity.maturityLevel?.label || 'nascent';
+          const principles = this.attorneyIdentity.correctionPrinciples?.length || 0;
+          console.log(`[Amplifier] Attorney identity loaded: maturity=${maturity}/100 (${level}), ${principles} correction principles, brief weight=${this.attorneyIdentity.maturityLevel?.briefWeight ?? 1.0}`);
+        }
+      } catch (identityError) {
+        console.log('[Amplifier] Attorney identity not available:', identityError.message);
+        this.attorneyIdentity = null;
       }
       
       // Get workflow templates
@@ -2519,6 +2542,17 @@ ${hasMatterPreloaded && matterIsVerified
       prompt += '\n';
     }
 
+    // ===== ATTORNEY IDENTITY: Inject deep identity profile =====
+    // This is the "become the attorney" system. As maturity grows, this section
+    // gets richer and the junior attorney brief gets thinner — until eventually
+    // the identity IS the brief and the agent writes as the attorney would write.
+    if (this.attorneyIdentity && this.attorneyIdentity.maturity > 0) {
+      const identityPrompt = formatIdentityForPrompt(this.attorneyIdentity);
+      if (identityPrompt) {
+        prompt += identityPrompt + '\n';
+      }
+    }
+
     // Confidence-aware start instructions
     let startInstruction;
     if (hasMatterPreloaded && matterIsVerified) {
@@ -2546,6 +2580,7 @@ ${hasMatterPreloaded && matterIsVerified
         matterMemory: this.matterMemory,
         activityContext: this.activityContext,
         documentProfile: this.userDocumentProfile,
+        attorneyIdentity: this.attorneyIdentity,
       });
       if (unifiedContext) {
         prompt += unifiedContext;
@@ -2595,21 +2630,34 @@ ${hasMatterPreloaded && matterIsVerified
         // The user message must clearly instruct the AI to take action immediately
         this.systemPrompt = this.buildSystemPrompt();
         
-        // ===== JUNIOR ATTORNEY BRIEF =====
+        // ===== JUNIOR ATTORNEY BRIEF (ADAPTIVE) =====
         // Before the agent starts working, inject a structured brief that tells it
-        // HOW a competent junior attorney would approach this specific type of work.
-        // This is the reasoning step between "receive assignment" and "start executing."
+        // HOW to approach this specific type of work. The brief FADES as the attorney
+        // identity matures — at high maturity, the identity IS the brief.
         const workType = classifyWork(this.goal);
         const totalMinutes = Math.round(this.maxRuntimeMs / 60000);
-        const brief = generateBrief(this.goal, this.matterContext, { totalMinutes });
-        
-        this.streamEvent('brief_generated', `📋 Assignment classified as: ${workType.name}`, {
-          work_type: workType.id,
-          icon: 'book-open',
-          color: 'blue'
+        const brief = generateBrief(this.goal, this.matterContext, { 
+          totalMinutes,
+          attorneyIdentity: this.attorneyIdentity,
         });
         
-        console.log(`[Amplifier] Task classified as "${workType.name}" - brief generated (${brief.length} chars)`);
+        const identityMaturity = this.attorneyIdentity?.maturity || 0;
+        const identityLevel = this.attorneyIdentity?.maturityLevel?.label || 'nascent';
+        const briefMode = identityMaturity >= 76 ? 'mirror (identity replaces brief)' :
+                          identityMaturity >= 56 ? 'minimal (identity drives style)' :
+                          identityMaturity >= 36 ? 'thinned (identity supplements brief)' :
+                          'full (learning this attorney)';
+        
+        this.streamEvent('brief_generated', `📋 ${workType.name} | Identity: ${identityLevel} (${identityMaturity}/100) | Brief: ${briefMode}`, {
+          work_type: workType.id,
+          identity_maturity: identityMaturity,
+          identity_level: identityLevel,
+          brief_mode: briefMode,
+          icon: 'book-open',
+          color: identityMaturity >= 56 ? 'purple' : identityMaturity >= 36 ? 'blue' : 'gray'
+        });
+        
+        console.log(`[Amplifier] Task classified as "${workType.name}" - brief: ${briefMode} (${brief.length} chars, identity: ${identityMaturity}/100)`);
         
         // Store work type for phase budget adjustments
         this.workType = workType;
