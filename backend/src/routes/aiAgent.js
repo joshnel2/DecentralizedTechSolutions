@@ -2644,12 +2644,36 @@ async function resolveMatterReference(matterRef, user, options = {}) {
     };
   }
   
-  // Multiple matches - return the best one but include suggestions for clarity
+  // ===== AMBIGUOUS MATCH HANDLING =====
+  // When multiple matters match with similar scores, do NOT silently pick one.
+  // Return the top match but with a clear, prominent warning about ambiguity.
+  // This is critical for the background agent which runs autonomously --
+  // a wrong matter selection cascades into hours of misplaced work product.
+  const topScore = result.rows[0].match_score;
+  const secondScore = result.rows.length > 1 ? result.rows[1].match_score : 0;
+  const scoreDelta = topScore - secondScore;
+  
+  if (result.rows.length > 1 && scoreDelta < 15) {
+    // Close scores = genuinely ambiguous. Return with strong warning.
+    const ambiguousList = suggestions.slice(0, 5).map(s => 
+      `- "${s.name}" (${s.number || 'no number'}, ${s.status}, client: ${s.client || 'none'}, score: ${s.match_score}) [ID: ${s.id}]`
+    ).join('\n');
+    
+    return { 
+      matter: suggestions[0], 
+      suggestions,
+      ambiguous: true,
+      warning: `AMBIGUOUS MATCH: "${matterRef}" matches ${suggestions.length} matters with similar scores. The closest match "${suggestions[0].name}" was selected but may be WRONG. Verify this is the correct matter before creating any documents, notes, or tasks.\n\nAll matches:\n${ambiguousList}`,
+      note: `⚠️ AMBIGUOUS: Using "${suggestions[0].name}" but ${suggestions.length - 1} other close match(es) found. VERIFY before writing.`
+    };
+  }
+  
+  // Clear winner but still note alternatives exist
   return { 
     matter: suggestions[0], 
     suggestions,
     note: suggestions.length > 1 
-      ? `Using "${suggestions[0].name}" - ${suggestions.length - 1} other match(es) found`
+      ? `Using "${suggestions[0].name}" (score: ${topScore}) - ${suggestions.length - 1} other match(es) found with lower scores`
       : undefined
   };
 }
@@ -3033,16 +3057,28 @@ async function getMatter(args, user) {
   };
   
   // Add resolution metadata if we matched by name instead of UUID
-  if (resolutionNote) {
+  if (resolutionNote || resolved.ambiguous) {
     response._resolution = {
       note: resolutionNote,
       matched_from: matter_id,
+      ambiguous: resolved.ambiguous || false,
+      warning: resolved.warning || null,
       other_matches: resolved.suggestions?.slice(1, 4).map(s => ({
         id: s.id,
         name: s.name,
-        number: s.number
+        number: s.number,
+        match_score: s.match_score
       }))
     };
+    
+    // If the match was ambiguous, add a prominent top-level warning
+    // so the background agent (which trims tool results) still sees it
+    if (resolved.ambiguous) {
+      response._warning = `⚠️ AMBIGUOUS MATCH: "${matter_id}" matched multiple matters with similar scores. ` +
+        `This result shows "${m.name}" but it may be WRONG. ` +
+        `Other close matches: ${resolved.suggestions?.slice(1, 3).map(s => `"${s.name}" (${s.match_score})`).join(', ') || 'none'}. ` +
+        `VERIFY this is the correct matter before creating any documents, notes, or tasks.`;
+    }
   }
   
   return response;

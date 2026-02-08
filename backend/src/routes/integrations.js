@@ -2009,7 +2009,7 @@ router.post('/onedrive/sync', authenticate, async (req, res) => {
                           ['ppt', 'pptx'].includes(ext) ? 'powerpoint' : 'other';
 
           await query(
-            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, external_url, uploaded_by, created_at)
+            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, external_url, uploaded_by, uploaded_at)
              VALUES ($1, $2, $3, $4, $5, $6, 'onedrive', $7, $8, NOW())
              ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
                name = EXCLUDED.name,
@@ -2212,7 +2212,7 @@ router.post('/googledrive/sync', authenticate, async (req, res) => {
                           mimeType.includes('presentation') || mimeType.includes('powerpoint') ? 'powerpoint' : 'other';
 
           await query(
-            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, external_url, uploaded_by, created_at)
+            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, external_url, uploaded_by, uploaded_at)
              VALUES ($1, $2, $3, $4, $5, $6, 'googledrive', $7, $8, NOW())
              ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
                name = EXCLUDED.name,
@@ -2420,7 +2420,7 @@ router.post('/dropbox/sync', authenticate, async (req, res) => {
                           ['ppt', 'pptx'].includes(ext) ? 'powerpoint' : 'other';
 
           await query(
-            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, file_path, uploaded_by, created_at)
+            `INSERT INTO documents (firm_id, name, file_name, file_type, file_size, external_id, external_source, file_path, uploaded_by, uploaded_at)
              VALUES ($1, $2, $3, $4, $5, $6, 'dropbox', $7, $8, NOW())
              ON CONFLICT (firm_id, external_id, external_source) DO UPDATE SET
                name = EXCLUDED.name,

@@ -1560,7 +1560,7 @@ router.get('/firms/:firmId/scan-diagnostic', requireSecureAdmin, async (req, res
       FROM documents d
       LEFT JOIN matters m ON d.matter_id = m.id
       WHERE d.firm_id = $1
-      ORDER BY d.created_at DESC
+      ORDER BY d.uploaded_at DESC
       LIMIT 10
     `, [firmId]);
     
