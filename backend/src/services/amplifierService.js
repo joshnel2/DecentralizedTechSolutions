@@ -1315,7 +1315,7 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
     // This is the hard gate that prevents working on the wrong matter.
     // A junior attorney wouldn't start drafting for "the Smith case" without first pulling the file
     // and confirming it's the RIGHT Smith case.
-    const isWriteTool = AmplifierTask.MATTER_WRITE_TOOLS.has(toolName);
+    const isWriteTool = BackgroundTask.MATTER_WRITE_TOOLS.has(toolName);
     const targetMatterId = args.matter_id || args.matterId;
     
     if (isWriteTool && targetMatterId) {
@@ -3289,7 +3289,7 @@ ${hasMatterPreloaded && matterIsVerified
               // ===== MATTER VERIFICATION TRACKING =====
               // When the agent successfully reads matter details, mark the matter as verified.
               // This unlocks the write-tool guardrail for that matter ID.
-              if (AmplifierTask.MATTER_READ_TOOLS.has(toolName)) {
+              if (BackgroundTask.MATTER_READ_TOOLS.has(toolName)) {
                 // Extract matter ID from the result depending on which tool was used
                 let verifiedMatterId = null;
                 if (toolName === 'get_matter') {
