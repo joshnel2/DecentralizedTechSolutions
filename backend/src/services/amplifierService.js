@@ -3049,7 +3049,13 @@ ${hasMatterPreloaded && matterIsVerified
 
       this.progress.iterations++;
       this.phaseIterationCounts[this.executionPhase]++;
-      this.progress.currentStep = `${this.executionPhase.toUpperCase()}: step ${this.progress.iterations}`;
+      
+      // If totalSteps was never set by think_and_plan, estimate from complexity
+      if (!this.progress.totalSteps || this.progress.totalSteps === 0) {
+        this.progress.totalSteps = this.estimatedSteps || 15;
+      }
+      
+      this.progress.currentStep = `${this.executionPhase.toUpperCase()}: step ${this.progress.completedSteps || 0} of ${this.progress.totalSteps}`;
       this.emit('progress', this.getStatus());
       
       // ===== DRAIN FOLLOW-UP QUEUE =====
@@ -3189,6 +3195,15 @@ ${hasMatterPreloaded && matterIsVerified
               const success = res.success !== undefined ? res.success : !res.error;
               
               this.actionsHistory.push({ tool: tn, args: ta, result: res, timestamp: new Date(), success });
+              
+              // ===== STEP TRACKING (parallel path) =====
+              if (success && !['think_and_plan', 'evaluate_progress', 'task_complete', 'log_work'].includes(tn)) {
+                this.progress.completedSteps = (this.progress.completedSteps || 0) + 1;
+                if (this.progress.completedSteps >= this.progress.totalSteps - 2 && this.executionPhase !== 'review') {
+                  this.progress.totalSteps = Math.max(this.progress.totalSteps, this.progress.completedSteps + 5);
+                }
+                this.progress.currentStep = `Step ${this.progress.completedSteps} of ${this.progress.totalSteps}: ${this.getToolStepLabel(tn, ta)}`;
+              }
               
               // ===== REWIND SYSTEM: Record tool call for loop detection (parallel path) =====
               this.rewindManager.recordToolCall(tn, ta, success);
@@ -3330,6 +3345,22 @@ ${hasMatterPreloaded && matterIsVerified
               timestamp: new Date(),
               success: toolSuccess
             });
+            
+            // ===== STEP TRACKING: Increment completedSteps on successful tool calls =====
+            // Meta tools (think_and_plan, evaluate_progress, task_complete) don't count as steps.
+            // Only real work tools count so the step counter reflects actual progress.
+            if (toolSuccess && !['think_and_plan', 'evaluate_progress', 'task_complete', 'log_work'].includes(toolName)) {
+              this.progress.completedSteps = (this.progress.completedSteps || 0) + 1;
+              
+              // Dynamically adjust totalSteps if we're approaching the estimate
+              if (this.progress.completedSteps >= this.progress.totalSteps - 2 && this.executionPhase !== 'review') {
+                // We're not done yet but approaching the estimate — extend it
+                this.progress.totalSteps = Math.max(this.progress.totalSteps, this.progress.completedSteps + 5);
+              }
+              
+              // Update the step label with the actual tool description
+              this.progress.currentStep = `Step ${this.progress.completedSteps} of ${this.progress.totalSteps}: ${this.getToolStepLabel(toolName, toolArgs)}`;
+            }
             
             // ===== REWIND SYSTEM: Record tool call for loop detection =====
             this.rewindManager.recordToolCall(toolName, toolArgs, toolSuccess);
