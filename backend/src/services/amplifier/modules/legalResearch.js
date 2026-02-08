@@ -1,87 +1,105 @@
 /**
  * Legal Research Module
+ * 
+ * This module plugs the background agent into AI's legal research mastery.
+ * Instead of competing with AI's knowledge, we orchestrate it through
+ * structured research tools that produce attorney-ready output.
  */
 
 export const legalResearchModule = {
   metadata: {
     name: 'Legal Issue Research',
-    description: 'Research specific legal issue with case law and statute analysis',
+    description: 'AI-powered legal research with structured findings, citations, and IRAC memos. Plugs into AI legal mastery.',
     category: 'research',
     estimatedMinutes: 10,
     complexity: 'high',
-    tags: ['research', 'caselaw', 'statute', 'memo'],
+    tags: ['research', 'caselaw', 'statute', 'memo', 'irac', 'citation'],
   },
   
   requiredContext: ['legalIssue'],
-  optionalContext: ['jurisdiction', 'matterId'],
+  optionalContext: ['jurisdiction', 'matterId', 'practiceArea', 'researchType'],
   
   executionPlan: [
-    { name: 'Define Issue', description: 'Clarify the legal question', tools: ['think_and_plan'], required: true },
-    { name: 'Statutory Research', description: 'Identify governing statutes', tools: ['add_matter_note'], required: true },
-    { name: 'Case Law Research', description: 'Find controlling cases', tools: ['add_matter_note'], required: true },
-    { name: 'Analysis', description: 'Apply law to facts', tools: ['add_matter_note'], required: true },
-    { name: 'Research Memo', description: 'Create formal memo', tools: ['create_document'], required: true },
-    { name: 'Follow-up', description: 'Tasks for further research', tools: ['create_task'], required: true },
+    { name: 'Start Research Session', description: 'Initialize structured research session with conduct_legal_research', tools: ['conduct_legal_research'], required: true },
+    { name: 'Search Authority', description: 'Search for controlling legal authority', tools: ['search_legal_authority'], required: true },
+    { name: 'Statutory Research', description: 'Identify governing statutes and record findings', tools: ['add_research_finding', 'add_research_citation'], required: true },
+    { name: 'Case Law Research', description: 'Find and analyze controlling case law', tools: ['add_research_finding', 'add_research_citation'], required: true },
+    { name: 'IRAC Analysis', description: 'Apply IRAC methodology to each issue', tools: ['analyze_legal_issue', 'add_research_finding'], required: true },
+    { name: 'Generate Memo', description: 'Produce formal research memorandum', tools: ['generate_research_memo'], required: true },
+    { name: 'Matter Notes', description: 'Add summary notes to the matter', tools: ['add_matter_note'], required: false },
+    { name: 'Follow-up Tasks', description: 'Create tasks for further research', tools: ['create_task'], required: false },
   ],
   
   qualityGates: [
-    { metric: 'notes_created', minValue: 2, description: 'Research notes documenting findings' },
-    { metric: 'documents_created', minValue: 1, description: 'Formal research memo' },
+    { metric: 'research_findings', minValue: 3, description: 'At least 3 substantive research findings' },
+    { metric: 'citations_added', minValue: 5, description: 'At least 5 legal citations recorded' },
+    { metric: 'memo_generated', minValue: 1, description: 'Formal research memo generated' },
   ],
   
   expectedOutputs: [
-    'Statutory analysis',
-    'Key case summaries',
-    'Application to facts',
-    'Formal research memorandum',
+    'Structured research session with findings and citations',
+    'Statutory analysis with pinpoint citations',
+    'Key case summaries with holdings and relevance',
+    'IRAC analysis for each legal issue',
+    'Adverse authority identification',
+    'Formal IRAC research memorandum',
+    'Quality score and citation count',
   ],
   
   instructions: `
-## LEGAL RESEARCH WORKFLOW
+## LEGAL RESEARCH WORKFLOW - PLUG INTO AI MASTERY
 
-### RESEARCH MEMO FORMAT
+You have access to powerful legal research tools. USE THEM to produce structured, attorney-ready research.
 
-\`\`\`
-LEGAL RESEARCH MEMORANDUM
+### STEP-BY-STEP PROCESS
 
-TO: [Supervising Attorney]
-FROM: [Agent]
-DATE: [Date]
-RE: [Issue]
+1. **START SESSION**: Call \`conduct_legal_research\` with the research question, type, jurisdiction, and practice area.
+   This creates a structured research session that tracks all your findings and citations.
 
-QUESTION PRESENTED
-[Precise statement of the legal question]
+2. **SEARCH AUTHORITY**: Call \`search_legal_authority\` to get context on what to look for.
+   Focus on binding authority first, then persuasive authority.
 
-BRIEF ANSWER
-[1-2 sentence answer]
+3. **RECORD FINDINGS**: For each substantive finding, call \`add_research_finding\` with:
+   - title: Brief description
+   - content: Detailed analysis
+   - issue: The legal issue addressed
+   - rule: The legal rule identified
+   - application: How the rule applies
+   - conclusion: Your analytical conclusion
+   - citations: Supporting citations
 
-STATEMENT OF FACTS
-[Relevant facts]
+4. **RECORD CITATIONS**: For each authority, call \`add_research_citation\` with:
+   - citation: Full legal citation (Bluebook format)
+   - source_type: case/statute/regulation/treatise/law_review
+   - relevance: Why this citation matters
+   - holding: For cases, the key holding
+   - is_adverse: Whether this supports opposing position
 
-DISCUSSION
+5. **ANALYZE ISSUES**: Call \`analyze_legal_issue\` for complex issues requiring IRAC treatment.
 
-I. [First Issue/Sub-issue]
-A. Applicable Law
-[Statutes, regulations]
+6. **GENERATE MEMO**: Call \`generate_research_memo\` with:
+   - brief_answer: 1-2 sentence answer to the research question
+   - conclusion: Overall conclusion and recommendation
+   - recommendations: Practical next steps
 
-B. Case Law
-[Key cases with holdings]
+### CITATION STANDARDS
+- Use proper Bluebook citation format
+- Include pinpoint citations (specific pages/paragraphs)
+- Distinguish binding vs. persuasive authority
+- Note procedural posture of cited cases
+- Flag adverse authority and explain how to distinguish it
 
-C. Analysis
-[Application to facts]
+### QUALITY REQUIREMENTS
+- Minimum 3 substantive findings
+- Minimum 5 legal citations
+- Must generate formal research memo
+- Must address counter-arguments
+- Must identify any unsettled areas of law
 
-II. [Second Issue if applicable]
-...
-
-CONCLUSION
-[Summary recommendation]
-\`\`\`
-
-### NY CPLR RESEARCH
-For NY procedure questions, reference:
-- CPLR Article 2: Limitations
-- CPLR Article 3: Jurisdiction
-- CPLR Article 31: Disclosure
-- CPLR Article 32: Accelerated Judgment
+### SPECIAL TOOLS AVAILABLE
+- \`check_statute_of_limitations\` - For SOL questions
+- \`compare_jurisdictions\` - For multi-state analysis
+- \`lookup_cplr\` - For NY procedural questions
+- \`calculate_cplr_deadline\` - For NY deadline calculations
 `,
 };

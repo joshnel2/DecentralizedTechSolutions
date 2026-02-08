@@ -42,6 +42,8 @@ export const MODULES = {
 
 /**
  * Module trigger patterns - keywords that activate specific modules
+ * Legal research triggers are weighted higher because the background agent
+ * is designed to plug into AI's legal research mastery
  */
 const MODULE_TRIGGERS = {
   'matter-intake': [
@@ -70,7 +72,16 @@ const MODULE_TRIGGERS = {
   ],
   'legal-research': [
     'research', 'case law', 'legal issue', 'statute', 'cplr',
-    'precedent', 'legal analysis', 'authority'
+    'precedent', 'legal analysis', 'authority', 'case research',
+    'statutory research', 'regulatory research', 'compliance research',
+    'multi jurisdiction', 'issue spotting', 'precedent analysis',
+    'legislative history', 'secondary source', 'treatise', 'restatement',
+    'motion to dismiss', 'summary judgment', 'fiduciary duty',
+    'non-compete', 'statute of limitations research', 'sol research',
+    'legal memo', 'research memo', 'irac', 'bluebook', 'citation',
+    'controlling authority', 'binding authority', 'persuasive authority',
+    'compare jurisdictions', 'jurisdiction comparison', 'forum selection',
+    'choice of law', 'legal standard', 'burden of proof',
   ],
   'discovery-prep': [
     'discovery', 'disclosure', 'interrogator', 'document production',

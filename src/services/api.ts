@@ -2384,6 +2384,81 @@ export const notificationsApi = {
   },
 };
 
+// ============================================
+// LEGAL RESEARCH API
+// ============================================
+
+export const legalResearchApi = {
+  // Research Configuration
+  async getConfig() {
+    return fetchWithAuth('/legal-research/config');
+  },
+
+  // Research Sessions
+  async getSessions(params?: { status?: string; research_type?: string; jurisdiction?: string; matter_id?: string; limit?: number; offset?: number }) {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.research_type) query.set('research_type', params.research_type);
+    if (params?.jurisdiction) query.set('jurisdiction', params.jurisdiction);
+    if (params?.matter_id) query.set('matter_id', params.matter_id);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    return fetchWithAuth(`/legal-research/sessions?${query}`);
+  },
+
+  async getSession(id: string) {
+    return fetchWithAuth(`/legal-research/sessions/${id}`);
+  },
+
+  async deleteSession(id: string) {
+    return fetchWithAuth(`/legal-research/sessions/${id}`, { method: 'DELETE' });
+  },
+
+  // Saved Research
+  async getSaved(params?: { matter_id?: string; research_type?: string; tags?: string; search?: string; limit?: number; offset?: number }) {
+    const query = new URLSearchParams();
+    if (params?.matter_id) query.set('matter_id', params.matter_id);
+    if (params?.research_type) query.set('research_type', params.research_type);
+    if (params?.tags) query.set('tags', params.tags);
+    if (params?.search) query.set('search', params.search);
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.offset) query.set('offset', String(params.offset));
+    return fetchWithAuth(`/legal-research/saved?${query}`);
+  },
+
+  async saveResearch(data: { session_id?: string; matter_id?: string; title: string; content: string; research_type?: string; jurisdiction?: string; citations?: any[]; tags?: string[] }) {
+    return fetchWithAuth('/legal-research/saved', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async togglePin(id: string) {
+    return fetchWithAuth(`/legal-research/saved/${id}/pin`, { method: 'PUT' });
+  },
+
+  async deleteSaved(id: string) {
+    return fetchWithAuth(`/legal-research/saved/${id}`, { method: 'DELETE' });
+  },
+
+  // Research Templates
+  async getTemplates() {
+    return fetchWithAuth('/legal-research/templates');
+  },
+
+  async createTemplate(data: { name: string; description?: string; research_type?: string; jurisdiction?: string; practice_area?: string; query_template: string; variables?: any[] }) {
+    return fetchWithAuth('/legal-research/templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Stats
+  async getStats() {
+    return fetchWithAuth('/legal-research/stats');
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -2410,4 +2485,5 @@ export default {
   analytics: analyticsApi,
   stripe: stripeApi,
   notifications: notificationsApi,
+  legalResearch: legalResearchApi,
 };

@@ -8,7 +8,7 @@ export interface AgentModule {
   id: string
   name: string
   description: string
-  category: 'matters' | 'documents' | 'billing' | 'clients' | 'calendar' | 'research' | 'compliance'
+  category: 'matters' | 'documents' | 'billing' | 'clients' | 'calendar' | 'research' | 'compliance' | 'legal_research'
   estimatedMinutes: number
   complexity: 'low' | 'medium' | 'high'
   requiredContext?: string[]
@@ -316,53 +316,106 @@ export const AGENT_MODULES: AgentModule[] = [
   },
 
   // =========================================
-  // RESEARCH MODULES
+  // RESEARCH MODULES (Plugs into AI Legal Research Mastery)
   // =========================================
   {
     id: 'sol-research',
     name: 'Statute of Limitations Research',
-    description: 'Research and document applicable statute of limitations',
+    description: 'Research and document applicable statute of limitations with full citation support',
     category: 'research',
     estimatedMinutes: 6,
     complexity: 'medium',
     requiredContext: ['claimType', 'jurisdiction'],
-    prompt: `Research statute of limitations:
-1. Identify all applicable limitations periods
-2. Note any tolling provisions
-3. Document discovery rule applicability
-4. Identify any special notice requirements
+    prompt: `Use the check_statute_of_limitations tool to research the statute of limitations:
+1. Identify all applicable limitations periods with statutory citations
+2. Note any tolling provisions (minority, insanity, absence from state)
+3. Document discovery rule applicability and case law
+4. Identify any special notice requirements (e.g., government claims)
 5. Calculate key dates from incident/discovery
-6. Create limitations analysis memo`,
+6. Use conduct_legal_research to create a structured research session
+7. Generate a formal research memo with generate_research_memo`,
     expectedOutputs: [
-      'Limitations periods',
+      'Limitations periods with citations',
       'Tolling analysis',
       'Discovery rule review',
       'Notice requirements',
       'Date calculations',
-      'Analysis memo'
+      'Formal research memo'
     ]
   },
   {
     id: 'legal-research',
     name: 'Legal Issue Research',
-    description: 'Research specific legal issue with case law',
+    description: 'Deep AI-powered research on any legal issue with case law, statutes, and IRAC analysis',
     category: 'research',
     estimatedMinutes: 10,
     complexity: 'high',
     requiredContext: ['legalIssue', 'jurisdiction'],
-    prompt: `Research legal issue:
-1. Identify governing statutes
-2. Find leading case authority
-3. Note any recent developments
-4. Summarize majority and minority positions
-5. Identify potential arguments on both sides
-6. Draft research memo with citations`,
+    prompt: `Use the conduct_legal_research tool to start a structured research session, then:
+1. Use search_legal_authority to find governing statutes and leading case authority
+2. Use add_research_finding for each key finding (with IRAC structure: issue, rule, application, conclusion)
+3. Use add_research_citation for every case, statute, and regulation cited
+4. Use analyze_legal_issue for deep IRAC analysis of each sub-issue
+5. Note any recent developments, circuit splits, or unsettled areas
+6. Summarize majority and minority positions across jurisdictions
+7. Use generate_research_memo to produce the formal research memorandum`,
     expectedOutputs: [
-      'Statutory analysis',
-      'Case summaries',
+      'Statutory analysis with citations',
+      'Case summaries with holdings',
+      'IRAC analysis for each issue',
       'Recent developments',
-      'Argument analysis',
-      'Research memo draft'
+      'Multi-perspective argument analysis',
+      'Formal IRAC research memo'
+    ]
+  },
+  {
+    id: 'multi-jurisdiction-research',
+    name: 'Multi-Jurisdiction Comparison',
+    description: 'Compare legal treatment across multiple jurisdictions with AI analysis',
+    category: 'research',
+    estimatedMinutes: 12,
+    complexity: 'high',
+    requiredContext: ['legalIssue'],
+    prompt: `Use the compare_jurisdictions tool with at least 3 jurisdictions:
+1. Use conduct_legal_research with type 'multi_jurisdiction'
+2. For each jurisdiction, use search_legal_authority to find governing law
+3. Use add_research_finding for each jurisdiction's treatment of the issue
+4. Identify majority rule, minority rule, and emerging trends
+5. Analyze choice of law implications and forum selection strategy
+6. Use add_research_citation for all authorities across jurisdictions
+7. Use generate_research_memo for a comprehensive comparison memo`,
+    expectedOutputs: [
+      'Jurisdiction-by-jurisdiction analysis',
+      'Majority vs minority rule classification',
+      'Choice of law analysis',
+      'Forum selection implications',
+      'Trend analysis',
+      'Comparison research memo'
+    ]
+  },
+  {
+    id: 'precedent-analysis',
+    name: 'Precedent Analysis',
+    description: 'Deep analysis of case precedent and its implications using AI legal mastery',
+    category: 'research',
+    estimatedMinutes: 8,
+    complexity: 'high',
+    requiredContext: ['caseCitation'],
+    prompt: `Use conduct_legal_research with type 'precedent_analysis':
+1. Analyze the case's full procedural history and factual background
+2. Distinguish the precise holding from dicta
+3. Use search_legal_authority to find how the case has been cited and followed
+4. Identify any negative treatment, questioning, or limitation
+5. Assess current validity and binding scope
+6. Use add_research_finding for the doctrinal impact analysis
+7. Generate a research memo on the case's precedential value`,
+    expectedOutputs: [
+      'Detailed case analysis',
+      'Holding vs dicta distinction',
+      'Subsequent history',
+      'Current validity assessment',
+      'Doctrinal impact analysis',
+      'Precedent research memo'
     ]
   },
 
