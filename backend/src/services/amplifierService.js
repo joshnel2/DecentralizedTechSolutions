@@ -57,6 +57,17 @@ import { getUserInteractionProfile, formatInteractionProfileForPrompt } from '..
 import { getRecentActivityContext } from './amplifier/activityLearning.js';
 // Unified learning context: selective, budgeted prompt injection from ALL learning sources
 import { buildUnifiedLearningContext } from './amplifier/unifiedLearningContext.js';
+// ===== COGNITIVE IMPRINTING: The next evolution of attorney learning =====
+// Cognitive State: infers deep_work/triage/urgent mode from observable signals
+import { inferCognitiveState, formatCognitiveStateForPrompt } from './amplifier/cognitiveState.js';
+// Cognitive Signature: model-agnostic mathematical representation of attorney identity
+import { getCognitiveSignature, renderSignatureForPrompt } from './amplifier/cognitiveSignature.js';
+// Edit Diff Learning: captures silent edits to agent-created documents as high-confidence signals
+import { getEditLearnedPreferences, trackAgentCreatedDocument } from './amplifier/editDiffLearning.js';
+// Associative Memory: maps how the lawyer uniquely connects legal concepts during reasoning
+import { extractAssociations, getRelevantAssociations, reinforceAssociations, weakenAssociations } from './amplifier/associativeMemory.js';
+// Resonance Memory: the living cognitive graph that connects all memory systems
+import { loadResonanceGraph, renderGraphForPrompt, invalidateGraphCache } from './amplifier/resonanceMemory.js';
 
 // ===== SINGLETON INSTANCES for cross-task learning =====
 // These persist across tasks so learnings accumulate over the service lifetime
@@ -1569,6 +1580,55 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         }
       }
       
+      // ===== COGNITIVE IMPRINTING: Infer current cognitive state =====
+      // Detects deep_work/triage/urgent/review mode from observable DB signals
+      // and adapts detail level, brevity, structure, and phase budgets
+      try {
+        this.cognitiveState = await inferCognitiveState(this.userId, this.firmId);
+        if (this.cognitiveState) {
+          console.log(`[Amplifier] Cognitive state: ${this.cognitiveState.state} (confidence: ${this.cognitiveState.confidence?.toFixed(2)})`);
+        }
+      } catch (e) {
+        console.log('[Amplifier] Cognitive state not available:', e.message);
+        this.cognitiveState = null;
+      }
+      
+      // ===== COGNITIVE IMPRINTING: Compute cognitive signature =====
+      // Model-agnostic mathematical representation of attorney identity (18 continuous dimensions)
+      try {
+        this.cognitiveSignature = await getCognitiveSignature(this.userId, this.firmId, this.attorneyIdentity);
+        if (this.cognitiveSignature) {
+          console.log(`[Amplifier] Cognitive signature: ${this.cognitiveSignature.observedDimensions}/${this.cognitiveSignature.totalDimensions} dimensions, maturity=${this.cognitiveSignature.maturity?.toFixed(1)}`);
+        }
+      } catch (e) {
+        console.log('[Amplifier] Cognitive signature not available:', e.message);
+        this.cognitiveSignature = null;
+      }
+      
+      // ===== COGNITIVE IMPRINTING: Load edit-learned preferences =====
+      // High-confidence signals from silent edits the lawyer made to agent-created docs
+      try {
+        this.editLearnedPreferences = await getEditLearnedPreferences(this.userId, this.firmId);
+        if (this.editLearnedPreferences) {
+          console.log(`[Amplifier] Loaded edit-learned preferences from document edits`);
+        }
+      } catch (e) {
+        this.editLearnedPreferences = null;
+      }
+      
+      // ===== COGNITIVE IMPRINTING: Load resonance memory graph =====
+      // The living cognitive graph that connects all memory systems
+      try {
+        this.resonanceGraph = await loadResonanceGraph(this.userId, this.firmId);
+        if (this.resonanceGraph?.loaded) {
+          const summary = this.resonanceGraph.getSummary();
+          console.log(`[Amplifier] Resonance graph: ${summary.totalNodes} nodes, ${summary.totalEdges} edges`);
+        }
+      } catch (e) {
+        console.log('[Amplifier] Resonance graph not available:', e.message);
+        this.resonanceGraph = null;
+      }
+      
     } catch (error) {
       console.error('[Amplifier] Context initialization error:', error);
     }
@@ -2629,6 +2689,39 @@ ${hasMatterPreloaded && matterIsVerified
       }
     }
 
+    // ===== COGNITIVE IMPRINTING: Inject cognitive state adaptations =====
+    // Adapts the agent's behavior based on inferred working mode (deep_work/triage/urgent)
+    if (this.cognitiveState && this.cognitiveState.confidence > 0.35) {
+      const statePrompt = formatCognitiveStateForPrompt(this.cognitiveState);
+      if (statePrompt) {
+        prompt += statePrompt + '\n';
+      }
+    }
+
+    // ===== COGNITIVE IMPRINTING: Inject cognitive signature =====
+    // Model-agnostic continuous dimensions of the attorney's cognitive profile
+    if (this.cognitiveSignature && this.cognitiveSignature.observedDimensions >= 3) {
+      const sigPrompt = renderSignatureForPrompt(this.cognitiveSignature);
+      if (sigPrompt) {
+        prompt += sigPrompt + '\n';
+      }
+    }
+
+    // ===== COGNITIVE IMPRINTING: Inject edit-learned preferences =====
+    // High-confidence signals from the attorney's silent edits to agent-created documents
+    if (this.editLearnedPreferences) {
+      prompt += this.editLearnedPreferences + '\n';
+    }
+
+    // ===== COGNITIVE IMPRINTING: Inject resonance memory =====
+    // Charge-weighted output from the living cognitive graph
+    if (this.resonanceGraph?.loaded) {
+      const resonancePrompt = renderGraphForPrompt(this.resonanceGraph);
+      if (resonancePrompt) {
+        prompt += resonancePrompt + '\n';
+      }
+    }
+
     // Confidence-aware start instructions
     let startInstruction;
     if (hasMatterPreloaded && matterIsVerified) {
@@ -3595,6 +3688,49 @@ Keep working on: "${this.goal}"`
                 console.log(`[Amplifier] Confidence report: overall ${confidenceReport.overallConfidence}%, review guidance: "${confidenceReport.reviewGuidance}"`);
               } catch (confError) {
                 console.log('[Amplifier] Confidence report note:', confError.message);
+              }
+              
+              // ===== COGNITIVE IMPRINTING: Track agent-created documents for edit diff learning =====
+              try {
+                const createdDocs = this.actionsHistory.filter(a => a.tool === 'create_document' && a.success !== false);
+                for (const doc of createdDocs) {
+                  if (doc.result?.id && doc.args?.content) {
+                    await trackAgentCreatedDocument(
+                      doc.result.id, this.userId, this.firmId,
+                      doc.args.content, this.id, workTypeId
+                    );
+                  }
+                }
+                if (createdDocs.length > 0) {
+                  console.log(`[Amplifier] Tracked ${createdDocs.length} agent-created documents for edit diff learning`);
+                }
+              } catch (editTrackErr) {
+                console.log('[Amplifier] Edit diff tracking note:', editTrackErr.message);
+              }
+              
+              // ===== COGNITIVE IMPRINTING: Extract associative memory edges =====
+              try {
+                const matterType = this.preloadedMatterType || null;
+                const assocEdges = await extractAssociations(
+                  this.userId, this.firmId, this.id,
+                  this.actionsHistory, workTypeId, matterType
+                );
+                if (assocEdges.length > 0) {
+                  console.log(`[Amplifier] Extracted ${assocEdges.length} associative memory edges`);
+                }
+              } catch (assocErr) {
+                console.log('[Amplifier] Associative memory note:', assocErr.message);
+              }
+              
+              // ===== COGNITIVE IMPRINTING: Propagate task_complete through resonance graph =====
+              try {
+                if (this.resonanceGraph?.loaded) {
+                  this.resonanceGraph.processEvent('task_complete', { workType: workTypeId });
+                  await this.resonanceGraph.persist();
+                  console.log('[Amplifier] Resonance graph updated for task completion');
+                }
+              } catch (resErr) {
+                console.log('[Amplifier] Resonance propagation note:', resErr.message);
               }
               
               // SMOOTH COMPLETION SEQUENCE

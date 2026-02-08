@@ -2091,6 +2091,36 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
 
     const d = result.rows[0];
     console.log(`[DOCUMENTS] Updated document ${d.id}: ${d.name}`);
+    
+    // ===== COGNITIVE IMPRINTING: Detect edits to agent-created documents =====
+    // If this document was created by the agent and the lawyer is editing the content,
+    // those edits are high-confidence learning signals about the attorney's preferences.
+    if (content !== undefined && req.user?.id && req.user?.firmId) {
+      try {
+        const { detectAndLearnFromEdit } = await import('../services/amplifier/editDiffLearning.js');
+        const signals = await detectAndLearnFromEdit(req.params.id, content, req.user.id, req.user.firmId);
+        if (signals.length > 0) {
+          console.log(`[DOCUMENTS] Edit diff learning: ${signals.length} signals extracted from document edit`);
+          
+          // Propagate through resonance graph
+          try {
+            const { loadResonanceGraph, invalidateGraphCache } = await import('../services/amplifier/resonanceMemory.js');
+            const graph = await loadResonanceGraph(req.user.id, req.user.firmId);
+            if (graph?.loaded) {
+              for (const signal of signals.slice(0, 3)) {
+                graph.processEvent('document_edited', { dimension: signal.dimension, signalType: signal.type });
+              }
+              await graph.persist();
+              invalidateGraphCache(req.user.id, req.user.firmId);
+            }
+          } catch (_) {}
+        }
+      } catch (editErr) {
+        // Non-fatal: edit diff learning is supplementary
+        console.log('[DOCUMENTS] Edit diff note:', editErr.message);
+      }
+    }
+    
     res.json({
       id: d.id,
       name: d.name,

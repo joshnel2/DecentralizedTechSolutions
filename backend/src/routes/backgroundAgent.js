@@ -811,6 +811,31 @@ router.post('/review-queue/:id/approve', authenticate, async (req, res) => {
       console.log('[ReviewQueue] Exemplar capture note:', e.message);
     }
     
+    // ===== COGNITIVE IMPRINTING: Propagate approval through resonance graph =====
+    // One approval ripples through the entire cognitive network — reinforcing
+    // tool chains, identity dimensions, exemplars, and associations.
+    try {
+      const { loadResonanceGraph, invalidateGraphCache } = await import('../services/amplifier/resonanceMemory.js');
+      const { reinforceAssociations } = await import('../services/amplifier/associativeMemory.js');
+      
+      const graph = await loadResonanceGraph(req.user.id, req.user.firmId);
+      if (graph?.loaded) {
+        graph.processEvent('approved', { 
+          workType: workType.id, 
+          evaluationScore: parsedResult?.evaluation?.score,
+          taskId: req.params.id,
+        });
+        await graph.persist();
+        invalidateGraphCache(req.user.id, req.user.firmId);
+        console.log('[ReviewQueue] Resonance graph: approval propagated');
+      }
+      
+      // Reinforce associative memory edges from this approved task
+      await reinforceAssociations(req.user.id, req.user.firmId, req.params.id);
+    } catch (resErr) {
+      console.log('[ReviewQueue] Resonance/association note:', resErr.message);
+    }
+    
     console.log(`[ReviewQueue] Task ${req.params.id} approved by user ${req.user.id}`);
     
     res.json({ success: true, message: 'Task approved' });
@@ -953,6 +978,30 @@ router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
       );
     } catch (e) {
       console.log('[ReviewQueue] Correction pair capture note:', e.message);
+    }
+    
+    // ===== COGNITIVE IMPRINTING: Propagate rejection through resonance graph =====
+    // One rejection weakens tool chains, strengthens corrections, ripples through the network.
+    try {
+      const { loadResonanceGraph, invalidateGraphCache } = await import('../services/amplifier/resonanceMemory.js');
+      const { weakenAssociations } = await import('../services/amplifier/associativeMemory.js');
+      const { invalidateSignatureCache } = await import('../services/amplifier/cognitiveSignature.js');
+      
+      const graph = await loadResonanceGraph(req.user.id, req.user.firmId);
+      if (graph?.loaded) {
+        graph.processEvent('rejected', { workType: workType.id, feedback });
+        await graph.persist();
+        invalidateGraphCache(req.user.id, req.user.firmId);
+        console.log('[ReviewQueue] Resonance graph: rejection propagated');
+      }
+      
+      // Weaken associative memory edges from this rejected task
+      await weakenAssociations(req.user.id, req.user.firmId, req.params.id);
+      
+      // Invalidate cognitive signature cache so it recomputes with new corrections
+      invalidateSignatureCache(req.user.id, req.user.firmId);
+    } catch (resErr) {
+      console.log('[ReviewQueue] Resonance/association note:', resErr.message);
     }
     
     console.log(`[ReviewQueue] Task ${req.params.id} rejected by user ${req.user.id}: ${feedback.substring(0, 80)}`);
