@@ -235,8 +235,23 @@ function _filterActivityByRelevance(activityContext, goal, workTypeId) {
 }
 
 /**
- * Standardized confidence score calculation.
- * Use this instead of ad-hoc formulas across modules.
+ * Standardized confidence score calculation using Bayesian inference.
+ * 
+ * CUTTING-EDGE UPGRADE: Replaced ad-hoc formula with principled Bayesian
+ * confidence based on the Beta-Bernoulli model:
+ * 
+ * - Prior: Beta(1, 1) = uniform (no assumption about success rate)
+ * - Posterior: Beta(1 + successes, 1 + failures)
+ * - Confidence: derived from the width of the 95% credible interval
+ * 
+ * This means:
+ * - With 0 observations → confidence = 0.0 (we know nothing)
+ * - With 1 success, 0 failures → confidence ≈ 0.30 (promising but uncertain)
+ * - With 10 successes, 0 failures → confidence ≈ 0.80 (very likely good)
+ * - With 50/50 → confidence is high (we're confident it's ~50%)
+ * 
+ * The key insight: confidence measures HOW SURE we are, not HOW GOOD it is.
+ * A strategy that fails 90% of the time can have HIGH confidence (we're sure it's bad).
  * 
  * @param {number} successes - Number of successful observations
  * @param {number} attempts - Total observations
@@ -246,9 +261,41 @@ function _filterActivityByRelevance(activityContext, goal, workTypeId) {
 export function calculateConfidence(successes, attempts, lastUsed = null) {
   if (attempts === 0) return 0.0;
 
-  const successRate = successes / attempts;
-  const sampleConfidence = Math.min(1.0, attempts / 10); // Need 10+ samples for full confidence
+  // Bayesian posterior: Beta(α, β) where α = successes + 1, β = failures + 1
+  const alpha = successes + 1;
+  const beta = (attempts - successes) + 1;
+  
+  // Confidence from credible interval width
+  // Variance of Beta(α, β) = αβ / ((α+β)²(α+β+1))
+  const sum = alpha + beta;
+  const variance = (alpha * beta) / (sum * sum * (sum + 1));
+  
+  // 95% credible interval width ≈ 4 * sqrt(variance)
+  const intervalWidth = 4 * Math.sqrt(variance);
+  
+  // Raw confidence: narrow interval = high confidence
+  let confidence = Math.max(0.0, 1 - intervalWidth);
+  
+  // Apply recency decay: old observations are less reliable
   const recency = lastUsed ? recencyWeight(lastUsed) : 0.8;
+  confidence *= (0.5 + 0.5 * recency);
 
-  return Math.min(0.99, successRate * sampleConfidence * (0.5 + 0.5 * recency));
+  return Math.min(0.99, Math.max(0.0, confidence));
+}
+
+/**
+ * Calculate the expected success probability using Bayesian posterior mean.
+ * This is what you should use when you want "how good is this?" not "how sure are we?"
+ * 
+ * @param {number} successes 
+ * @param {number} attempts 
+ * @returns {number} Expected probability 0.0-1.0
+ */
+export function bayesianSuccessRate(successes, attempts) {
+  if (attempts === 0) return 0.5; // Uniform prior mean
+  
+  // Posterior mean of Beta(α, β) = α / (α + β)
+  const alpha = successes + 1;
+  const beta = (attempts - successes) + 1;
+  return alpha / (alpha + beta);
 }
