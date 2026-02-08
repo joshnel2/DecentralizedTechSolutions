@@ -2445,6 +2445,7 @@ ${matterNeedsVerification ? `- **MATTER SAFETY GATE**: Write tools (add_matter_n
 ## TOOLS
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
 **Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
+**Research:** conduct_legal_research, add_research_finding, add_research_citation, generate_research_memo, search_legal_authority, analyze_legal_issue, check_statute_of_limitations, compare_jurisdictions
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
 
 ## PHASES (current: ${this.executionPhase.toUpperCase()})
@@ -2460,6 +2461,33 @@ ${hasMatterPreloaded && matterIsVerified
     const needsCPLR = /\b(?:cplr|ny |new york|litigation|motion|discovery|filing|statute|deadline|sol\b)/i.test(this.goal);
     if (needsCPLR) {
       prompt += getCPLRContextForPrompt() + '\n';
+    }
+
+    // ===== LEGAL RESEARCH INTEGRATION =====
+    // When the task involves legal research, inject the full research toolkit instructions.
+    // This plugs the agent into AI's legal research mastery instead of competing with it.
+    const isLegalResearch = /\b(?:legal research|research.*case law|research.*statute|research.*regulation|research.*memo|irac|jurisdiction comparison|statute of limitations research|precedent analysis|multi.?jurisdiction|compliance research|regulatory research|issue spotting|legislative history|secondary source|controlling authority|binding authority)\b/i.test(this.goal);
+    if (isLegalResearch) {
+      prompt += `
+## LEGAL RESEARCH TOOLS (USE THESE)
+You have specialized legal research tools that structure your research into attorney-ready output:
+
+**Research Workflow Tools:**
+- \`conduct_legal_research\` - Start a structured research session (tracks findings, citations, quality)
+- \`add_research_finding\` - Record each finding with IRAC structure
+- \`add_research_citation\` - Record citations (auto-validated for format)
+- \`generate_research_memo\` - Produce formal IRAC research memorandum
+
+**Research Analysis Tools:**
+- \`search_legal_authority\` - Search for authority on a topic
+- \`analyze_legal_issue\` - Deep IRAC analysis of a legal issue
+- \`check_statute_of_limitations\` - SOL research with tolling and discovery rules
+- \`compare_jurisdictions\` - Multi-jurisdiction comparison
+
+**WORKFLOW**: conduct_legal_research → search_legal_authority → add_research_finding (x3+) → add_research_citation (x5+) → analyze_legal_issue → generate_research_memo
+
+**QUALITY**: Minimum 3 findings, 5 citations, 1 memo. Use Bluebook citations. Identify adverse authority.
+`;
     }
 
     // Only include rewind/failed paths if they exist

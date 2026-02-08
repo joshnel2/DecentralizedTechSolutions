@@ -1003,13 +1003,13 @@ Take 20-25 minutes. Identify all compliance issues.`,
     },
     {
       id: 'research-memo',
-      name: 'Quick Legal Research',
-      description: 'Research a specific legal issue and summarize findings',
+      name: 'AI Legal Research',
+      description: 'Structured legal research with citations, IRAC analysis, and formal memo output',
       icon: Search,
-      estimatedTime: '~8 min',
+      estimatedTime: '~10 min',
       complexity: 'high',
-      prompt: 'Research the specified legal issue. Identify applicable law, relevant cases, and provide a summary of the current legal standard. Include citations and practical implications.',
-      tags: ['research', 'legal memo', 'analysis'],
+      prompt: 'Legal Research: Use conduct_legal_research to start a structured research session. Search for controlling authority with search_legal_authority. Record findings with add_research_finding (minimum 3) and citations with add_research_citation (minimum 5). Use analyze_legal_issue for IRAC analysis. Finally, generate a formal research memo with generate_research_memo. The research should be thorough enough for attorney review.',
+      tags: ['research', 'IRAC', 'citations', 'memo'],
       extended: false
     }
   ]
@@ -2730,16 +2730,20 @@ Take 20-25 minutes. Identify all compliance issues.`,
             </div>
           </div>
           
-          <div className={styles.capabilityCategory}>
+          <div className={styles.capabilityCategory} onClick={() => _navigate('/app/legal-research')} style={{ cursor: 'pointer' }}>
             <div className={styles.capabilityIcon}><Scale size={18} /></div>
             <div className={styles.capabilityInfo}>
-              <h4>Legal Research</h4>
+              <h4>Legal Research <span style={{ fontSize: '0.65rem', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: 'white', padding: '1px 6px', borderRadius: '4px', marginLeft: '6px', fontWeight: 600 }}>AI-Powered</span></h4>
               <ul>
-                <li>Research statute of limitations</li>
-                <li>Identify relevant court rules</li>
-                <li>Check NY CPLR requirements</li>
-                <li>Prepare legal memos</li>
+                <li>Case law, statutory, &amp; regulatory research</li>
+                <li>Multi-jurisdiction comparison &amp; analysis</li>
+                <li>IRAC memos with Bluebook citations</li>
+                <li>SOL research with tolling &amp; discovery rules</li>
+                <li>Precedent analysis &amp; issue spotting</li>
               </ul>
+              <div style={{ marginTop: '0.35rem', fontSize: '0.7rem', color: '#6366f1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                Open Legal Research <ChevronRight size={12} />
+              </div>
             </div>
           </div>
         </div>
