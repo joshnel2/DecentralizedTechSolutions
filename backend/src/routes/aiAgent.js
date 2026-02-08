@@ -12443,7 +12443,8 @@ async function buildHotContext(userId, firmId) {
       weeklyStatsResult,
       recentMattersResult,
       tasksDueTodayResult,
-      todayTimeEntriesResult
+      todayTimeEntriesResult,
+      recentActivityResult
     ] = await Promise.all([
       // 1. User info
       query(`SELECT first_name, last_name, role, hourly_rate FROM users WHERE id = $1`, [userId]),
@@ -12574,6 +12575,21 @@ async function buildHotContext(userId, firmId) {
           AND te.date = CURRENT_DATE
         ORDER BY te.created_at DESC
         LIMIT 5
+      `, [firmId, userId]),
+      
+      // 10. Recent activity - matters the user worked on recently (by time entries)
+      query(`
+        SELECT m.name as matter_name, m.number,
+               SUM(te.hours) as hours,
+               MAX(te.date) as last_activity
+        FROM time_entries te
+        JOIN matters m ON te.matter_id = m.id
+        WHERE te.firm_id = $1
+          AND te.user_id = $2
+          AND te.date >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY m.id, m.name, m.number
+        ORDER BY last_activity DESC, hours DESC
+        LIMIT 5
       `, [firmId, userId])
     ]);
 
@@ -12586,6 +12602,7 @@ async function buildHotContext(userId, firmId) {
     const recentMatters = recentMattersResult.rows;
     const tasksDueToday = tasksDueTodayResult.rows;
     const todayTimeEntries = todayTimeEntriesResult.rows;
+    const recentActivity = recentActivityResult.rows;
 
     // Fetch recent documents for each recent matter (max 3 docs per matter)
     const recentMatterDocs = new Map();
