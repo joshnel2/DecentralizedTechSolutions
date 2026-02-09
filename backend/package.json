@@ -8,7 +8,9 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "db:init": "node src/db/init.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "db:migrate": "node src/db/migrationRunner.js",
+    "db:migrate:status": "node src/db/migrationRunner.js --status"
   },
   "dependencies": {
     "@azure/ai-projects": "^2.0.0-beta.2",
