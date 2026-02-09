@@ -17,6 +17,7 @@
 import { query } from '../db/connection.js';
 import { generateEmbedding } from './embeddingService.js';
 import { searchSummaryTree } from './raptorSummaryService.js';
+import crypto from 'crypto';
 
 // RRF constant (controls how quickly rank importance decays)
 // k=60 is the standard from the original RRF paper
@@ -667,7 +668,7 @@ function buildProvenance(result) {
  */
 export async function recordRetrievalFeedback(firmId, lawyerId, queryText, results, selectedDocumentId, rating = null) {
   try {
-    const queryHash = require('crypto').createHash('sha256')
+    const queryHash = crypto.createHash('sha256')
       .update(queryText)
       .digest('hex');
     

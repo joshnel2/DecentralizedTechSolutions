@@ -17,7 +17,7 @@
 
 import { query } from '../db/connection.js';
 import crypto from 'crypto';
-import { encryptEmbedding as encryptViaService, isEncryptionEnabled } from './encryptionService.js';
+import { encryptEmbedding as encryptViaService } from './encryptionService.js';
 import { chunkWithContext, getMatterContext } from './contextualChunker.js';
 import { buildSummaryTree } from './raptorSummaryService.js';
 
@@ -29,8 +29,11 @@ const EMBEDDING_API_VERSION = '2024-02-15-preview'; // Same as chat API
 
 // Encryption is now handled by encryptionService.js (HKDF key derivation)
 // Legacy: Azure Key Vault configuration kept for backward compatibility
+// IMPORTANT: KEY_VAULT_ENABLED preserves the original behavior - it only activates
+// when AZURE_KEY_VAULT_NAME is explicitly set. The new encryptionService is used
+// as the IMPLEMENTATION when encryption is active, but doesn't change WHEN it activates.
 const AZURE_KEY_VAULT_NAME = process.env.AZURE_KEY_VAULT_NAME;
-const KEY_VAULT_ENABLED = !!AZURE_KEY_VAULT_NAME || isEncryptionEnabled();
+const KEY_VAULT_ENABLED = !!AZURE_KEY_VAULT_NAME;
 
 /**
  * Generate embedding for text using Azure OpenAI
@@ -377,8 +380,13 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
     }
     
     // Step 4: Extract and store cross-references as document relationships
+    // Wrapped in try/catch: if document_relationships table doesn't exist yet, don't fail
     if (contextualChunks.length > 0) {
-      await storeExtractedRelationships(documentId, firmId, contextualChunks);
+      try {
+        await storeExtractedRelationships(documentId, firmId, contextualChunks);
+      } catch (e) {
+        console.warn('[EmbeddingService] Cross-reference extraction failed:', e.message);
+      }
     }
     
     return {
@@ -445,8 +453,17 @@ async function storeExtractedRelationships(documentId, firmId, chunks) {
 
 /**
  * Search for similar documents using vector similarity
+ * 
+ * NOTE: For full hybrid retrieval (vector + keyword + graph + RAPTOR),
+ * use retrievalPipeline.js instead. This function is kept for backward
+ * compatibility with existing callers.
+ * 
+ * @param {string} searchQuery - The search text (renamed from 'query' to avoid
+ *   shadowing the imported database query function - pre-existing bug fix)
+ * @param {string} firmId - The firm ID for tenant isolation
+ * @param {object} options - Search options
  */
-export async function semanticSearch(query, firmId, options = {}) {
+export async function semanticSearch(searchQuery, firmId, options = {}) {
   const {
     limit = 10,
     threshold = 0.7,
@@ -458,7 +475,7 @@ export async function semanticSearch(query, firmId, options = {}) {
   
   try {
     // Generate embedding for query
-    const queryEmbedding = await generateEmbedding(query, firmId);
+    const queryEmbedding = await generateEmbedding(searchQuery, firmId);
     
     // Vector similarity search
     const vectorResults = await query(`
@@ -671,23 +688,33 @@ export async function getEmbeddingStats(firmId) {
 
 /**
  * Delete embeddings AND summary tree for a document
+ * Safe to call even if new tables (document_summary_tree) don't exist yet
  */
 export async function deleteDocumentWithTree(documentId, firmId) {
   try {
-    // Delete RAPTOR summary tree
-    await query(`
-      DELETE FROM document_summary_tree
-      WHERE firm_id = $1 AND document_id = $2
-    `, [firmId, documentId]);
+    // Delete RAPTOR summary tree (safe: table may not exist if migration hasn't run)
+    try {
+      await query(`
+        DELETE FROM document_summary_tree
+        WHERE firm_id = $1 AND document_id = $2
+      `, [firmId, documentId]);
+    } catch (e) {
+      // Table may not exist yet - non-critical
+      console.warn('[EmbeddingService] Summary tree delete skipped:', e.message);
+    }
     
-    // Delete embeddings
+    // Delete embeddings (core table, always exists)
     await deleteDocumentEmbeddings(documentId, firmId);
     
-    // Delete relationships originating from this document
-    await query(`
-      DELETE FROM document_relationships
-      WHERE firm_id = $1 AND (source_document_id = $2 OR target_document_id = $2)
-    `, [firmId, documentId]);
+    // Delete relationships (table from add_vector_embedding_support.sql)
+    try {
+      await query(`
+        DELETE FROM document_relationships
+        WHERE firm_id = $1 AND (source_document_id = $2 OR target_document_id = $2)
+      `, [firmId, documentId]);
+    } catch (e) {
+      console.warn('[EmbeddingService] Relationship delete skipped:', e.message);
+    }
     
     return { success: true };
   } catch (error) {
