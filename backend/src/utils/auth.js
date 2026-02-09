@@ -17,8 +17,9 @@ export async function verifyPassword(password, hash) {
 }
 
 // JWT tokens
-// Access tokens are short-lived (15 minutes by default) -- use refresh tokens to get new ones.
-// NEVER set JWT_EXPIRES_IN to more than 1 hour in production.
+// Access tokens default to 1 hour -- long enough for uninterrupted work sessions,
+// short enough to limit damage from a stolen token (was 7 days before this fix).
+// The frontend auto-refreshes via httpOnly refresh token cookie when needed.
 export function generateAccessToken(user) {
   return jwt.sign(
     {
@@ -28,7 +29,7 @@ export function generateAccessToken(user) {
       role: user.role,
     },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '15m' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
   );
 }
 

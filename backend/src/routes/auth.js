@@ -71,7 +71,7 @@ router.post('/register', authLimiter, validate(schemas.register), async (req, re
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: 60 * 60 * 1000, // 1 hour (matches JWT expiry)
     });
 
     res.cookie('refreshToken', refreshToken, {
@@ -170,7 +170,7 @@ router.post('/login', authLimiter, validate(schemas.login), async (req, res) => 
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60 * 1000,
+      maxAge: 60 * 60 * 1000, // 1 hour (matches JWT expiry)
     });
 
     res.cookie('refreshToken', refreshToken, {
@@ -269,7 +269,7 @@ router.post('/refresh', async (req, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 15 * 60 * 1000,
+      maxAge: 60 * 60 * 1000, // 1 hour (matches JWT expiry)
     });
 
     res.json({ accessToken });
