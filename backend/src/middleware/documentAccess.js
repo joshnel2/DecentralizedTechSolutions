@@ -12,9 +12,14 @@
  */
 
 import { query } from '../db/connection.js';
+import { createCache } from '../utils/cache.js';
 
 // Roles that have full access to all documents
 export const FULL_ACCESS_ROLES = ['owner', 'admin'];
+
+// Cache for accessible matter IDs -- avoids re-querying on every document list request.
+// TTL 30s: if a matter permission changes, the user sees the update within 30 seconds.
+const matterIdCache = createCache({ ttlMs: 30000, maxSize: 200 });
 
 /**
  * Check if a user can access a specific document
@@ -31,96 +36,126 @@ export async function canAccessDocument(userId, userRole, documentId, firmId, re
     return { hasAccess: true, reason: 'admin_role' };
   }
 
-  // Get document info
-  const docResult = await query(`
-    SELECT 
-      d.id, d.uploaded_by, d.owner_id, d.matter_id, d.client_id,
-      d.privacy_level, d.is_private, d.folder_path
+  // OPTIMIZED: Single query checks all access paths at once instead of 8 sequential queries.
+  // Returns a row with boolean flags for each access path so we can evaluate in JS.
+  const accessResult = await query(`
+    SELECT
+      d.id,
+      d.uploaded_by,
+      d.owner_id,
+      d.matter_id,
+      d.privacy_level,
+      d.folder_path,
+      -- Check 1 & 2: Uploader or owner
+      (d.uploaded_by = $2) AS is_uploader,
+      (d.owner_id = $2) AS is_owner,
+      -- Check 3: Matter access (firm_wide, responsible/originating attorney, assigned, permitted)
+      CASE WHEN d.matter_id IS NOT NULL THEN (
+        SELECT CASE
+          WHEN m.visibility = 'firm_wide' THEN 'firm_wide'
+          WHEN m.responsible_attorney = $2 OR m.originating_attorney = $2 THEN 'attorney'
+          WHEN EXISTS(SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2) THEN 'assigned'
+          WHEN EXISTS(SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2 AND mp.can_view_documents != false) THEN 'permitted'
+          WHEN EXISTS(SELECT 1 FROM matter_permissions mp JOIN user_groups ug ON mp.group_id = ug.group_id WHERE mp.matter_id = m.id AND ug.user_id = $2 AND mp.can_view_documents != false) THEN 'group'
+          ELSE NULL
+        END
+        FROM matters m WHERE m.id = d.matter_id AND m.firm_id = $3
+      ) ELSE NULL END AS matter_access,
+      -- Check 3b: Can edit via matter (attorney/assigned have edit, firm_wide does not)
+      CASE WHEN d.matter_id IS NOT NULL THEN (
+        SELECT CASE
+          WHEN m.responsible_attorney = $2 OR m.originating_attorney = $2 THEN true
+          WHEN EXISTS(SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2) THEN true
+          WHEN EXISTS(SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2 AND mp.can_edit = true) THEN true
+          WHEN EXISTS(SELECT 1 FROM matter_permissions mp JOIN user_groups ug ON mp.group_id = ug.group_id WHERE mp.matter_id = m.id AND ug.user_id = $2 AND mp.can_edit = true) THEN true
+          ELSE false
+        END
+        FROM matters m WHERE m.id = d.matter_id AND m.firm_id = $3
+      ) ELSE false END AS matter_can_edit,
+      -- Check 4: Explicit document permission
+      (SELECT row_to_json(dp.*) FROM document_permissions dp
+       WHERE dp.document_id = d.id AND dp.user_id = $2
+       AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+       LIMIT 1) AS explicit_perm,
+      -- Check 5: Group document permission
+      (SELECT row_to_json(dp.*) FROM document_permissions dp
+       JOIN user_groups ug ON dp.group_id = ug.group_id
+       WHERE dp.document_id = d.id AND ug.user_id = $2
+       AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
+       LIMIT 1) AS group_perm,
+      -- Check 7: Privacy level (firm-wide)
+      (d.privacy_level = 'firm') AS is_firm_wide,
+      -- Check 8: Sharing group access
+      (SELECT json_build_object(
+        'has_access', true,
+        'can_edit', sg.default_permission_level != 'view'
+       ) FROM sharing_groups sg
+       JOIN sharing_group_members sgm1 ON sg.id = sgm1.sharing_group_id AND sgm1.user_id = $2
+       JOIN sharing_group_members sgm2 ON sg.id = sgm2.sharing_group_id
+         AND (sgm2.user_id = d.uploaded_by OR sgm2.user_id = d.owner_id)
+       WHERE sg.firm_id = $3 AND sg.is_active = true AND sg.share_documents = true
+       AND NOT EXISTS (
+         SELECT 1 FROM sharing_group_hidden_items shi
+         WHERE shi.sharing_group_id = sg.id
+           AND shi.user_id = COALESCE(d.uploaded_by, d.owner_id)
+           AND shi.item_type = 'document' AND shi.item_id = d.id
+       )
+       LIMIT 1) AS sharing_group_access
     FROM documents d
-    WHERE d.id = $1 AND d.firm_id = $2
-  `, [documentId, firmId]);
+    WHERE d.id = $1 AND d.firm_id = $3
+  `, [documentId, userId, firmId]);
 
-  if (docResult.rows.length === 0) {
+  if (accessResult.rows.length === 0) {
     return { hasAccess: false, reason: 'document_not_found' };
   }
 
-  const doc = docResult.rows[0];
+  const r = accessResult.rows[0];
 
-  // 1. User uploaded this document
-  if (doc.uploaded_by === userId) {
-    return { hasAccess: true, reason: 'uploader' };
-  }
+  // Evaluate access paths in priority order (same logic as before, now from one query)
+  if (r.is_uploader) return { hasAccess: true, reason: 'uploader' };
+  if (r.is_owner) return { hasAccess: true, reason: 'owner' };
 
-  // 2. User owns this document
-  if (doc.owner_id === userId) {
-    return { hasAccess: true, reason: 'owner' };
-  }
-
-  // 3. Check matter permissions (Clio-style folder inheritance)
-  if (doc.matter_id) {
-    const matterAccess = await checkMatterAccess(userId, userRole, doc.matter_id, firmId);
-    if (matterAccess.hasAccess) {
-      // Check if matter permission allows the required access level
-      if (requiredAccess === 'view' || requiredAccess === 'download') {
-        return { hasAccess: true, reason: 'matter_permission' };
-      }
-      if (requiredAccess === 'edit' && matterAccess.canEdit) {
-        return { hasAccess: true, reason: 'matter_permission_edit' };
-      }
+  // Matter access
+  if (r.matter_access) {
+    if (requiredAccess === 'view' || requiredAccess === 'download') {
+      return { hasAccess: true, reason: 'matter_permission' };
+    }
+    if (requiredAccess === 'edit' && r.matter_can_edit) {
+      return { hasAccess: true, reason: 'matter_permission_edit' };
     }
   }
 
-  // 4. Check explicit document permissions
-  const permResult = await query(`
-    SELECT dp.* FROM document_permissions dp
-    WHERE dp.document_id = $1 
-      AND dp.user_id = $2
-      AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
-  `, [documentId, userId]);
-
-  if (permResult.rows.length > 0) {
-    const perm = permResult.rows[0];
-    if (checkPermissionLevel(perm, requiredAccess)) {
-      return { hasAccess: true, reason: 'explicit_permission' };
-    }
+  // Explicit document permission
+  if (r.explicit_perm && checkPermissionLevel(r.explicit_perm, requiredAccess)) {
+    return { hasAccess: true, reason: 'explicit_permission' };
   }
 
-  // 5. Check group permissions
-  const groupPermResult = await query(`
-    SELECT dp.* FROM document_permissions dp
-    JOIN user_groups ug ON dp.group_id = ug.group_id
-    WHERE dp.document_id = $1 
-      AND ug.user_id = $2
-      AND (dp.expires_at IS NULL OR dp.expires_at > NOW())
-  `, [documentId, userId]);
-
-  if (groupPermResult.rows.length > 0) {
-    const perm = groupPermResult.rows[0];
-    if (checkPermissionLevel(perm, requiredAccess)) {
-      return { hasAccess: true, reason: 'group_permission' };
-    }
+  // Group document permission
+  if (r.group_perm && checkPermissionLevel(r.group_perm, requiredAccess)) {
+    return { hasAccess: true, reason: 'group_permission' };
   }
 
-  // 6. Check folder permissions (inherited from parent folder)
-  if (doc.folder_path) {
-    const folderAccess = await checkFolderAccess(userId, firmId, doc.folder_path, requiredAccess);
+  // Folder permissions -- still requires separate queries for parent traversal.
+  // This is the one area we can't fully collapse into the main query.
+  if (r.folder_path) {
+    const folderAccess = await checkFolderAccess(userId, firmId, r.folder_path, requiredAccess);
     if (folderAccess) {
       return { hasAccess: true, reason: 'folder_permission' };
     }
   }
 
-  // 7. Check privacy level for firm-wide access
-  if (doc.privacy_level === 'firm' && (requiredAccess === 'view' || requiredAccess === 'download')) {
+  // Firm-wide privacy
+  if (r.is_firm_wide && (requiredAccess === 'view' || requiredAccess === 'download')) {
     return { hasAccess: true, reason: 'firm_wide' };
   }
 
-  // 8. Check sharing groups - if document owner is in a sharing group with the user
-  const sharingGroupAccess = await checkSharingGroupAccess(userId, doc.uploaded_by || doc.owner_id, documentId, firmId, 'document');
-  if (sharingGroupAccess.hasAccess) {
+  // Sharing group access
+  if (r.sharing_group_access) {
+    const sg = r.sharing_group_access;
     if (requiredAccess === 'view' || requiredAccess === 'download') {
       return { hasAccess: true, reason: 'sharing_group' };
     }
-    if (requiredAccess === 'edit' && sharingGroupAccess.canEdit) {
+    if (requiredAccess === 'edit' && sg.can_edit) {
       return { hasAccess: true, reason: 'sharing_group_edit' };
     }
   }
@@ -270,44 +305,39 @@ async function checkMatterAccess(userId, userRole, matterId, firmId) {
 
 /**
  * Check folder permission (with inheritance from parent folders)
+ * OPTIMIZED: Single query checks direct + all parent paths + group permissions
+ * instead of looping one query per parent folder.
  */
 async function checkFolderAccess(userId, firmId, folderPath, requiredAccess) {
-  // Check direct permission on this folder
+  // Build all ancestor paths: /a/b/c -> ['/a/b/c', '/a/b', '/a', '/']
+  const pathParts = folderPath.split('/').filter(p => p);
+  const allPaths = [folderPath];
+  for (let i = pathParts.length - 1; i >= 0; i--) {
+    allPaths.push('/' + pathParts.slice(0, i).join('/') || '/');
+  }
+
+  // Single query: check user permissions on this folder or any ancestor,
+  // plus group permissions via user_groups. Return the most specific match.
   const result = await query(`
-    SELECT * FROM folder_permissions
-    WHERE firm_id = $1 AND user_id = $2 AND folder_path = $3
-  `, [firmId, userId, folderPath]);
+    (
+      SELECT fp.*, LENGTH(fp.folder_path) AS specificity
+      FROM folder_permissions fp
+      WHERE fp.firm_id = $1 AND fp.user_id = $2 AND fp.folder_path = ANY($3)
+    )
+    UNION ALL
+    (
+      SELECT fp.*, LENGTH(fp.folder_path) AS specificity
+      FROM folder_permissions fp
+      JOIN user_groups ug ON fp.group_id = ug.group_id
+      WHERE fp.firm_id = $1 AND ug.user_id = $2
+        AND (fp.folder_path = $4 OR $4 LIKE fp.folder_path || '/%')
+    )
+    ORDER BY specificity DESC
+    LIMIT 1
+  `, [firmId, userId, allPaths, folderPath]);
 
   if (result.rows.length > 0) {
     return checkPermissionLevel(result.rows[0], requiredAccess);
-  }
-
-  // Check parent folders (inheritance)
-  const pathParts = folderPath.split('/').filter(p => p);
-  for (let i = pathParts.length - 1; i >= 0; i--) {
-    const parentPath = '/' + pathParts.slice(0, i).join('/');
-    const parentResult = await query(`
-      SELECT * FROM folder_permissions
-      WHERE firm_id = $1 AND user_id = $2 AND folder_path = $3
-    `, [firmId, userId, parentPath || '/']);
-
-    if (parentResult.rows.length > 0) {
-      return checkPermissionLevel(parentResult.rows[0], requiredAccess);
-    }
-  }
-
-  // Check group folder permissions
-  const groupResult = await query(`
-    SELECT fp.* FROM folder_permissions fp
-    JOIN user_groups ug ON fp.group_id = ug.group_id
-    WHERE fp.firm_id = $1 AND ug.user_id = $2 
-      AND (fp.folder_path = $3 OR $3 LIKE fp.folder_path || '/%')
-    ORDER BY LENGTH(fp.folder_path) DESC
-    LIMIT 1
-  `, [firmId, userId, folderPath]);
-
-  if (groupResult.rows.length > 0) {
-    return checkPermissionLevel(groupResult.rows[0], requiredAccess);
   }
 
   return false;
@@ -436,6 +466,11 @@ export async function buildDocumentAccessFilter(userId, userRole, firmId, tableA
  * Get list of matter IDs the user can access
  */
 async function getAccessibleMatterIds(userId, userRole, firmId) {
+  // Check cache first
+  const cacheKey = `matters:${firmId}:${userId}:${userRole}`;
+  const cached = matterIdCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   // Billing role has special access
   const isBillingOrAdmin = FULL_ACCESS_ROLES.includes(userRole) || userRole === 'billing';
   
@@ -445,7 +480,9 @@ async function getAccessibleMatterIds(userId, userRole, firmId) {
       'SELECT id FROM matters WHERE firm_id = $1',
       [firmId]
     );
-    return result.rows.map(r => r.id);
+    const ids = result.rows.map(r => r.id);
+    matterIdCache.set(cacheKey, ids);
+    return ids;
   }
 
   // Get matters user can access:
@@ -483,7 +520,9 @@ async function getAccessibleMatterIds(userId, userRole, firmId) {
       )
   `, [firmId, userId]);
 
-  return result.rows.map(r => r.id);
+  const ids = result.rows.map(r => r.id);
+  matterIdCache.set(cacheKey, ids);
+  return ids;
 }
 
 /**
