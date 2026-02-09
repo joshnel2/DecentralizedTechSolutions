@@ -339,7 +339,37 @@ export function DocumentComparePage() {
     navigator.clipboard.writeText(content)
   }
 
-  const downloadRedline = () => {
+  const downloadRedlineWord = async () => {
+    if (!version1 || !version2 || !documentId) return
+    
+    try {
+      // Download Word document with redline from the backend
+      const response = await fetch(
+        `/api/drive/documents/${documentId}/compare/export?version1=${version1.versionNumber}&version2=${version2.versionNumber}`,
+        { credentials: 'include' }
+      )
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate redline document')
+      }
+      
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${documentName}_redline_v${version1.versionNumber}_v${version2.versionNumber}.docx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Failed to download Word redline:', err)
+      // Fallback to text export
+      downloadRedlineText()
+    }
+  }
+  
+  const downloadRedlineText = () => {
     if (!version1 || !version2) return
     
     let content = `REDLINE COMPARISON\n`
@@ -412,9 +442,9 @@ export function DocumentComparePage() {
           >
             {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
           </button>
-          <button className={styles.downloadBtn} onClick={downloadRedline} disabled={!version1 || !version2}>
+          <button className={styles.downloadBtn} onClick={downloadRedlineWord} disabled={!version1 || !version2}>
             <Download size={18} />
-            Export Redline
+            Open in Word
           </button>
         </div>
       </div>

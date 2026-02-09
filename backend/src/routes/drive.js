@@ -1154,6 +1154,47 @@ router.get('/documents/:documentId/compare', authenticate, async (req, res) => {
 
     const [v1, v2] = versionsResult.rows;
 
+    // Fetch content for each version (may need to retrieve from blob storage)
+    async function getVersionContent(v) {
+      // If content is in the database, use it
+      if (v.content_text) return v.content_text;
+      
+      // If stored in blob, fetch it
+      if (v.storage_type === 'azure_blob' && v.content_url) {
+        try {
+          const useBlobStorage = await isBlobConfigured();
+          if (useBlobStorage) {
+            const blobResult = await downloadVersionFromBlob(
+              req.user.firmId, req.params.documentId, v.version_number
+            );
+            if (blobResult.content) {
+              return blobResult.content.toString('utf-8');
+            }
+          }
+        } catch (e) {
+          console.log(`[COMPARE] Could not fetch blob content for v${v.version_number}:`, e.message);
+        }
+      }
+      
+      // Last resort: try to get from the current document content_text (for latest version)
+      if (v.version_number) {
+        const docContent = await query(
+          `SELECT content_text FROM documents WHERE id = $1 AND firm_id = $2`,
+          [req.params.documentId, req.user.firmId]
+        );
+        if (docContent.rows[0]?.content_text) {
+          return docContent.rows[0].content_text;
+        }
+      }
+      
+      return '';
+    }
+
+    const [v1Content, v2Content] = await Promise.all([
+      getVersionContent(v1),
+      getVersionContent(v2)
+    ]);
+
     // Log comparison activity
     await query(
       `INSERT INTO document_activities (document_id, firm_id, action, user_id, user_name, details)
@@ -1172,7 +1213,7 @@ router.get('/documents/:documentId/compare', authenticate, async (req, res) => {
       version1: {
         versionNumber: v1.version_number,
         versionLabel: v1.version_label,
-        content: v1.content_text,
+        content: v1Content,
         wordCount: v1.word_count,
         createdBy: v1.created_by_name,
         createdAt: v1.created_at,
@@ -1180,7 +1221,7 @@ router.get('/documents/:documentId/compare', authenticate, async (req, res) => {
       version2: {
         versionNumber: v2.version_number,
         versionLabel: v2.version_label,
-        content: v2.content_text,
+        content: v2Content,
         wordCount: v2.word_count,
         createdBy: v2.created_by_name,
         createdAt: v2.created_at,
@@ -1189,6 +1230,241 @@ router.get('/documents/:documentId/compare', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Compare versions error:', error);
     res.status(500).json({ error: 'Failed to compare versions' });
+  }
+});
+
+// Export redline comparison as Word document (.docx) with tracked changes styling
+router.get('/documents/:documentId/compare/export', authenticate, async (req, res) => {
+  try {
+    const { version1, version2 } = req.query;
+    const documentId = req.params.documentId;
+    const firmId = req.user.firmId;
+
+    if (!version1 || !version2) {
+      return res.status(400).json({ error: 'Both version1 and version2 are required' });
+    }
+
+    // Check document access
+    const access = await canAccessDocument(req.user.id, req.user.role, documentId, firmId, 'view');
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Get document name
+    const docResult = await query(
+      `SELECT name, original_name FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, firmId]
+    );
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const docName = docResult.rows[0].original_name || docResult.rows[0].name;
+
+    // Get both versions
+    const versionsResult = await query(
+      `SELECT dv.*, u.first_name || ' ' || u.last_name as created_by_name
+       FROM document_versions dv
+       JOIN documents d ON dv.document_id = d.id
+       LEFT JOIN users u ON dv.created_by = u.id
+       WHERE dv.document_id = $1 AND d.firm_id = $2 AND dv.version_number IN ($3, $4)
+       ORDER BY dv.version_number ASC`,
+      [documentId, firmId, parseInt(version1), parseInt(version2)]
+    );
+
+    if (versionsResult.rows.length !== 2) {
+      return res.status(404).json({ error: 'One or both versions not found' });
+    }
+
+    const [v1, v2] = versionsResult.rows;
+
+    // Fetch content (handle blob storage)
+    async function getContent(v) {
+      if (v.content_text) return v.content_text;
+      if (v.storage_type === 'azure_blob' && v.content_url) {
+        try {
+          const useBlobStorage = await isBlobConfigured();
+          if (useBlobStorage) {
+            const blobResult = await downloadVersionFromBlob(firmId, documentId, v.version_number);
+            if (blobResult.content) return blobResult.content.toString('utf-8');
+          }
+        } catch (e) { /* fall through */ }
+      }
+      const docContent = await query(
+        `SELECT content_text FROM documents WHERE id = $1 AND firm_id = $2`,
+        [documentId, firmId]
+      );
+      return docContent.rows[0]?.content_text || '';
+    }
+
+    const [v1Content, v2Content] = await Promise.all([getContent(v1), getContent(v2)]);
+
+    // Generate Word document with redline
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = await import('docx');
+
+    // Compute word-level diff
+    const oldWords = v1Content.split(/(\s+)/);
+    const newWords = v2Content.split(/(\s+)/);
+    
+    // Simple LCS-based diff for Word output
+    const docParagraphs = [];
+
+    // Title
+    docParagraphs.push(new Paragraph({
+      children: [new TextRun({ text: `Redline Comparison: ${docName}`, bold: true, size: 32 })],
+      heading: HeadingLevel.HEADING_1,
+    }));
+
+    // Metadata
+    docParagraphs.push(new Paragraph({
+      children: [
+        new TextRun({ text: `Version ${v1.version_number}`, bold: true }),
+        new TextRun({ text: ` by ${v1.created_by_name} — ` }),
+        new TextRun({ text: `Version ${v2.version_number}`, bold: true }),
+        new TextRun({ text: ` by ${v2.created_by_name}` }),
+      ],
+      spacing: { after: 200 },
+    }));
+
+    docParagraphs.push(new Paragraph({
+      children: [new TextRun({ text: '─'.repeat(60), color: 'CCCCCC' })],
+      spacing: { after: 200 },
+    }));
+
+    // Build diff - split into paragraphs first
+    const v1Paragraphs = v1Content.split(/\n+/);
+    const v2Paragraphs = v2Content.split(/\n+/);
+
+    // Use a simple line-by-line approach for Word output
+    const maxLen = Math.max(v1Paragraphs.length, v2Paragraphs.length);
+
+    for (let i = 0; i < maxLen; i++) {
+      const oldPara = v1Paragraphs[i] || '';
+      const newPara = v2Paragraphs[i] || '';
+
+      if (oldPara === newPara) {
+        // Unchanged paragraph
+        if (oldPara.trim()) {
+          docParagraphs.push(new Paragraph({
+            children: [new TextRun({ text: oldPara })],
+          }));
+        }
+      } else if (!oldPara && newPara) {
+        // Added paragraph (green, underlined - insertion style)
+        docParagraphs.push(new Paragraph({
+          children: [new TextRun({
+            text: newPara,
+            color: '008000',
+            underline: { type: 'single' },
+          })],
+        }));
+      } else if (oldPara && !newPara) {
+        // Deleted paragraph (red, strikethrough - deletion style)
+        docParagraphs.push(new Paragraph({
+          children: [new TextRun({
+            text: oldPara,
+            color: 'FF0000',
+            strike: true,
+          })],
+        }));
+      } else {
+        // Changed paragraph - do word-level diff
+        const oldW = oldPara.split(/(\s+)/);
+        const newW = newPara.split(/(\s+)/);
+        const runs = [];
+        
+        let oi = 0, ni = 0;
+        while (oi < oldW.length || ni < newW.length) {
+          if (oi >= oldW.length) {
+            // Rest is added
+            runs.push(new TextRun({
+              text: newW.slice(ni).join(''),
+              color: '008000',
+              underline: { type: 'single' },
+            }));
+            break;
+          }
+          if (ni >= newW.length) {
+            // Rest is deleted
+            runs.push(new TextRun({
+              text: oldW.slice(oi).join(''),
+              color: 'FF0000',
+              strike: true,
+            }));
+            break;
+          }
+          if (oldW[oi] === newW[ni]) {
+            runs.push(new TextRun({ text: oldW[oi] }));
+            oi++;
+            ni++;
+          } else {
+            // Look ahead to find next match
+            let foundOld = -1, foundNew = -1;
+            for (let k = ni + 1; k < Math.min(ni + 8, newW.length); k++) {
+              if (oldW[oi] === newW[k]) { foundNew = k; break; }
+            }
+            for (let k = oi + 1; k < Math.min(oi + 8, oldW.length); k++) {
+              if (oldW[k] === newW[ni]) { foundOld = k; break; }
+            }
+
+            if (foundNew > -1 && (foundOld === -1 || foundNew - ni <= foundOld - oi)) {
+              // Insertion
+              runs.push(new TextRun({
+                text: newW.slice(ni, foundNew).join(''),
+                color: '008000',
+                underline: { type: 'single' },
+              }));
+              ni = foundNew;
+            } else if (foundOld > -1) {
+              // Deletion
+              runs.push(new TextRun({
+                text: oldW.slice(oi, foundOld).join(''),
+                color: 'FF0000',
+                strike: true,
+              }));
+              oi = foundOld;
+            } else {
+              // Replace: show deleted then inserted
+              runs.push(new TextRun({
+                text: oldW[oi],
+                color: 'FF0000',
+                strike: true,
+              }));
+              runs.push(new TextRun({
+                text: newW[ni],
+                color: '008000',
+                underline: { type: 'single' },
+              }));
+              oi++;
+              ni++;
+            }
+          }
+        }
+
+        docParagraphs.push(new Paragraph({ children: runs }));
+      }
+    }
+
+    // Build the document
+    const wordDoc = new Document({
+      sections: [{
+        properties: {},
+        children: docParagraphs,
+      }],
+    });
+
+    const buffer = await Packer.toBuffer(wordDoc);
+
+    const safeDocName = docName.replace(/[^a-zA-Z0-9 ._-]/g, '_');
+    const fileName = `${safeDocName}_redline_v${v1.version_number}_v${v2.version_number}.docx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('Export redline error:', error);
+    res.status(500).json({ error: 'Failed to export redline comparison' });
   }
 });
 
@@ -3441,13 +3717,124 @@ router.put('/files/:documentId/upload', authenticate, async (req, res) => {
       await uploadFileBuffer(content, uploadPath, firmId);
     }
 
+    // Extract text content for AI access and versioning
+    let textContent = null;
+    const fileName = doc.original_name || doc.name || 'document';
+    const ext = (fileName.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+    
+    if (['.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm'].includes(ext)) {
+      textContent = content.toString('utf-8');
+    } else if (ext === '.docx') {
+      try {
+        const mammoth = await import('mammoth');
+        const result = await mammoth.default.extractRawText({ buffer: content });
+        textContent = result.value;
+      } catch (e) {
+        console.log('[DRIVE UPLOAD] Could not extract text from docx:', e.message);
+      }
+    } else if (ext === '.pdf') {
+      try {
+        const pdfParse = (await import('pdf-parse')).default;
+        const pdfData = await pdfParse(content);
+        textContent = pdfData.text;
+      } catch (e) {
+        console.log('[DRIVE UPLOAD] Could not extract text from pdf:', e.message);
+      }
+    }
+
+    // Calculate content hash for change detection
+    const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+    
+    // Check if content actually changed from the current version
+    const currentDoc = await query(
+      `SELECT content_hash, version FROM documents WHERE id = $1`,
+      [documentId]
+    );
+    const currentHash = currentDoc.rows[0]?.content_hash;
+    const currentVersion = currentDoc.rows[0]?.version || 1;
+    const contentChanged = !currentHash || currentHash !== contentHash;
+
+    // Create a new version if content changed
+    let newVersionNumber = currentVersion;
+    if (contentChanged) {
+      newVersionNumber = currentVersion + 1;
+      
+      // Calculate word count
+      const wordCount = textContent ? textContent.trim().split(/\s+/).filter(w => w.length > 0).length : 0;
+      
+      // Get previous version word count for diff stats
+      const prevVersion = await query(
+        `SELECT word_count FROM document_versions WHERE document_id = $1 ORDER BY version_number DESC LIMIT 1`,
+        [documentId]
+      );
+      const prevWordCount = prevVersion.rows[0]?.word_count || 0;
+      const wordsAdded = Math.max(0, wordCount - prevWordCount);
+      const wordsRemoved = Math.max(0, prevWordCount - wordCount);
+
+      // Store version content
+      let versionContentUrl = null;
+      let storageType = 'database';
+      
+      const useBlobStorage = await isBlobConfigured();
+      if (useBlobStorage && textContent) {
+        try {
+          const blobResult = await uploadVersionToBlob(
+            firmId, documentId, newVersionNumber, textContent,
+            { createdBy: userId, changeType: 'desktop_save', contentHash }
+          );
+          versionContentUrl = blobResult.url;
+          storageType = 'azure_blob';
+        } catch (e) {
+          console.log('[DRIVE UPLOAD] Blob storage failed, storing in DB:', e.message);
+        }
+      }
+
+      await query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_url, content_hash, change_summary, change_type,
+          word_count, character_count, words_added, words_removed,
+          file_size, storage_type, created_by, created_by_name, source
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [
+          documentId, firmId, newVersionNumber,
+          null, // version label
+          storageType === 'database' ? textContent : null,
+          versionContentUrl,
+          contentHash,
+          'Saved from desktop',
+          'desktop_save',
+          wordCount,
+          textContent ? textContent.length : content.length,
+          wordsAdded, wordsRemoved,
+          content.length,
+          storageType,
+          userId,
+          `${req.user.firstName} ${req.user.lastName}`,
+          'desktop'
+        ]
+      );
+      
+      console.log(`[DRIVE UPLOAD] Created version ${newVersionNumber} for document ${documentId}`);
+    }
+
     // Update document metadata
     await query(
-      `UPDATE documents SET size = $1, content_text = NULL, content_extracted_at = NULL, updated_at = NOW() WHERE id = $2`,
-      [content.length, documentId]
+      `UPDATE documents SET 
+        size = $1, content_text = $2, content_hash = $3,
+        version = $4, version_count = $4,
+        content_extracted_at = CASE WHEN $2 IS NOT NULL THEN NOW() ELSE NULL END,
+        updated_at = NOW()
+       WHERE id = $5`,
+      [content.length, textContent, contentHash, newVersionNumber, documentId]
     );
 
-    res.json({ success: true, size: content.length });
+    res.json({ 
+      success: true, 
+      size: content.length,
+      versionNumber: newVersionNumber,
+      contentChanged,
+    });
   } catch (error) {
     console.error('Drive file upload error:', error);
     res.status(500).json({ error: 'Failed to upload file' });

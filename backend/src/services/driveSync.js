@@ -268,10 +268,33 @@ async function syncFirmUserFolders(firmId, shareClient) {
                 name = $1, size = $2, external_etag = $3, 
                 folder_path = $4, matter_id = COALESCE($5, matter_id),
                 content_text = NULL, content_extracted_at = NULL,
-                updated_at = NOW()
+                updated_at = NOW(),
+                version = COALESCE(version, 0) + 1,
+                version_count = COALESCE(version_count, 0) + 1
                WHERE id = $6`,
               [file.name, file.size, file.etag, displayFolderPath, matterId, existing.id]
             );
+            
+            // Create a version record for the change
+            try {
+              const currentVersion = await query(
+                `SELECT COALESCE(MAX(version_number), 0) + 1 as next FROM document_versions WHERE document_id = $1`,
+                [existing.id]
+              );
+              const nextVersion = currentVersion.rows[0]?.next || 1;
+              
+              await query(
+                `INSERT INTO document_versions (
+                  document_id, firm_id, version_number, change_summary, change_type,
+                  file_size, storage_type, created_by, created_by_name, source
+                ) VALUES ($1, $2, $3, 'File updated on drive', 'drive_save', $4, 'azure', $5, 'Drive Sync', 'drive_sync')`,
+                [existing.id, firmId, nextVersion, file.size, userId]
+              );
+            } catch (vErr) {
+              // Version creation is non-critical
+              console.log(`[DRIVE SYNC] Could not create version for ${file.name}: ${vErr.message}`);
+            }
+            
             results.updated++;
           } else if (matterId && !existing.matter_id) {
             // Not changed but we found a matter match
