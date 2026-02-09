@@ -14,22 +14,14 @@ import {
 import { sendPasswordResetEmail } from '../utils/email.js';
 import { authenticate } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
+import { validate, schemas } from '../middleware/validate.js';
 
 const router = Router();
 
 // Register new user (creates firm too)
-router.post('/register', authLimiter, async (req, res) => {
+router.post('/register', authLimiter, validate(schemas.register), async (req, res) => {
   try {
     const { email, password, firstName, lastName, firmName } = req.body;
-
-    // Validation
-    if (!email || !password || !firstName || !lastName) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
 
     // Check if email exists
     const existingUser = await query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
@@ -110,13 +102,9 @@ router.post('/register', authLimiter, async (req, res) => {
 });
 
 // Login
-router.post('/login', authLimiter, async (req, res) => {
+router.post('/login', authLimiter, validate(schemas.login), async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
 
     // Get user
     const result = await query(
@@ -388,17 +376,9 @@ router.get('/me', authenticate, async (req, res) => {
 });
 
 // Update password
-router.put('/password', authenticate, async (req, res) => {
+router.put('/password', authenticate, validate(schemas.updatePassword), async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current and new password required' });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters' });
-    }
 
     // Get current password hash
     const result = await query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
@@ -492,13 +472,9 @@ router.delete('/sessions', authenticate, async (req, res) => {
 });
 
 // Forgot Password - Request reset email
-router.post('/forgot-password', authLimiter, async (req, res) => {
+router.post('/forgot-password', authLimiter, validate(schemas.forgotPassword), async (req, res) => {
   try {
     const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
 
     // Always return success message to prevent email enumeration
     const successMessage = 'If an account with that email exists, we have sent a password reset link.';
@@ -559,17 +535,9 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
 });
 
 // Reset Password - Verify token and set new password
-router.post('/reset-password', authLimiter, async (req, res) => {
+router.post('/reset-password', authLimiter, validate(schemas.resetPassword), async (req, res) => {
   try {
     const { token, newPassword } = req.body;
-
-    if (!token || !newPassword) {
-      return res.status(400).json({ error: 'Token and new password are required' });
-    }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
 
     // Hash the provided token to compare with stored hash
     const tokenHash = hashToken(token);
