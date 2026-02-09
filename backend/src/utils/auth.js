@@ -65,6 +65,17 @@ export function generateSecureToken(length = 32) {
 }
 
 // Role-based permissions
+// Billing permissions follow Clio Manage's model:
+//   billing:create    - Create time entries, expenses (own only for non-admin)
+//   billing:view      - View billing data (scoped by role)
+//   billing:edit      - Edit time entries, expenses, invoices
+//   billing:delete    - Delete draft invoices, unbilled time entries
+//   billing:approve   - Approve/reject time entries and expenses in approval workflow
+//   billing:finalize  - Finalize invoices (lock for sending), void invoices
+//   billing:trust     - Manage trust accounts, deposits, withdrawals (IOLTA)
+//   billing:settings  - Modify firm-wide billing settings
+//   billing:writeoff  - Create write-offs and credit notes
+//   billing:export    - Export billing data (LEDES, CSV, PDF)
 const rolePermissions = {
   owner: [
     'firm:manage', 'firm:billing', 'firm:delete',
@@ -73,6 +84,7 @@ const rolePermissions = {
     'matters:create', 'matters:view', 'matters:edit', 'matters:delete', 'matters:assign',
     'clients:create', 'clients:view', 'clients:edit', 'clients:delete',
     'billing:create', 'billing:view', 'billing:edit', 'billing:delete', 'billing:approve',
+    'billing:finalize', 'billing:trust', 'billing:settings', 'billing:writeoff', 'billing:export',
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
@@ -86,6 +98,7 @@ const rolePermissions = {
     'matters:create', 'matters:view', 'matters:edit', 'matters:delete', 'matters:assign',
     'clients:create', 'clients:view', 'clients:edit', 'clients:delete',
     'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
+    'billing:finalize', 'billing:trust', 'billing:settings', 'billing:writeoff', 'billing:export',
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
@@ -97,6 +110,7 @@ const rolePermissions = {
     'matters:create', 'matters:view', 'matters:edit', 'matters:delete', 'matters:assign',
     'clients:create', 'clients:view', 'clients:edit', 'clients:delete',
     'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
+    'billing:finalize', 'billing:writeoff', 'billing:export',
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
@@ -106,7 +120,7 @@ const rolePermissions = {
   attorney: [
     'matters:create', 'matters:view', 'matters:edit',
     'clients:create', 'clients:view', 'clients:edit',
-    'billing:create', 'billing:view',
+    'billing:create', 'billing:view', 'billing:export',
     'documents:upload', 'documents:view', 'documents:edit',
     'calendar:create', 'calendar:view', 'calendar:edit',
     'reports:view'
@@ -121,6 +135,7 @@ const rolePermissions = {
   staff: [
     'matters:create', 'matters:view',
     'clients:create', 'clients:view',
+    'billing:view',
     'documents:view',
     'calendar:view'
   ],
@@ -128,12 +143,14 @@ const rolePermissions = {
     'matters:create', 'matters:view',
     'clients:create', 'clients:view',
     'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
+    'billing:finalize', 'billing:trust', 'billing:settings', 'billing:writeoff', 'billing:export',
     'reports:view', 'reports:create', 'reports:export',
     'analytics:view'
   ],
   readonly: [
     'matters:view',
     'clients:view',
+    'billing:view',
     'documents:view',
     'calendar:view',
     'reports:view'
