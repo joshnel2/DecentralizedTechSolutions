@@ -8,7 +8,7 @@
 -- Research sessions
 CREATE TABLE IF NOT EXISTS legal_research_sessions (
     id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title TEXT NOT NULL DEFAULT 'New Research',
     jurisdiction TEXT,
     practice_area TEXT,
