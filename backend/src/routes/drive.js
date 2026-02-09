@@ -3829,6 +3829,32 @@ router.put('/files/:documentId/upload', authenticate, async (req, res) => {
       [content.length, textContent, contentHash, newVersionNumber, documentId]
     );
 
+    // Trigger document learning (async, non-blocking)
+    if (textContent && textContent.length > 200) {
+      try {
+        const { onDocumentAccessed, learnFromVersionDiff } = await import('../services/amplifier/documentLearning.js');
+        
+        // Learn from the document content
+        onDocumentAccessed(userId, firmId, { id: documentId, name: fileName, type: doc.type }, textContent);
+        
+        // Learn from version diff if content changed
+        if (contentChanged && newVersionNumber > 1) {
+          // Get previous version content for diff learning
+          const prevVersionResult = await query(
+            `SELECT content_text FROM document_versions WHERE document_id = $1 AND version_number = $2`,
+            [documentId, newVersionNumber - 1]
+          );
+          const prevContent = prevVersionResult.rows[0]?.content_text;
+          if (prevContent) {
+            learnFromVersionDiff(userId, firmId, documentId, prevContent, textContent, fileName);
+          }
+        }
+      } catch (learnErr) {
+        // Learning is non-critical
+        console.log('[DRIVE UPLOAD] Learning trigger failed:', learnErr.message);
+      }
+    }
+
     res.json({ 
       success: true, 
       size: content.length,

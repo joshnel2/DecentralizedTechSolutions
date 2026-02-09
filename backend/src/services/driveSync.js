@@ -573,6 +573,25 @@ async function extractTextForSyncedDocuments() {
           );
           extracted++;
           console.log(`[DRIVE SYNC] Extracted text from "${doc.name}" (${limitedContent.length} chars)`);
+          
+          // Trigger document learning (async, non-blocking)
+          // Get the owner of this document to attribute learning correctly
+          try {
+            const ownerResult = await query(
+              `SELECT owner_id, uploaded_by, firm_id FROM documents WHERE id = $1`,
+              [doc.id]
+            );
+            const owner = ownerResult.rows[0];
+            if (owner) {
+              const learnUserId = owner.owner_id || owner.uploaded_by;
+              if (learnUserId && limitedContent.length > 200) {
+                const { onDocumentAccessed } = await import('./amplifier/documentLearning.js');
+                onDocumentAccessed(learnUserId, owner.firm_id, { id: doc.id, name: doc.name, type: doc.type }, limitedContent);
+              }
+            }
+          } catch (learnErr) {
+            // Learning is non-critical
+          }
         } else {
           // Mark as attempted
           await query(
