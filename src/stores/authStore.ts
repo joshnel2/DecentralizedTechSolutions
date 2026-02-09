@@ -114,7 +114,7 @@ interface AuthState {
   getAuditLog: (filters?: { userId?: string; resource?: string; startDate?: string; endDate?: string }) => AuditLogEntry[]
 }
 
-// Permission definitions by role
+// Permission definitions by role - MUST match backend/src/utils/auth.js exactly
 const rolePermissions: Record<UserRole, string[]> = {
   owner: [
     'firm:manage', 'firm:billing', 'firm:delete',
@@ -126,6 +126,7 @@ const rolePermissions: Record<UserRole, string[]> = {
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
+    'analytics:view', 'analytics:export',
     'integrations:manage',
     'audit:view'
   ],
@@ -138,6 +139,7 @@ const rolePermissions: Record<UserRole, string[]> = {
     'documents:upload', 'documents:view', 'documents:edit', 'documents:delete',
     'calendar:create', 'calendar:view', 'calendar:edit', 'calendar:delete',
     'reports:view', 'reports:create', 'reports:export',
+    'analytics:view', 'analytics:export',
     'integrations:manage',
     'audit:view'
   ],
@@ -150,23 +152,24 @@ const rolePermissions: Record<UserRole, string[]> = {
     'reports:view'
   ],
   paralegal: [
-    'matters:view', 'matters:edit',
-    'clients:view',
-    'billing:view',
+    'matters:create', 'matters:view', 'matters:edit',
+    'clients:create', 'clients:view',
+    'billing:view', 'billing:create',
     'documents:upload', 'documents:view', 'documents:edit',
     'calendar:create', 'calendar:view', 'calendar:edit'
   ],
   staff: [
-    'matters:view',
-    'clients:view',
+    'matters:create', 'matters:view',
+    'clients:create', 'clients:view',
     'documents:view',
-    'calendar:create', 'calendar:view', 'calendar:edit'
+    'calendar:view'
   ],
   billing: [
-    'matters:view',
-    'clients:view',
+    'matters:create', 'matters:view',
+    'clients:create', 'clients:view',
     'billing:create', 'billing:view', 'billing:edit', 'billing:approve',
-    'reports:view', 'reports:create', 'reports:export'
+    'reports:view', 'reports:create', 'reports:export',
+    'analytics:view'
   ],
   readonly: [
     'matters:view',
@@ -595,18 +598,24 @@ export const useAuthStore = create<AuthState>()(
         return userPermissions.includes(permission)
       },
 
+      // Admin/owner/billing can access all matters; non-admins rely on backend enforcement.
+      // Returns true for non-admins so UI allows navigation; backend returns 403 if truly denied.
       canAccessMatter: (_matterId: string) => {
-        const { user, hasPermission } = get()
+        const { user } = get()
         if (!user) return false
-        if (hasPermission('matters:view')) return true
-        return false
+        // Admins always have access to all matters
+        if (['owner', 'admin', 'billing'].includes(user.role)) return true
+        // Non-admins: return true to allow navigation; the API enforces actual access.
+        // The matters list already only shows accessible matters.
+        return true
       },
 
+      // Admin/owner/billing can access all clients; non-admins rely on backend enforcement.
       canAccessClient: (_clientId: string) => {
-        const { user, hasPermission } = get()
+        const { user } = get()
         if (!user) return false
-        if (hasPermission('clients:view')) return true
-        return false
+        if (['owner', 'admin', 'billing'].includes(user.role)) return true
+        return true
       },
 
       logAction: (action: string, resource: string, resourceId?: string, details?: Record<string, any>) => {
