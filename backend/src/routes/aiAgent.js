@@ -6530,7 +6530,13 @@ async function getDocumentVersions(args, user) {
     return { error: 'document_id is required' };
   }
   
-  // Verify document access
+  // Verify user has access to this document (not just firm_id check)
+  const { canAccessDocument } = await import('../middleware/documentAccess.js');
+  const access = await canAccessDocument(user.id, user.role, document_id, user.firmId, 'view');
+  if (!access.hasAccess) {
+    return { error: 'Document not found or access denied' };
+  }
+  
   const docResult = await query(
     'SELECT id, name, original_name, version FROM documents WHERE id = $1 AND firm_id = $2',
     [document_id, user.firmId]
@@ -6591,7 +6597,13 @@ async function readVersionContent(args, user) {
     return { error: 'version_number is required' };
   }
   
-  // Verify document access
+  // Verify user has access to this document
+  const { canAccessDocument } = await import('../middleware/documentAccess.js');
+  const access = await canAccessDocument(user.id, user.role, document_id, user.firmId, 'view');
+  if (!access.hasAccess) {
+    return { error: 'Document not found or access denied' };
+  }
+  
   const docResult = await query(
     'SELECT id, name, original_name FROM documents WHERE id = $1 AND firm_id = $2',
     [document_id, user.firmId]
@@ -6606,7 +6618,8 @@ async function readVersionContent(args, user) {
   // Get the specific version
   const versionResult = await query(
     `SELECT 
-      dv.version_number, dv.version_label, dv.content_text, dv.change_summary,
+      dv.version_number, dv.version_label, dv.content_text, dv.content_url, 
+      dv.storage_type, dv.change_summary,
       dv.created_by_name, dv.created_at, dv.word_count, dv.source
      FROM document_versions dv
      WHERE dv.document_id = $1 AND dv.version_number = $2`,
@@ -6619,15 +6632,43 @@ async function readVersionContent(args, user) {
   
   const v = versionResult.rows[0];
   
-  if (!v.content_text) {
+  // Get content - try DB first, then blob storage
+  let contentText = v.content_text;
+  
+  if (!contentText && v.storage_type === 'azure_blob' && v.content_url) {
+    try {
+      const { isBlobConfigured, downloadVersion } = await import('../utils/azureBlobStorage.js');
+      if (await isBlobConfigured()) {
+        const blobResult = await downloadVersion(user.firmId, document_id, v.version_number);
+        if (blobResult.content) {
+          contentText = blobResult.content.toString('utf-8');
+        }
+      }
+    } catch (e) {
+      // Fall through to document content fallback
+    }
+  }
+  
+  // Fallback: get current document content for latest version
+  if (!contentText) {
+    const currentDoc = await query(
+      'SELECT content_text FROM documents WHERE id = $1',
+      [document_id]
+    );
+    if (currentDoc.rows[0]?.content_text) {
+      contentText = currentDoc.rows[0].content_text;
+    }
+  }
+  
+  if (!contentText) {
     return { 
       error: 'Version content not available',
-      note: 'The text content for this version was not saved. Only the current version may be readable via read_document_content.'
+      note: 'The text content for this version could not be retrieved. Try read_document_content for the current version.'
     };
   }
   
-  const content = v.content_text.substring(0, max_length);
-  const truncated = v.content_text.length > max_length;
+  const content = contentText.substring(0, max_length);
+  const truncated = contentText.length > max_length;
   
   return {
     document: doc.original_name || doc.name,
@@ -6638,7 +6679,7 @@ async function readVersionContent(args, user) {
     word_count: v.word_count,
     content: content,
     truncated: truncated,
-    total_characters: v.content_text.length,
+    total_characters: contentText.length,
     note: truncated ? `Showing first ${max_length} characters. Use max_length parameter for more.` : null
   };
 }
@@ -6650,7 +6691,13 @@ async function compareVersions(args, user) {
     return { error: 'document_id, version1, and version2 are required' };
   }
   
-  // Verify document access
+  // Verify user has access to this document
+  const { canAccessDocument } = await import('../middleware/documentAccess.js');
+  const access = await canAccessDocument(user.id, user.role, document_id, user.firmId, 'view');
+  if (!access.hasAccess) {
+    return { error: 'Document not found or access denied' };
+  }
+  
   const docResult = await query(
     'SELECT id, name, original_name FROM documents WHERE id = $1 AND firm_id = $2',
     [document_id, user.firmId]
@@ -6664,7 +6711,7 @@ async function compareVersions(args, user) {
   
   // Get both versions
   const versionsResult = await query(
-    `SELECT version_number, content_text, created_by_name, created_at, word_count
+    `SELECT version_number, content_text, content_url, storage_type, created_by_name, created_at, word_count
      FROM document_versions
      WHERE document_id = $1 AND version_number IN ($2, $3)
      ORDER BY version_number`,
@@ -6677,13 +6724,33 @@ async function compareVersions(args, user) {
   
   const [older, newer] = versionsResult.rows;
   
-  if (!older.content_text || !newer.content_text) {
+  // Fetch content for both versions (handles blob storage)
+  async function getVersionText(v) {
+    if (v.content_text) return v.content_text;
+    if (v.storage_type === 'azure_blob' && v.content_url) {
+      try {
+        const { isBlobConfigured, downloadVersion } = await import('../utils/azureBlobStorage.js');
+        if (await isBlobConfigured()) {
+          const blobResult = await downloadVersion(user.firmId, document_id, v.version_number);
+          if (blobResult.content) return blobResult.content.toString('utf-8');
+        }
+      } catch (e) { /* fall through */ }
+    }
+    // Fallback to current doc content
+    const currentDoc = await query('SELECT content_text FROM documents WHERE id = $1', [document_id]);
+    return currentDoc.rows[0]?.content_text || '';
+  }
+  
+  const olderText = await getVersionText(older);
+  const newerText = await getVersionText(newer);
+  
+  if (!olderText || !newerText) {
     return { error: 'Content not available for one or both versions' };
   }
   
   // Simple word-level diff
-  const oldWords = older.content_text.split(/\s+/).filter(w => w);
-  const newWords = newer.content_text.split(/\s+/).filter(w => w);
+  const oldWords = olderText.split(/\s+/).filter(w => w);
+  const newWords = newerText.split(/\s+/).filter(w => w);
   
   const oldSet = new Set(oldWords);
   const newSet = new Set(newWords);

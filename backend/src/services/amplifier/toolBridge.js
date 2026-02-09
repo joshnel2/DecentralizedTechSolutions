@@ -268,6 +268,33 @@ const BASE_AMPLIFIER_TOOLS = {
     required: ["search_term"]
   },
   
+  get_document_versions: {
+    description: "Get the version history of a document. Shows who edited and when.",
+    parameters: {
+      document_id: "string - Document ID"
+    },
+    required: ["document_id"]
+  },
+  
+  read_version_content: {
+    description: "Read the text content of a specific document version.",
+    parameters: {
+      document_id: "string - Document ID",
+      version_number: "number - Version number to read"
+    },
+    required: ["document_id", "version_number"]
+  },
+  
+  compare_versions: {
+    description: "Compare two versions of a document to see what changed.",
+    parameters: {
+      document_id: "string - Document ID",
+      version1: "number - Older version number",
+      version2: "number - Newer version number"
+    },
+    required: ["document_id", "version1", "version2"]
+  },
+  
   // ============== CALENDAR ==============
   get_calendar_events: {
     description: "Get upcoming calendar events",
