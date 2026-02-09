@@ -142,10 +142,18 @@ interface BillingStoreState {
     lateFeeGraceDays: number
     autoSendReminders: boolean
     reminderDays: number[]
+    defaultBillingIncrement: number
+    roundingMethod: string
+    minimumEntryMinutes: number
+    defaultHourlyRate: number | null
+    requireTimeEntryApproval: boolean
+    requireExpenseApproval: boolean
     acceptCreditCards: boolean
     acceptACH: boolean
     surchargeEnabled: boolean
     surchargePercent: number
+    utbmsEnabled: boolean
+    requireActivityCode: boolean
   }
   
   // Fetch all data
@@ -194,15 +202,23 @@ interface BillingStoreState {
 
 const defaultBillingSettings = {
   defaultPaymentTerms: 30,
-  lateFeeEnabled: true,
+  lateFeeEnabled: false,
   lateFeePercent: 1.5,
   lateFeeGraceDays: 5,
   autoSendReminders: true,
   reminderDays: [7, 3, 1, 0],
+  defaultBillingIncrement: 6,
+  roundingMethod: 'up',
+  minimumEntryMinutes: 6,
+  defaultHourlyRate: null,
+  requireTimeEntryApproval: false,
+  requireExpenseApproval: false,
   acceptCreditCards: true,
   acceptACH: true,
   surchargeEnabled: false,
-  surchargePercent: 3
+  surchargePercent: 3,
+  utbmsEnabled: false,
+  requireActivityCode: false,
 }
 
 export const useBillingStore = create<BillingStoreState>()(

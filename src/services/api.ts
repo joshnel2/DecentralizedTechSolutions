@@ -432,6 +432,10 @@ export const timeEntriesApi = {
     endDate?: string;
     billable?: boolean;
     billed?: boolean;
+    status?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: string;
     limit?: number;
     offset?: number;
   }) {
@@ -442,10 +446,28 @@ export const timeEntriesApi = {
     if (params?.endDate) query.set('endDate', params.endDate);
     if (params?.billable !== undefined) query.set('billable', String(params.billable));
     if (params?.billed !== undefined) query.set('billed', String(params.billed));
+    if (params?.status) query.set('status', params.status);
+    if (params?.search) query.set('search', params.search);
+    if (params?.sortBy) query.set('sortBy', params.sortBy);
+    if (params?.sortOrder) query.set('sortOrder', params.sortOrder);
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
     if (params?.offset !== undefined) query.set('offset', String(params.offset));
     
     return fetchWithAuth(`/time-entries?${query}`);
+  },
+
+  async getSummary(params?: {
+    startDate?: string;
+    endDate?: string;
+    userId?: string;
+    matterId?: string;
+  }) {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.userId) query.set('userId', params.userId);
+    if (params?.matterId) query.set('matterId', params.matterId);
+    return fetchWithAuth(`/time-entries/summary?${query}`);
   },
 
   async create(data: any) {
@@ -465,6 +487,78 @@ export const timeEntriesApi = {
   async delete(id: string) {
     return fetchWithAuth(`/time-entries/${id}`, { method: 'DELETE' });
   },
+
+  // Batch operations
+  async batchUpdate(ids: string[], updates: any) {
+    return fetchWithAuth('/time-entries/batch/update', {
+      method: 'PUT',
+      body: JSON.stringify({ ids, updates }),
+    });
+  },
+
+  async batchDelete(ids: string[]) {
+    return fetchWithAuth('/time-entries/batch/delete', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  // Approval workflow
+  async submitForApproval(ids: string[]) {
+    return fetchWithAuth('/time-entries/submit-for-approval', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  async reviewEntries(ids: string[], action: 'approve' | 'reject' | 'request_revision', notes?: string) {
+    return fetchWithAuth('/time-entries/review', {
+      method: 'POST',
+      body: JSON.stringify({ ids, action, notes }),
+    });
+  },
+
+  async getPendingApproval() {
+    return fetchWithAuth('/time-entries/pending-approval');
+  },
+
+  // Timer operations
+  async getTimer() {
+    return fetchWithAuth('/time-entries/timer');
+  },
+
+  async startTimer(data?: { matterId?: string; description?: string; billable?: boolean; activityCode?: string }) {
+    return fetchWithAuth('/time-entries/timer/start', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  },
+
+  async pauseTimer() {
+    return fetchWithAuth('/time-entries/timer/pause', { method: 'POST' });
+  },
+
+  async resumeTimer() {
+    return fetchWithAuth('/time-entries/timer/resume', { method: 'POST' });
+  },
+
+  async stopTimer(data?: { description?: string; matterId?: string; billable?: boolean }) {
+    return fetchWithAuth('/time-entries/timer/stop', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  },
+
+  async discardTimer() {
+    return fetchWithAuth('/time-entries/timer/discard', { method: 'POST' });
+  },
+
+  async updateTimer(data: { description?: string; matterId?: string; billable?: boolean }) {
+    return fetchWithAuth('/time-entries/timer', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
 };
 
 // ============================================
@@ -472,12 +566,13 @@ export const timeEntriesApi = {
 // ============================================
 
 export const invoicesApi = {
-  async getAll(params?: { clientId?: string; matterId?: string; status?: string; view?: 'my' | 'all' }) {
+  async getAll(params?: { clientId?: string; matterId?: string; status?: string; view?: 'my' | 'all'; search?: string }) {
     const query = new URLSearchParams();
     if (params?.clientId) query.set('clientId', params.clientId);
     if (params?.matterId) query.set('matterId', params.matterId);
     if (params?.status) query.set('status', params.status);
     if (params?.view) query.set('view', params.view);
+    if (params?.search) query.set('search', params.search);
     
     return fetchWithAuth(`/invoices?${query}`);
   },
@@ -500,8 +595,26 @@ export const invoicesApi = {
     });
   },
 
+  async finalize(id: string) {
+    return fetchWithAuth(`/invoices/${id}/finalize`, { method: 'POST' });
+  },
+
+  async void(id: string, reason: string) {
+    return fetchWithAuth(`/invoices/${id}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
   async recordPayment(id: string, data: any) {
     return fetchWithAuth(`/invoices/${id}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createCreditNote(id: string, data: { amount: number; reason: string; type?: string }) {
+    return fetchWithAuth(`/invoices/${id}/credit-note`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -523,15 +636,28 @@ export const invoicesApi = {
   },
 
   async syncToQuickBooks(id: string) {
-    return fetchWithAuth(`/invoices/${id}/sync-quickbooks`, {
-      method: 'POST',
-    });
+    return fetchWithAuth(`/invoices/${id}/sync-quickbooks`, { method: 'POST' });
   },
 
   async syncPaymentToQuickBooks(invoiceId: string, paymentId: string) {
-    return fetchWithAuth(`/invoices/${invoiceId}/payments/${paymentId}/sync-quickbooks`, {
-      method: 'POST',
-    });
+    return fetchWithAuth(`/invoices/${invoiceId}/payments/${paymentId}/sync-quickbooks`, { method: 'POST' });
+  },
+
+  async syncAllToQuickBooks() {
+    return fetchWithAuth('/invoices/sync-all-quickbooks', { method: 'POST' });
+  },
+
+  async getAgingReport() {
+    return fetchWithAuth('/invoices/reports/aging');
+  },
+
+  async getAllPayments(params?: { startDate?: string; endDate?: string; clientId?: string; syncStatus?: string }) {
+    const query = new URLSearchParams();
+    if (params?.startDate) query.set('startDate', params.startDate);
+    if (params?.endDate) query.set('endDate', params.endDate);
+    if (params?.clientId) query.set('clientId', params.clientId);
+    if (params?.syncStatus) query.set('syncStatus', params.syncStatus);
+    return fetchWithAuth(`/invoices/all/payments?${query}`);
   },
 
   async delete(id: string) {
