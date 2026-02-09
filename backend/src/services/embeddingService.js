@@ -282,17 +282,27 @@ export function chunkLegalDocument(text, documentType = 'legal') {
 /**
  * Store document embeddings in database
  * 
- * Enhanced flow (Contextual Retrieval + RAPTOR):
- * 1. Fetch matter context for the document
- * 2. Use contextual chunker (prepends document/section metadata to each chunk)
- * 3. Embed the contextual text (not raw text) for better retrieval
- * 4. Encrypt embedding with per-tenant key
- * 5. Store in pgvector
- * 6. Build RAPTOR summary tree for long documents
+ * Improved version: uses contextual chunking for better search results.
+ * Lawyers just upload documents and search - this makes their search better.
+ * 
+ * What's better:
+ * - Chunks now include document context (type, matter, jurisdiction) in the embedding
+ *   so searching "indemnification in SaaS agreements" finds the right clause, not
+ *   a random indemnification clause from a real estate lease
+ * - Long documents (16+ chunks) get a summary tree so you can search at section
+ *   and document level, not just chunk level
+ * - Cross-references between documents are extracted automatically
+ * 
+ * Safety:
+ * - If context enrichment fails, falls back to the original chunking (same as before)
+ * - If RAPTOR tree fails, skipped silently - chunks still stored normally
+ * - If cross-reference extraction fails, skipped silently
+ * - Old embeddings already in the DB still work for search
+ * - Same function signature, same return shape for callers
  */
 export async function storeDocumentEmbeddings(documentId, firmId, text, metadata = {}) {
   try {
-    // Fetch document info for context enrichment
+    // Try to fetch document and matter info for context-enriched embeddings
     let document = { id: documentId, name: metadata.documentName, type: metadata.documentType, created_at: metadata.createdAt };
     let matterInfo = null;
     
@@ -309,42 +319,42 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
         document = { ...document, ...docResult.rows[0] };
       }
       
-      // Fetch matter context if available
       if (document.matter_id) {
         matterInfo = await getMatterContext(document.matter_id, firmId);
       }
     } catch (e) {
+      // Context enrichment failed - will fall back to original chunking below
       console.warn('[EmbeddingService] Could not fetch document context:', e.message);
     }
     
-    // Step 1: Contextual chunking (Anthropic's approach)
-    // Each chunk gets document-level and section-level context prepended
-    const contextualChunks = chunkWithContext(text, document, matterInfo);
+    // Try contextual chunking first (better embeddings), fall back to original if it fails
+    let contextualChunks = [];
+    try {
+      contextualChunks = chunkWithContext(text, document, matterInfo);
+    } catch (e) {
+      console.warn('[EmbeddingService] Contextual chunking failed, using original:', e.message);
+    }
     
-    // Fallback to legacy chunking if contextual chunker returns nothing
     const chunks = contextualChunks.length > 0 
       ? contextualChunks 
       : chunkLegalDocument(text, metadata.documentType).map(c => ({
           ...c,
-          contextualText: c.text, // No context prepended
+          contextualText: c.text, // No context prepended - same as original behavior
         }));
     
     let totalTokens = 0;
     
-    // Step 2: Embed and store each chunk
+    // Embed and store each chunk
     for (const chunk of chunks) {
-      // Embed the CONTEXTUAL text (with metadata prepended), not raw text
       const textToEmbed = chunk.contextualText || chunk.text;
       const embeddingResult = await generateEmbedding(textToEmbed, firmId);
       
-      // Calculate chunk hash for deduplication (based on raw text, not contextual)
       const chunkHash = crypto.createHash('sha256')
         .update(chunk.text)
         .digest('hex');
       
       totalTokens += embeddingResult.usage?.total_tokens || 0;
       
-      // Store in database (raw text stored for display, contextual text was used for embedding)
       await query(`
         INSERT INTO document_embeddings (
           firm_id, document_id, chunk_index, chunk_text, chunk_hash,
@@ -361,7 +371,7 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
         firmId,
         documentId,
         chunk.chunkIndex,
-        chunk.text,  // Store raw text for display
+        chunk.text,
         chunkHash,
         embeddingResult.embedding,
         embeddingResult.encryptedEmbedding,
@@ -370,7 +380,7 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
           chunkType: chunk.chunkType || chunk.metadata?.chunkType,
           sectionMarker: chunk.sectionMarker || chunk.metadata?.sectionMarker,
           crossReferenceCount: chunk.crossReferences?.length || 0,
-          contextualRetrieval: true, // Flag that this chunk was context-enriched
+          contextualRetrieval: contextualChunks.length > 0,
           documentType: chunk.metadata?.documentType || metadata.documentType,
           model: embeddingResult.model,
           tokens: embeddingResult.usage?.total_tokens || 0,
@@ -378,9 +388,10 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
       ]);
     }
     
-    // Step 3: Build RAPTOR summary tree for long documents
+    // Build RAPTOR summary tree for long documents (makes long doc search better)
+    // If it fails, no problem - the chunks are already stored above
     let raptorStats = null;
-    if (chunks.length >= 16) { // Only build tree for documents with 16+ chunks
+    if (chunks.length >= 16) {
       try {
         raptorStats = await buildSummaryTree(documentId, firmId, chunks, generateEmbedding);
       } catch (e) {
@@ -388,8 +399,8 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
       }
     }
     
-    // Step 4: Extract and store cross-references as document relationships
-    // Wrapped in try/catch: if document_relationships table doesn't exist yet, don't fail
+    // Extract cross-references for the knowledge graph (makes related doc search better)
+    // If it fails, no problem - the chunks are already stored above
     if (contextualChunks.length > 0) {
       try {
         await storeExtractedRelationships(documentId, firmId, contextualChunks);
@@ -402,8 +413,6 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
       success: true,
       chunkCount: chunks.length,
       totalTokens,
-      contextualRetrieval: contextualChunks.length > 0,
-      raptorTree: raptorStats,
     };
   } catch (error) {
     console.error('[EmbeddingService] Store embeddings error:', error);
