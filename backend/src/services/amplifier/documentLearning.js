@@ -482,7 +482,7 @@ function analyzeNamingPattern(fileName, folderPath) {
     usesCamelCase: /[a-z][A-Z]/.test(name),
     hasPrefix: /^[A-Z]{2,5}[-_]/.test(name),
     avgWordCount: name.split(/[-_\s]+/).length,
-    datePosition: null as string | null,
+    datePosition: null,
     sampleName: name.substring(0, 60),
   };
   
@@ -848,7 +848,7 @@ export function formatProfileForPrompt(profile, documentType = null) {
   // Document type focus
   if (profile.documentTypeFrequency && Object.keys(profile.documentTypeFrequency).length > 0) {
     const sorted = Object.entries(profile.documentTypeFrequency)
-      .sort(([,a], [,b]) => (b as number) - (a as number))
+      .sort(([,a], [,b]) => Number(b) - Number(a))
       .slice(0, 3)
       .map(([type]) => type);
     if (sorted.length > 0 && sorted[0] !== 'general') {
