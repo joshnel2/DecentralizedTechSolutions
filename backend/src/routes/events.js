@@ -25,7 +25,14 @@ import { registerConnection, getConnectionStats } from '../services/eventBus.js'
 const router = Router();
 
 // SSE stream endpoint
-router.get('/stream', authenticate, (req, res) => {
+// Supports token via query param (EventSource API doesn't allow custom headers)
+router.get('/stream', (req, res, next) => {
+  // If token is in query params, move it to Authorization header for the auth middleware
+  if (req.query.token && !req.headers.authorization) {
+    req.headers.authorization = `Bearer ${req.query.token}`;
+  }
+  next();
+}, authenticate, (req, res) => {
   const { firmId, id: userId } = req.user;
 
   // Set SSE headers

@@ -2384,6 +2384,23 @@ export const notificationsApi = {
   },
 };
 
+// ============================================
+// EVENTS API - Real-time event stream
+// ============================================
+
+export const eventsApi = {
+  // Get event stream stats (admin only)
+  async getStats() {
+    return fetchWithAuth('/events/stats');
+  },
+
+  // Get the SSE stream URL (for EventSource)
+  getStreamUrl() {
+    const token = getAccessToken();
+    return `${API_URL}/events/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
+};
+
 // Export all APIs
 export default {
   auth: authApi,
@@ -2410,4 +2427,5 @@ export default {
   analytics: analyticsApi,
   stripe: stripeApi,
   notifications: notificationsApi,
+  events: eventsApi,
 };
