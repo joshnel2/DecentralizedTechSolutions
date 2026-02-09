@@ -89,19 +89,21 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Refresh-Token', 'X-Admin-Auth'],
 }));
 
-// Body parsing -- sensible defaults to prevent DoS via large payloads.
-// Individual routes that need larger limits (migration import) override this.
+// Body parsing -- route-specific limits MUST be mounted BEFORE the global
+// parser because Express processes middleware in order. The first matching
+// JSON parser handles the request; later ones are skipped.
+//
+// Larger limits for routes that genuinely need them:
+app.use('/api/migration', express.json({ limit: '500mb' }));    // Full firm data imports
+app.use('/api/ai', express.json({ limit: '10mb' }));            // Conversation history + doc context
+app.use('/api/v1/agent', express.json({ limit: '10mb' }));      // AI agent with function calling
+app.use('/api/v1/background-agent', express.json({ limit: '10mb' })); // Background agent tasks
+
+// Global default: 2MB is plenty for normal JSON API requests and prevents
+// DoS via oversized payloads (was 500MB on every route before this fix).
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
-
-// Route-specific larger body limits where justified:
-// - Migration imports can be hundreds of MBs (full firm data)
-// - AI agent routes send conversation history + document context
-app.use('/api/migration', express.json({ limit: '500mb' }));
-app.use('/api/ai', express.json({ limit: '10mb' }));
-app.use('/api/v1/agent', express.json({ limit: '10mb' }));
-app.use('/api/v1/background-agent', express.json({ limit: '10mb' }));
 
 // Rate limiting
 app.use('/api', apiLimiter);

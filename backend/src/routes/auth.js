@@ -131,21 +131,17 @@ router.post('/login', authLimiter, validate(schemas.login), async (req, res) => 
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Check if 2FA is required
-    if (user.two_factor_enabled) {
-      // Generate temporary token for 2FA flow
-      const tempToken = generateSecureToken(16);
-      await query(
-        `UPDATE users SET two_factor_secret = $1 WHERE id = $2`,
-        [hashToken(tempToken), user.id]
-      );
-
-      return res.json({
-        requires2FA: true,
-        tempToken,
-        userId: user.id,
-      });
-    }
+    // 2FA check: currently disabled because the backend has no real TOTP/SMS
+    // verification endpoint. The two_factor_enabled flag may be set for some users
+    // but without a working verification flow, enabling this would lock them out.
+    // TODO: Implement real 2FA verification endpoint, then re-enable this block.
+    //
+    // if (user.two_factor_enabled) {
+    //   const tempToken = generateSecureToken(16);
+    //   await query('UPDATE users SET two_factor_secret = $1 WHERE id = $2',
+    //     [hashToken(tempToken), user.id]);
+    //   return res.json({ requires2FA: true, tempToken, userId: user.id });
+    // }
 
     // Generate tokens
     const accessToken = generateAccessToken(user);

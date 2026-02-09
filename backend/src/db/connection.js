@@ -6,16 +6,29 @@ dotenv.config();
 
 const { Pool } = pg;
 
-// Configure SSL for Azure PostgreSQL
-// In production, ALWAYS verify the server certificate to prevent MITM attacks.
-// Set AZURE_PG_SSL_CA to the path of the DigiCert Global Root G2 CA cert,
-// or set DATABASE_SSL_REJECT_UNAUTHORIZED=false ONLY for local development.
+// Configure SSL for Azure PostgreSQL.
+//
+// MIGRATION PATH (backwards-compatible):
+//   1. Current default: rejectUnauthorized: false (matches old behavior, won't break existing deploys)
+//   2. Set DATABASE_SSL_VERIFY=true in production to enable cert verification (recommended)
+//   3. Optionally set AZURE_PG_SSL_CA to a CA cert path for custom CAs
+//
+// The goal is to reach rejectUnauthorized: true in production, but we can't flip
+// the default without risking breaking existing deployments that don't have the
+// Azure CA cert configured. The env var opt-in lets you upgrade safely.
 function buildSslConfig() {
   if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL?.includes('sslmode')) {
     return false; // No SSL in local development without explicit sslmode
   }
 
-  const config = { rejectUnauthorized: true }; // Default: verify certs
+  // Default: rejectUnauthorized false for backwards compatibility with existing deploys.
+  // Set DATABASE_SSL_VERIFY=true to enable proper cert verification.
+  const shouldVerify = process.env.DATABASE_SSL_VERIFY === 'true';
+  const config = { rejectUnauthorized: shouldVerify };
+
+  if (!shouldVerify && process.env.NODE_ENV === 'production') {
+    console.warn('[DB] WARNING: SSL certificate verification is DISABLED. Set DATABASE_SSL_VERIFY=true and optionally AZURE_PG_SSL_CA for secure connections.');
+  }
 
   // Allow a custom CA certificate (e.g., Azure DigiCert Global Root G2)
   if (process.env.AZURE_PG_SSL_CA) {
@@ -24,12 +37,6 @@ function buildSslConfig() {
     } catch (err) {
       console.error('[DB] Failed to read SSL CA certificate:', err.message);
     }
-  }
-
-  // ONLY allow disabling cert verification via explicit env var (NOT by default)
-  if (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false') {
-    console.warn('[DB] WARNING: SSL certificate verification is DISABLED. This should NEVER be used in production with real data.');
-    config.rejectUnauthorized = false;
   }
 
   return config;

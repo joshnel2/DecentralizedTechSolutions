@@ -203,6 +203,9 @@ export const useAuthStore = create<AuthState>()(
           const result = await authApi.login(email, password)
           
           if (result.requires2FA) {
+            // 2FA flow: backend requests a second factor before issuing tokens.
+            // Currently disabled on backend until real TOTP/SMS verification is built.
+            // This code path will activate once the backend 2FA endpoint is implemented.
             set({ 
               isLoading: false,
               twoFactorRequired: true,
