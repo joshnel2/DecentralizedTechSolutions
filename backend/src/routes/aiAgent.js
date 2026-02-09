@@ -7641,7 +7641,8 @@ async function runReActAgent(taskId, user, goal, initialContext = {}) {
     );
     
     // Ask AI to generate sub-tasks for the goal
-    const planningSystemPrompt = `You are a legal AI assistant planning a 15-minute autonomous work session.
+    const planningTodayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
+    const planningSystemPrompt = `You are a legal AI assistant planning a 15-minute autonomous work session. Today's date is ${planningTodayStr}.
 
 Your job is to break down the user's goal into 5-10 specific, actionable sub-tasks that you can complete in 15 minutes.
 
@@ -7735,8 +7736,10 @@ Do not include any other text. Just the JSON array.`;
     // =========================================================================
     
     // Build context-only system prompt - NO full task list shown to AI
+    const todayForAgent = getTodayInTimezone(DEFAULT_TIMEZONE);
     const buildSystemPrompt = (currentTask, taskNumber, totalTasks) => `You are an AUTONOMOUS legal AI assistant executing a specific task assignment.
 
+TODAY'S DATE: ${todayForAgent}
 OVERALL GOAL: ${goal}
 
 YOUR CURRENT ASSIGNMENT (Task ${taskNumber} of ${totalTasks}):

@@ -3,6 +3,8 @@ import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
 import {
   DEFAULT_TIMEZONE,
+  getTodayInTimezone,
+  getDatePartsInTimezone,
   formatDate,
   formatTime,
   formatDateTime,
@@ -17,8 +19,13 @@ const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const AZURE_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 const API_VERSION = '2024-02-15-preview';
 
-// System prompt for the AI
-const SYSTEM_PROMPT = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. You have access to the firm's data shown in the context below.
+// System prompt for the AI - now a function to include current date context
+function getSystemPrompt() {
+  const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
+  const dateParts = getDatePartsInTimezone(new Date(), DEFAULT_TIMEZONE);
+  const currentYear = dateParts.year;
+  
+  return `You are an intelligent AI assistant for a law firm management platform called Apex Legal. Today is ${todayStr} (${currentYear}). You have access to the firm's data shown in the context below.
 
 RULES:
 1. If the question relates to the firm data provided, use it to give specific, accurate answers
@@ -29,8 +36,10 @@ RULES:
 6. For legal questions, provide general guidance but remind users to verify with applicable law
 7. When suggesting priorities or tasks, be specific and actionable
 8. Format responses nicely with bullet points or numbered lists when appropriate
+9. When referencing dates, deadlines, or timeframes, always use the current date (${todayStr}) as your reference point
 
 You are speaking directly to a law firm professional. Be their intelligent assistant.`;
+}
 
 // Helper to call Azure OpenAI
 async function callAzureOpenAI(messages, options = {}) {
@@ -652,10 +661,10 @@ router.post('/chat', authenticate, async (req, res) => {
 
     // Build system prompt - adjust for image analysis if needed
     // Include user's custom instructions if they exist
-    let systemPrompt = SYSTEM_PROMPT;
+    let systemPrompt = getSystemPrompt();
     
     if (userCustomInstructions) {
-      systemPrompt = `${SYSTEM_PROMPT}
+      systemPrompt = `${systemPrompt}
 
 USER'S CUSTOM INSTRUCTIONS (follow these preferences when responding to this user):
 ${userCustomInstructions}`;

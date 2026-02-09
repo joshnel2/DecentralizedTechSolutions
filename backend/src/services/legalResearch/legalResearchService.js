@@ -22,6 +22,7 @@
  */
 
 import { query } from '../../db/connection.js';
+import { DEFAULT_TIMEZONE, getTodayInTimezone } from '../../utils/dateUtils.js';
 
 // =====================================================
 // CONFIGURATION — Completely separate from Azure OpenAI
@@ -630,11 +631,12 @@ export async function runLegalPlugin(userInput, conversationHistory = [], option
     throw new Error('OPENROUTER_API_KEY is not configured. Legal Research requires an OpenRouter API key.');
   }
 
-  // Build the messages array
+  // Build the messages array with current date context
+  const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
   const messages = [
     {
       role: 'system',
-      content: PLAYBOOK
+      content: `Today's date is ${todayStr}.\n\n${PLAYBOOK}`
     },
     // Include conversation history (last N messages to stay within context)
     ...conversationHistory.slice(-40),
@@ -699,8 +701,10 @@ export async function runLegalPluginStream(userInput, conversationHistory = [], 
     throw new Error('OPENROUTER_API_KEY is not configured.');
   }
 
+  // Include current date context so the model has accurate temporal awareness
+  const streamTodayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
   const messages = [
-    { role: 'system', content: PLAYBOOK },
+    { role: 'system', content: `Today's date is ${streamTodayStr}.\n\n${PLAYBOOK}` },
     ...conversationHistory.slice(-40),
     { role: 'user', content: userInput }
   ];

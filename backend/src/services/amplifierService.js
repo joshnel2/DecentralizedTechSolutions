@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 import { query } from '../db/connection.js';
 import { getUserContext, getMatterContext, getLearningContext } from './amplifier/platformContext.js';
 import { getLawyerProfile, formatProfileForPrompt as formatLawyerProfile, updateProfileAfterTask } from './amplifier/lawyerProfile.js';
+import { DEFAULT_TIMEZONE, getTodayInTimezone, getDatePartsInTimezone } from '../utils/dateUtils.js';
 import { evaluateTask, storeEvaluation, formatEvaluationForAgent } from './amplifier/taskEvaluator.js';
 import { AMPLIFIER_TOOLS, AMPLIFIER_OPENAI_TOOLS, executeTool } from './amplifier/toolBridge.js';
 import { pushAgentEvent, updateAgentProgress } from '../routes/agentStream.js';
@@ -2566,6 +2567,16 @@ ${candidateList}
   buildSystemPrompt() {
     const totalMinutes = Math.round(this.maxRuntimeMs / 60000);
     
+    // ===== DATE CONTEXT =====
+    // Critical: without this, the model defaults to its training data cutoff (2024)
+    // and produces stale date references in legal documents, deadlines, and analysis.
+    const todayStr = getTodayInTimezone(DEFAULT_TIMEZONE);
+    const now = new Date();
+    const dateParts = getDatePartsInTimezone(now, DEFAULT_TIMEZONE);
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayOfWeek = dayNames[now.getDay()];
+    const currentYear = dateParts.year;
+    
     // ===== LEAN SYSTEM PROMPT =====
     // Only include what the model NEEDS. GPT already knows what legal matters, clients, etc. are.
     // This saves ~2000 tokens per API call = dramatically fewer rate limits over 30 min.
@@ -2582,6 +2593,7 @@ ${candidateList}
     
     let prompt = `You are the APEX LEGAL BACKGROUND AGENT - a FULLY AUTONOMOUS junior attorney AI with COMPLETE tool access to a legal practice management platform.
 
+**Today:** ${dayOfWeek}, ${todayStr} (${currentYear}) | **Current Time:** ${String(dateParts.hours).padStart(2, '0')}:${String(dateParts.minutes).padStart(2, '0')} ET
 **Task:** ${this.goal}
 **Complexity:** ${this.complexity} | **Budget:** ~${totalMinutes} min | **Phase:** ${this.executionPhase.toUpperCase()}
 
