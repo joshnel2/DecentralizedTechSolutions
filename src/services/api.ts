@@ -36,6 +36,21 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+
+  /** True if the server denied access to the resource (forbidden) */
+  get isForbidden(): boolean {
+    return this.status === 403;
+  }
+
+  /** True if the resource was not found */
+  get isNotFound(): boolean {
+    return this.status === 404;
+  }
+
+  /** True if the user's session has expired */
+  get isUnauthorized(): boolean {
+    return this.status === 401;
+  }
 }
 
 // Base fetch function with auth

@@ -27,6 +27,8 @@ import { ShareDocumentModal } from '../components/ShareDocumentModal'
 import { useEmailCompose } from '../contexts/EmailComposeContext'
 import { useAuthStore } from '../stores/authStore'
 import { useToast } from '../components/Toast'
+import { AccessDenied } from '../components/AccessDenied'
+import { ApiError, mattersApi as mattersApiDirect } from '../services/api'
 
 // Task interface
 interface Task {
@@ -122,6 +124,10 @@ export function MatterDetailPage() {
   // Time entries filter state
   const [timeEntriesSearch, setTimeEntriesSearch] = useState('')
   const [timeEntriesFilterStatus, setTimeEntriesFilterStatus] = useState<'all' | 'billed' | 'unbilled'>('all')
+  
+  // Access denied state (403 from backend)
+  const [accessDenied, setAccessDenied] = useState(false)
+  const [accessDeniedMessage, setAccessDeniedMessage] = useState('')
   
   // Document folder navigation state
   const [currentDocFolder, setCurrentDocFolder] = useState<string>('')
@@ -703,6 +709,19 @@ export function MatterDetailPage() {
 
   const matter = useMemo(() => matters.find(m => m.id === id), [matters, id])
   const client = useMemo(() => clients.find(c => c.id === matter?.clientId), [clients, matter])
+
+  // If matter isn't in the store (direct URL navigation), try fetching it directly
+  // This also handles 403 gracefully
+  useEffect(() => {
+    if (!matter && id && !accessDenied && matters.length > 0) {
+      mattersApiDirect.getById(id).catch((err: unknown) => {
+        if (err instanceof ApiError && err.isForbidden) {
+          setAccessDenied(true)
+          setAccessDeniedMessage(err.message || 'Access denied to this matter')
+        }
+      })
+    }
+  }, [matter, id, accessDenied, matters.length])
   
   const matterTimeEntries = useMemo(() => 
     timeEntries.filter(t => t.matterId === id)
@@ -939,6 +958,17 @@ Only analyze documents actually associated with this matter.`
     } finally {
       setAiAnalyzing(false)
     }
+  }
+
+  if (accessDenied) {
+    return (
+      <AccessDenied 
+        resourceType="matter" 
+        message={accessDeniedMessage}
+        backTo="/app/matters"
+        backLabel="Back to Matters"
+      />
+    )
   }
 
   if (!matter) {
