@@ -3166,4 +3166,357 @@ router.put('/user-drive-preference', authenticate, async (req, res) => {
   }
 });
 
+// ============================================
+// DESKTOP CLIENT API ENDPOINTS
+// ============================================
+// These endpoints are used by the Apex Drive desktop client (Electron app).
+// They return permission-filtered data - users only see their own documents.
+
+/**
+ * GET /drive/matters - List matters for drive view (A-Z structure)
+ * Only returns matters the user has access to.
+ */
+router.get('/matters', authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const firmId = req.user.firmId;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+
+    // Get matters user has access to
+    let mattersQuery;
+    if (isAdmin) {
+      mattersQuery = await query(
+        `SELECT m.id, m.name, m.number, m.status, c.display_name as client_name
+         FROM matters m
+         LEFT JOIN clients c ON m.client_id = c.id
+         WHERE m.firm_id = $1 AND m.status != 'archived'
+         ORDER BY m.name ASC`,
+        [firmId]
+      );
+    } else {
+      mattersQuery = await query(
+        `SELECT DISTINCT m.id, m.name, m.number, m.status, c.display_name as client_name
+         FROM matters m
+         LEFT JOIN clients c ON m.client_id = c.id
+         WHERE m.firm_id = $1 AND m.status != 'archived'
+           AND (
+             m.responsible_attorney = $2
+             OR m.originating_attorney = $2
+             OR m.visibility = 'firm_wide'
+             OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+             OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+           )
+         ORDER BY m.name ASC`,
+        [firmId, userId]
+      );
+    }
+
+    const matters = mattersQuery.rows.map(m => ({
+      id: m.id,
+      name: m.name,
+      number: m.number,
+      status: m.status,
+      clientName: m.client_name || 'Unknown Client',
+    }));
+
+    // Build A-Z structure
+    const letterMap = new Map();
+    for (const matter of matters) {
+      const matterName = matter.name || 'Unknown';
+      let letter = matterName.charAt(0).toUpperCase();
+      if (!/[A-Z]/.test(letter)) letter = '#';
+      
+      if (!letterMap.has(letter)) {
+        letterMap.set(letter, []);
+      }
+      letterMap.get(letter).push({
+        ...matter,
+        folderName: `${matter.clientName} - ${matter.number ? `${matter.number} ` : ''}${matter.name}`,
+      });
+    }
+
+    const structure = Array.from(letterMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([letter, letterMatters]) => ({ letter, matters: letterMatters }));
+
+    res.json({
+      matters,
+      structure,
+      totalMatters: matters.length,
+    });
+  } catch (error) {
+    console.error('Get drive matters error:', error);
+    res.status(500).json({ error: 'Failed to get matters' });
+  }
+});
+
+/**
+ * GET /drive/matters/:matterId/files - List files for a matter
+ * Only returns documents the user can access within this matter.
+ */
+router.get('/matters/:matterId/files', authenticate, async (req, res) => {
+  try {
+    const { matterId } = req.params;
+    const userId = req.user.id;
+    const firmId = req.user.firmId;
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+
+    // Verify user has matter access
+    const matterCheck = await query(
+      `SELECT id FROM matters m WHERE m.id = $1 AND m.firm_id = $2
+       AND (
+         $3 = true
+         OR m.responsible_attorney = $4
+         OR m.originating_attorney = $4
+         OR m.visibility = 'firm_wide'
+         OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $4)
+         OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $4)
+       )`,
+      [matterId, firmId, isAdmin, userId]
+    );
+
+    if (matterCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Matter not found or access denied' });
+    }
+
+    // Get documents for this matter that user can see
+    const docsResult = await query(
+      `SELECT d.id, d.name, d.original_name, d.type, d.size, d.folder_path,
+              d.external_path, d.uploaded_at, d.updated_at,
+              CASE WHEN d.uploaded_by = $3 OR d.owner_id = $3 THEN true ELSE false END as is_owned
+       FROM documents d
+       WHERE d.matter_id = $1 AND d.firm_id = $2
+         AND (
+           d.uploaded_by = $3 OR d.owner_id = $3
+           OR d.privacy_level IN ('firm', 'team')
+           OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $3 AND dp.can_view = true)
+           OR $4 = true
+         )
+       ORDER BY d.folder_path, d.name`,
+      [matterId, firmId, userId, isAdmin]
+    );
+
+    const files = docsResult.rows.map(d => ({
+      id: d.id,
+      name: d.original_name || d.name,
+      path: d.folder_path || '',
+      azurePath: d.external_path,
+      size: d.size || 0,
+      type: d.type || 'application/octet-stream',
+      isFolder: false,
+      matterId,
+      createdAt: d.uploaded_at,
+      updatedAt: d.updated_at || d.uploaded_at,
+      isOwned: d.is_owned,
+    }));
+
+    res.json({ files });
+  } catch (error) {
+    console.error('Get matter files error:', error);
+    res.status(500).json({ error: 'Failed to get files' });
+  }
+});
+
+/**
+ * GET /drive/files/:documentId/download - Download file content
+ * Checks user has access to the document before serving.
+ */
+router.get('/files/:documentId/download', authenticate, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const userId = req.user.id;
+    const firmId = req.user.firmId;
+
+    // Check access using the full permission system
+    const access = await canAccessDocument(userId, req.user.role, documentId, firmId, 'download');
+    if (!access.hasAccess) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    // Get document info
+    const docResult = await query(
+      `SELECT name, original_name, type, path, external_path, azure_path FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+    const fileName = doc.original_name || doc.name;
+
+    // Try Azure first
+    const azurePath = doc.azure_path || doc.external_path;
+    if (azurePath) {
+      try {
+        const azureEnabled = await isAzureConfigured();
+        if (azureEnabled) {
+          const { downloadFile } = await import('../utils/azureStorage.js');
+          let dlPath = azurePath;
+          const firmPrefix = `firm-${firmId}/`;
+          if (dlPath.startsWith(firmPrefix)) {
+            dlPath = dlPath.substring(firmPrefix.length);
+          }
+          const buffer = await downloadFile(dlPath, firmId);
+          if (buffer && buffer.length > 0) {
+            res.setHeader('Content-Type', doc.type || 'application/octet-stream');
+            res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+            return res.send(buffer);
+          }
+        }
+      } catch (azureErr) {
+        console.error('[DRIVE] Azure download failed:', azureErr.message);
+      }
+    }
+
+    // Fallback to local
+    if (doc.path) {
+      try {
+        const { default: fsPromises } = await import('fs/promises');
+        await fsPromises.access(doc.path);
+        const { createReadStream } = await import('fs');
+        res.setHeader('Content-Type', doc.type || 'application/octet-stream');
+        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+        return createReadStream(doc.path).pipe(res);
+      } catch {}
+    }
+
+    res.status(404).json({ error: 'File content not available' });
+  } catch (error) {
+    console.error('Drive file download error:', error);
+    res.status(500).json({ error: 'Failed to download file' });
+  }
+});
+
+/**
+ * PUT /drive/files/:documentId/upload - Upload updated file content
+ * User must have edit access to the document.
+ */
+router.put('/files/:documentId/upload', authenticate, async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const userId = req.user.id;
+    const firmId = req.user.firmId;
+
+    // Check edit access
+    const access = await canAccessDocument(userId, req.user.role, documentId, firmId, 'edit');
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Edit access denied' });
+    }
+
+    // Get document info
+    const docResult = await query(
+      `SELECT name, original_name, external_path, azure_path, folder_path FROM documents WHERE id = $1 AND firm_id = $2`,
+      [documentId, firmId]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const doc = docResult.rows[0];
+    
+    // Collect request body as buffer
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const content = Buffer.concat(chunks);
+
+    if (content.length === 0) {
+      return res.status(400).json({ error: 'No content provided' });
+    }
+
+    // Upload to Azure
+    const azureEnabled = await isAzureConfigured();
+    if (azureEnabled) {
+      const { uploadFileBuffer } = await import('../utils/azureStorage.js');
+      const azurePath = doc.azure_path || doc.external_path || `users/${userId}/${doc.folder_path || 'My Documents'}/${doc.original_name || doc.name}`;
+      let uploadPath = azurePath;
+      const firmPrefix = `firm-${firmId}/`;
+      if (uploadPath.startsWith(firmPrefix)) {
+        uploadPath = uploadPath.substring(firmPrefix.length);
+      }
+      await uploadFileBuffer(content, uploadPath, firmId);
+    }
+
+    // Update document metadata
+    await query(
+      `UPDATE documents SET size = $1, content_text = NULL, content_extracted_at = NULL, updated_at = NOW() WHERE id = $2`,
+      [content.length, documentId]
+    );
+
+    res.json({ success: true, size: content.length });
+  } catch (error) {
+    console.error('Drive file upload error:', error);
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+/**
+ * POST /drive/matters/:matterId/files - Create a new file in a matter
+ * Creates a document record and optionally uploads to Azure.
+ */
+router.post('/matters/:matterId/files', authenticate, async (req, res) => {
+  try {
+    const { matterId } = req.params;
+    const { name, path: filePath } = req.body;
+    const userId = req.user.id;
+    const firmId = req.user.firmId;
+
+    if (!name) {
+      return res.status(400).json({ error: 'File name is required' });
+    }
+
+    // For personal documents (no matterId), skip matter check
+    if (matterId && matterId !== '') {
+      // Verify user has matter access
+      const matterCheck = await query(
+        `SELECT id FROM matters WHERE id = $1 AND firm_id = $2`,
+        [matterId, firmId]
+      );
+
+      if (matterCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Matter not found' });
+      }
+    }
+
+    const actualMatterId = (matterId && matterId !== '') ? matterId : null;
+    const folderPath = filePath || (actualMatterId ? `Matters` : 'My Documents');
+    const privacyLevel = actualMatterId ? 'team' : 'private';
+
+    // Build Azure path in user's folder
+    const azurePath = `firm-${firmId}/users/${userId}/${folderPath}/${name}`;
+
+    // Create document record
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, name, original_name, type, size, path, folder_path,
+        external_path, uploaded_by, owner_id, privacy_level, status, storage_location
+      ) VALUES ($1, $2, $3, $3, $4, 0, $5, $6, $5, $7, $7, $8, 'final', 'azure')
+      RETURNING id`,
+      [
+        firmId,
+        actualMatterId,
+        name,
+        'application/octet-stream',
+        azurePath,
+        folderPath,
+        userId,
+        privacyLevel,
+      ]
+    );
+
+    res.json({
+      documentId: result.rows[0].id,
+      azurePath,
+      name,
+    });
+  } catch (error) {
+    console.error('Create drive file error:', error);
+    res.status(500).json({ error: 'Failed to create file' });
+  }
+});
+
 export default router;

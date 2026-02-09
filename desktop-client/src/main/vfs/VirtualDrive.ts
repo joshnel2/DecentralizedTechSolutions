@@ -14,10 +14,12 @@
 import { EventEmitter } from 'events';
 import path from 'path';
 import fs from 'fs/promises';
+import { existsSync } from 'fs';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
 import log from 'electron-log';
+import chokidar from 'chokidar';
 
 import { ApiClient, Matter, VirtualFile } from '../api/ApiClient';
 
@@ -30,6 +32,8 @@ export class VirtualDrive extends EventEmitter {
   private localPath: string;
   private syncInProgress: boolean = false;
   private syncInterval: NodeJS.Timeout | null = null;
+  private fileWatcher: chokidar.FSWatcher | null = null;
+  private uploadQueue: Map<string, NodeJS.Timeout> = new Map(); // debounce uploads
 
   constructor(apiClient: ApiClient, driveLetter: string = 'B') {
     super();
@@ -77,23 +81,45 @@ export class VirtualDrive extends EventEmitter {
       await fs.mkdir(this.localPath, { recursive: true });
       log.info(`Local folder ready: ${this.localPath}`);
 
-      // 2. Remove any existing mapping for this drive letter
-      try {
-        await execAsync(`subst ${this.driveLetter}: /d`);
-      } catch (e) {
-        // Ignore - drive might not be mapped
+      // 2. Mount based on platform
+      if (process.platform === 'win32') {
+        // Windows: use subst command to map drive letter
+        try {
+          await execAsync(`subst ${this.driveLetter}: /d`);
+        } catch (e) {
+          // Ignore - drive might not be mapped
+        }
+        await execAsync(`subst ${this.driveLetter}: "${this.localPath}"`);
+        log.info(`Drive ${this.driveLetter}: mapped to ${this.localPath}`);
+      } else if (process.platform === 'darwin') {
+        // macOS: create a symlink in /Volumes for Finder visibility
+        const volumePath = `/Volumes/Apex Drive`;
+        try {
+          await fs.unlink(volumePath);
+        } catch (e) {
+          // Ignore - symlink might not exist
+        }
+        try {
+          await fs.symlink(this.localPath, volumePath);
+          log.info(`Symlink created: ${volumePath} -> ${this.localPath}`);
+        } catch (e) {
+          // If /Volumes symlink fails (permissions), just use the local folder directly
+          log.info(`Could not create /Volumes symlink, using local folder: ${this.localPath}`);
+        }
+      } else {
+        // Linux: just use the local folder
+        log.info(`Using local folder for drive: ${this.localPath}`);
       }
-
-      // 3. Map the local folder to the drive letter
-      await execAsync(`subst ${this.driveLetter}: "${this.localPath}"`);
-      log.info(`Drive ${this.driveLetter}: mapped to ${this.localPath}`);
 
       this.mounted = true;
 
-      // 4. Initial sync - download user's permitted files
+      // 3. Initial sync - download user's permitted files
       await this.syncFiles();
 
-      // 5. Start periodic sync
+      // 4. Start watching for local file changes (upload back to server)
+      this.startFileWatcher();
+
+      // 5. Start periodic sync (download from server)
       this.startPeriodicSync();
 
       this.emit('mounted', { driveLetter: this.driveLetter });
@@ -116,11 +142,22 @@ export class VirtualDrive extends EventEmitter {
     try {
       log.info(`Unmounting drive ${this.driveLetter}:`);
 
+      // Stop file watcher
+      this.stopFileWatcher();
+
       // Stop periodic sync
       this.stopPeriodicSync();
 
-      // Remove drive mapping
-      await execAsync(`subst ${this.driveLetter}: /d`);
+      // Remove drive mapping based on platform
+      if (process.platform === 'win32') {
+        await execAsync(`subst ${this.driveLetter}: /d`);
+      } else if (process.platform === 'darwin') {
+        try {
+          await fs.unlink(`/Volumes/Apex Drive`);
+        } catch (e) {
+          // Ignore
+        }
+      }
 
       this.mounted = false;
       this.emit('unmounted');
@@ -483,8 +520,213 @@ export class VirtualDrive extends EventEmitter {
     }
   }
 
+  // =============================================
+  // FILE WATCHER - Detects saves from Word/etc and uploads to server
+  // =============================================
+
   /**
-   * Open the drive in Windows Explorer
+   * Start watching the local sync folder for file changes.
+   * When a user saves a file from Word/Excel/etc., chokidar detects it
+   * and uploads it to the server via the API.
+   */
+  private startFileWatcher(): void {
+    if (this.fileWatcher) {
+      return;
+    }
+
+    log.info('Starting file watcher for local changes...');
+
+    this.fileWatcher = chokidar.watch(this.localPath, {
+      ignoreInitial: true, // Don't fire for existing files
+      ignored: [
+        /(^|[\/\\])\../, // Ignore dotfiles (.apex-matter, .apex-files, etc.)
+        /~\$/, // Ignore Word temp files (~$document.docx)
+        /\.tmp$/i, // Ignore .tmp files
+        /\.lock$/i, // Ignore lock files
+      ],
+      awaitWriteFinish: {
+        stabilityThreshold: 2000, // Wait 2s after last write before firing
+        pollInterval: 500,
+      },
+      persistent: true,
+    });
+
+    // File added or modified
+    this.fileWatcher.on('add', (filePath: string) => {
+      this.handleLocalFileChange(filePath, 'add');
+    });
+    this.fileWatcher.on('change', (filePath: string) => {
+      this.handleLocalFileChange(filePath, 'change');
+    });
+
+    this.fileWatcher.on('error', (error: Error) => {
+      log.error('File watcher error:', error);
+    });
+
+    log.info('File watcher started');
+  }
+
+  /**
+   * Stop the file watcher
+   */
+  private stopFileWatcher(): void {
+    if (this.fileWatcher) {
+      this.fileWatcher.close();
+      this.fileWatcher = null;
+      log.info('File watcher stopped');
+    }
+
+    // Clear any pending upload timers
+    for (const timer of this.uploadQueue.values()) {
+      clearTimeout(timer);
+    }
+    this.uploadQueue.clear();
+  }
+
+  /**
+   * Handle a local file change - debounce and upload to server
+   */
+  private handleLocalFileChange(filePath: string, eventType: 'add' | 'change'): void {
+    // Get relative path from sync folder
+    const relativePath = path.relative(this.localPath, filePath);
+    const fileName = path.basename(filePath);
+
+    // Skip metadata files
+    if (fileName.startsWith('.apex-') || fileName.startsWith('~$')) {
+      return;
+    }
+
+    log.info(`[FileWatcher] ${eventType}: ${relativePath}`);
+
+    // Debounce: Word saves multiple times rapidly, wait for it to finish
+    if (this.uploadQueue.has(filePath)) {
+      clearTimeout(this.uploadQueue.get(filePath)!);
+    }
+
+    const timer = setTimeout(async () => {
+      this.uploadQueue.delete(filePath);
+      await this.uploadLocalFile(filePath, relativePath);
+    }, 3000); // Wait 3 seconds after last change
+
+    this.uploadQueue.set(filePath, timer);
+  }
+
+  /**
+   * Upload a locally changed file to the server
+   */
+  private async uploadLocalFile(filePath: string, relativePath: string): Promise<void> {
+    try {
+      // Read file content
+      const content = await fs.readFile(filePath);
+      if (content.length === 0) {
+        log.debug(`Skipping empty file: ${relativePath}`);
+        return;
+      }
+
+      // Determine the matter this file belongs to by checking parent folders for .apex-matter
+      const matterId = await this.findMatterIdForPath(filePath);
+      const fileName = path.basename(filePath);
+
+      // Check if we have metadata for this file (it was downloaded from server)
+      const metaDir = path.join(path.dirname(filePath), '.apex-files');
+      const metaPath = path.join(metaDir, `${this.sanitizeFolderName(fileName)}.json`);
+      
+      let existingDocId: string | null = null;
+      try {
+        const metaRaw = await fs.readFile(metaPath, 'utf-8');
+        const meta = JSON.parse(metaRaw);
+        existingDocId = meta.id;
+      } catch {
+        // No metadata - this is a new file
+      }
+
+      if (existingDocId) {
+        // Existing file was modified - upload updated content
+        log.info(`Uploading modified file: ${fileName} (doc: ${existingDocId})`);
+        await this.apiClient.uploadFile(existingDocId, content);
+        this.emit('fileUploaded', { fileName, documentId: existingDocId, type: 'update' });
+        log.info(`Successfully uploaded update for: ${fileName}`);
+      } else {
+        // New file - create document on server
+        if (matterId) {
+          log.info(`Uploading new file: ${fileName} to matter ${matterId}`);
+          const result = await this.apiClient.createFile(matterId, fileName, relativePath);
+          
+          // Upload the content
+          if (result.documentId) {
+            await this.apiClient.uploadFile(result.documentId, content);
+            
+            // Save metadata for future updates
+            await fs.mkdir(metaDir, { recursive: true });
+            await fs.writeFile(metaPath, JSON.stringify({
+              id: result.documentId,
+              matterId,
+              azurePath: result.azurePath,
+              size: content.length,
+              updatedAt: new Date().toISOString(),
+            }));
+            try {
+              if (process.platform === 'win32') {
+                await execAsync(`attrib +h "${metaDir}"`);
+              }
+            } catch {}
+            
+            this.emit('fileUploaded', { fileName, documentId: result.documentId, type: 'create' });
+            log.info(`Successfully uploaded new file: ${fileName}`);
+          }
+        } else {
+          // No matter ID - upload as personal document
+          log.info(`Uploading personal file: ${fileName}`);
+          try {
+            const result = await this.apiClient.createFile('', fileName, relativePath);
+            if (result.documentId) {
+              await this.apiClient.uploadFile(result.documentId, content);
+              
+              await fs.mkdir(metaDir, { recursive: true });
+              await fs.writeFile(metaPath, JSON.stringify({
+                id: result.documentId,
+                size: content.length,
+                updatedAt: new Date().toISOString(),
+              }));
+              
+              this.emit('fileUploaded', { fileName, documentId: result.documentId, type: 'create' });
+              log.info(`Successfully uploaded personal file: ${fileName}`);
+            }
+          } catch (uploadErr) {
+            log.error(`Failed to upload personal file ${fileName}:`, uploadErr);
+          }
+        }
+      }
+    } catch (error) {
+      log.error(`Failed to upload ${relativePath}:`, error);
+      this.emit('uploadFailed', { path: relativePath, error: (error as Error).message });
+    }
+  }
+
+  /**
+   * Walk up the directory tree to find a .apex-matter file and extract the matter ID
+   */
+  private async findMatterIdForPath(filePath: string): Promise<string | null> {
+    let currentDir = path.dirname(filePath);
+    
+    // Walk up directories until we find .apex-matter or hit the sync root
+    while (currentDir.startsWith(this.localPath) && currentDir !== this.localPath) {
+      const metaPath = path.join(currentDir, '.apex-matter');
+      try {
+        const metaRaw = await fs.readFile(metaPath, 'utf-8');
+        const meta = JSON.parse(metaRaw);
+        return meta.matterId || null;
+      } catch {
+        // No metadata at this level, go up
+      }
+      currentDir = path.dirname(currentDir);
+    }
+    
+    return null;
+  }
+
+  /**
+   * Open the drive in file explorer (cross-platform)
    */
   public async openInExplorer(): Promise<void> {
     if (!this.mounted) {
@@ -492,7 +734,15 @@ export class VirtualDrive extends EventEmitter {
     }
 
     try {
-      await execAsync(`explorer ${this.driveLetter}:`);
+      if (process.platform === 'win32') {
+        await execAsync(`explorer ${this.driveLetter}:`);
+      } else if (process.platform === 'darwin') {
+        const volumePath = `/Volumes/Apex Drive`;
+        const openPath = existsSync(volumePath) ? volumePath : this.localPath;
+        await execAsync(`open "${openPath}"`);
+      } else {
+        await execAsync(`xdg-open "${this.localPath}"`);
+      }
     } catch (error) {
       log.error('Failed to open explorer:', error);
       throw error;
