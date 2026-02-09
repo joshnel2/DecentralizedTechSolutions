@@ -357,9 +357,7 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     const firmId = req.user.firmId;
     
-    // Users get all their docs (filtered, so manageable count)
-    // Admins get capped at 100 (use mapped drive for full access)
-    const limit = req.query.limit ? parseInt(req.query.limit) : (isAdmin ? 100 : 5000);
+    const limit = req.query.limit ? parseInt(req.query.limit) : 5000;
     
     console.log(`[DOCS API] User: ${req.user.email}, Role: ${req.user.role}, FirmId: ${firmId}, isAdmin: ${isAdmin}`);
     

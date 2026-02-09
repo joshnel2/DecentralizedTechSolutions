@@ -520,9 +520,7 @@ export function DocumentsPage() {
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <h1>Documents</h1>
-          <span className={styles.count}>
-            {categorizedDocs.counts.all} files
-          </span>
+          <span className={styles.count}></span>
         </div>
         <div className={styles.headerActions}>
           {selectedDocIds.size > 0 ? (
