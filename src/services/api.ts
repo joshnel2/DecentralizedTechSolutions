@@ -2400,6 +2400,71 @@ export const notificationsApi = {
 };
 
 // ============================================
+// ROLES API - Custom role & permission management
+// ============================================
+
+export const rolesApi = {
+  // Get permission catalog (all available permissions with labels/categories)
+  async getPermissionsCatalog() {
+    return fetchWithAuth('/roles/permissions-catalog');
+  },
+
+  // Get all roles for the firm
+  async getAll() {
+    return fetchWithAuth('/roles');
+  },
+
+  // Get a single role with users
+  async getById(roleId: string) {
+    return fetchWithAuth(`/roles/${roleId}`);
+  },
+
+  // Create a custom role
+  async create(data: { name: string; displayName: string; description?: string; permissions?: string[]; color?: string; isDefault?: boolean }) {
+    return fetchWithAuth('/roles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Update a role
+  async update(roleId: string, data: { displayName?: string; description?: string; permissions?: string[]; color?: string; isDefault?: boolean; sortOrder?: number }) {
+    return fetchWithAuth(`/roles/${roleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Delete a custom role
+  async delete(roleId: string) {
+    return fetchWithAuth(`/roles/${roleId}`, { method: 'DELETE' });
+  },
+
+  // Get per-user permission overrides
+  async getUserOverrides(userId: string) {
+    return fetchWithAuth(`/roles/users/${userId}/overrides`);
+  },
+
+  // Add a permission override for a user
+  async addUserOverride(userId: string, data: { permission: string; action: 'grant' | 'revoke'; reason?: string; expiresAt?: string }) {
+    return fetchWithAuth(`/roles/users/${userId}/overrides`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Remove a permission override
+  async removeUserOverride(userId: string, overrideId: string) {
+    return fetchWithAuth(`/roles/users/${userId}/overrides/${overrideId}`, { method: 'DELETE' });
+  },
+
+  // Get effective (resolved) permissions for a user
+  async getEffectivePermissions(userId: string) {
+    return fetchWithAuth(`/roles/users/${userId}/effective`);
+  },
+};
+
+// ============================================
 // EVENTS API - Real-time event stream
 // ============================================
 
@@ -2443,4 +2508,5 @@ export default {
   stripe: stripeApi,
   notifications: notificationsApi,
   events: eventsApi,
+  roles: rolesApi,
 };

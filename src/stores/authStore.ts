@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { authApi, setAccessToken, teamApi } from '../services/api'
+import { authApi, setAccessToken, teamApi, rolesApi } from '../services/api'
 import type { User, Firm, UserRole } from '../types'
 
 // Session and security types
@@ -246,11 +246,19 @@ export const useAuthStore = create<AuthState>()(
             isLoading: false,
             twoFactorRequired: false,
             twoFactorVerified: true,
-            userPermissions: rolePermissions[user.role],
+            userPermissions: rolePermissions[user.role] || rolePermissions.readonly,
           })
 
           // Set the access token for future requests
           setAccessToken(result.accessToken)
+
+          // Load effective permissions from backend (DB-based custom roles)
+          // Non-blocking: falls back to hardcoded rolePermissions on failure
+          rolesApi.getEffectivePermissions(user.id).then(resp => {
+            if (resp?.effectivePermissions) {
+              set({ userPermissions: resp.effectivePermissions })
+            }
+          }).catch(() => { /* keep hardcoded fallback */ })
           
           return { requires2FA: false }
         } catch (error) {
@@ -422,8 +430,15 @@ export const useAuthStore = create<AuthState>()(
               firm,
               isAuthenticated: true,
               twoFactorVerified: true,
-              userPermissions: rolePermissions[user.role],
+              userPermissions: rolePermissions[user.role] || rolePermissions.readonly,
             })
+
+            // Load effective permissions from backend (custom roles)
+            rolesApi.getEffectivePermissions(user.id).then(resp => {
+              if (resp?.effectivePermissions) {
+                set({ userPermissions: resp.effectivePermissions })
+              }
+            }).catch(() => { /* keep hardcoded fallback */ })
 
             return true
           }
