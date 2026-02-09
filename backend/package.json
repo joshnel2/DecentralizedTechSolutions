@@ -10,7 +10,9 @@
     "db:init": "node src/db/init.js",
     "db:seed": "node src/db/seed.js",
     "db:migrate": "node src/db/migrationRunner.js",
-    "db:migrate:status": "node src/db/migrationRunner.js --status"
+    "db:migrate:status": "node src/db/migrationRunner.js --status",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@azure/ai-projects": "^2.0.0-beta.2",
@@ -39,5 +41,8 @@
     "uuid": "^9.0.1",
     "word-extractor": "^1.0.4",
     "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }
