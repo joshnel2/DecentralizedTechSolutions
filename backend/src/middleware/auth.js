@@ -1,5 +1,6 @@
-import { verifyAccessToken, hasPermission, hashToken } from '../utils/auth.js';
+import { verifyAccessToken, hasPermission as hasHardcodedPermission, hashToken } from '../utils/auth.js';
 import { query } from '../db/connection.js';
+import { checkPermission as checkDbPermission } from '../services/roleService.js';
 
 // Authentication middleware - supports both JWT and API key
 export async function authenticate(req, res, next) {
@@ -51,6 +52,22 @@ export async function authenticate(req, res, next) {
       role: user.role,
       firmId: user.firm_id,
       twoFactorEnabled: user.two_factor_enabled,
+    };
+
+    // Lazy-load effective permissions (only resolved when accessed)
+    let _effectivePermissions = null;
+    req.user.getEffectivePermissions = async () => {
+      if (!_effectivePermissions) {
+        try {
+          const { resolveUserPermissions } = await import('../services/roleService.js');
+          _effectivePermissions = await resolveUserPermissions(user.id, user.role, user.firm_id);
+        } catch {
+          // Fallback to hardcoded
+          const { getPermissionsForRole } = await import('../utils/auth.js');
+          _effectivePermissions = getPermissionsForRole(user.role);
+        }
+      }
+      return _effectivePermissions;
     };
 
     next();
@@ -113,8 +130,9 @@ async function authenticateApiKey(req, res, next, apiKey) {
 }
 
 // Permission check middleware factory
+// Uses DB-based custom role permissions with fallback to hardcoded defaults
 export function requirePermission(permission) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -122,12 +140,10 @@ export function requirePermission(permission) {
     // For API key requests, check the key's permissions
     if (req.user.isApiKey) {
       const apiPerms = req.user.apiKeyPermissions || [];
-      // Map permission to API key format (e.g., 'matters:view' -> 'matters:read')
       const permParts = permission.split(':');
       const resource = permParts[0];
       const action = permParts[1];
       
-      // Check if API key has required permission
       const hasReadPerm = apiPerms.includes(`${resource}:read`);
       const hasWritePerm = apiPerms.includes(`${resource}:write`);
       
@@ -144,11 +160,26 @@ export function requirePermission(permission) {
       return next();
     }
 
-    if (!hasPermission(req.user.role, permission)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
+    // Owner always has all permissions
+    if (req.user.role === 'owner') {
+      return next();
     }
 
-    next();
+    try {
+      // Check DB-based custom role permissions (with caching + overrides)
+      const hasDbPerm = await checkDbPermission(req.user.id, req.user.role, req.user.firmId, permission);
+      if (hasDbPerm) {
+        return next();
+      }
+    } catch (dbError) {
+      // If DB check fails (e.g., table doesn't exist yet), fall back to hardcoded
+      console.log('[AUTH] DB permission check failed, falling back to hardcoded:', dbError.message);
+      if (hasHardcodedPermission(req.user.role, permission)) {
+        return next();
+      }
+    }
+
+    return res.status(403).json({ error: 'Insufficient permissions' });
   };
 }
 
