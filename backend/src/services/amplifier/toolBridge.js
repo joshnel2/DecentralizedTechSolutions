@@ -1119,24 +1119,40 @@ async function recordPayment(params, userId, firmId) {
 async function listDocuments(params, userId, firmId) {
   const { matter_id, client_id, search, limit = 20 } = params;
   
-  let sql = 'SELECT * FROM documents WHERE firm_id = $1';
-  const values = [firmId];
-  let idx = 2;
+  // User-scoped: only return documents the user has access to
+  let sql = `
+    SELECT DISTINCT d.* FROM documents d
+    LEFT JOIN matters m ON d.matter_id = m.id
+    LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
+    WHERE d.firm_id = $1
+      AND (
+        d.uploaded_by = $2 OR d.owner_id = $2
+        OR d.privacy_level = 'firm'
+        OR m.responsible_attorney = $2
+        OR m.originating_attorney = $2
+        OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $2)
+        OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
+        OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
+      )
+  `;
+  const values = [firmId, userId];
+  let idx = 3;
   
   if (matter_id) {
-    sql += ` AND matter_id = $${idx++}`;
+    sql += ` AND d.matter_id = $${idx++}`;
     values.push(matter_id);
   }
   if (client_id) {
-    sql += ` AND client_id = $${idx++}`;
+    sql += ` AND d.client_id = $${idx++}`;
     values.push(client_id);
   }
   if (search) {
-    sql += ` AND LOWER(original_name) LIKE $${idx++}`;
+    sql += ` AND (LOWER(d.original_name) LIKE $${idx} OR LOWER(d.name) LIKE $${idx++})`;
     values.push(`%${search.toLowerCase()}%`);
   }
   
-  sql += ` ORDER BY created_at DESC LIMIT $${idx}`;
+  sql += ` ORDER BY d.created_at DESC LIMIT $${idx}`;
   values.push(limit);
   
   const result = await query(sql, values);
@@ -1210,11 +1226,24 @@ async function readDocumentContent(params, userId, firmId) {
   }
   
   try {
+    // User-scoped: only return documents the user has access to
     const result = await query(`
-      SELECT name, original_name, content_text, path, external_path, azure_path, type, size, uploaded_at
-      FROM documents 
-      WHERE id = $1 AND firm_id = $2
-    `, [document_id, firmId]);
+      SELECT DISTINCT d.name, d.original_name, d.content_text, d.path, d.external_path, d.azure_path, d.type, d.size, d.uploaded_at
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
+      WHERE d.id = $1 AND d.firm_id = $2
+        AND (
+          d.uploaded_by = $3 OR d.owner_id = $3
+          OR d.privacy_level = 'firm'
+          OR m.responsible_attorney = $3
+          OR m.originating_attorney = $3
+          OR mp.user_id = $3
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $3)
+          OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $3 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
+          OR EXISTS (SELECT 1 FROM users u WHERE u.id = $3 AND u.firm_id = $2 AND u.role IN ('owner', 'admin'))
+        )
+    `, [document_id, firmId, userId]);
     
     if (!result.rows.length) {
       return { 

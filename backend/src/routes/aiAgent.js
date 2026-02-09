@@ -4750,7 +4750,8 @@ async function generateReport(args, user) {
 async function listDocuments(args, user) {
   const { matter_id, client_id, search, source, limit = 20 } = args;
   
-  // Filter documents by user's matter permissions
+  // Filter documents: user only sees their own docs, shared docs, and matter docs they have access to
+  // Admins see all firm documents
   let sql = `
     SELECT DISTINCT d.id, d.name, d.original_name, d.type, d.size, d.status, d.uploaded_at, 
            d.external_source, d.external_url, d.content_text IS NOT NULL as has_content,
@@ -4761,10 +4762,19 @@ async function listDocuments(args, user) {
     LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
     WHERE d.firm_id = $1
       AND (
-        d.matter_id IS NULL
+        -- User uploaded or owns this document
+        d.uploaded_by = $2
+        OR d.owner_id = $2
+        -- Document is firm-wide (everyone can see)
+        OR d.privacy_level = 'firm'
+        -- User has access to the linked matter
         OR m.responsible_attorney = $2
         OR m.originating_attorney = $2
         OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $2)
+        -- Document was explicitly shared with user
+        OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
+        -- User is admin/owner (sees all firm docs)
         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
       )
   `;
@@ -4833,10 +4843,13 @@ async function getDocument(args, user) {
      LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
      WHERE d.id = $1 AND d.firm_id = $2
        AND (
-         d.matter_id IS NULL
+         d.uploaded_by = $3 OR d.owner_id = $3
+         OR d.privacy_level = 'firm'
          OR m.responsible_attorney = $3
          OR m.originating_attorney = $3
          OR mp.user_id = $3
+         OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $3)
+         OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $3 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
          OR EXISTS (SELECT 1 FROM users u2 WHERE u2.id = $3 AND u2.firm_id = $2 AND u2.role IN ('owner', 'admin'))
        )`,
     [document_id, user.firmId, user.id]
@@ -4882,10 +4895,13 @@ async function readDocumentContent(args, user) {
      LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
      WHERE d.id = $1 AND d.firm_id = $2
        AND (
-         d.matter_id IS NULL
+         d.uploaded_by = $3 OR d.owner_id = $3
+         OR d.privacy_level = 'firm'
          OR m.responsible_attorney = $3
          OR m.originating_attorney = $3
          OR mp.user_id = $3
+         OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $3)
+         OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $3 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
          OR EXISTS (SELECT 1 FROM users u WHERE u.id = $3 AND u.firm_id = $2 AND u.role IN ('owner', 'admin'))
        )`,
     [document_id, user.firmId, user.id]
@@ -5079,10 +5095,13 @@ async function findAndReadDocument(args, user) {
     LEFT JOIN matter_permissions mp ON mp.matter_id = m.id
     WHERE d.firm_id = $1 
       AND (
-        d.matter_id IS NULL
+        d.uploaded_by = $2 OR d.owner_id = $2
+        OR d.privacy_level = 'firm'
         OR m.responsible_attorney = $2
         OR m.originating_attorney = $2
         OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $2)
+        OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
       )
       AND (
@@ -5126,10 +5145,13 @@ async function findAndReadDocument(args, user) {
       WHERE d.firm_id = $1 
         AND (d.name ILIKE $3 OR d.original_name ILIKE $3)
         AND (
-          d.matter_id IS NULL
+          d.uploaded_by = $2 OR d.owner_id = $2
+          OR d.privacy_level = 'firm'
           OR m.responsible_attorney = $2
           OR m.originating_attorney = $2
           OR mp.user_id = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $2)
+          OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
           OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
         )
       ORDER BY d.uploaded_at DESC NULLS LAST LIMIT 10
@@ -5442,25 +5464,41 @@ async function getMatterDocumentsContent(args, user) {
     return { error: 'matter_id is required' };
   }
   
-  // Get matter info
+  // Verify user has access to this matter
+  const isAdmin = ['owner', 'admin'].includes(user.role);
   const matterResult = await query(
-    'SELECT name, number FROM matters WHERE id = $1 AND firm_id = $2',
-    [matter_id, user.firmId]
+    `SELECT m.name, m.number FROM matters m
+     WHERE m.id = $1 AND m.firm_id = $2
+       AND (
+         $3 = true
+         OR m.responsible_attorney = $4
+         OR m.originating_attorney = $4
+         OR m.visibility = 'firm_wide'
+         OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $4)
+         OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $4)
+       )`,
+    [matter_id, user.firmId, isAdmin, user.id]
   );
   
   if (matterResult.rows.length === 0) {
-    return { error: 'Matter not found' };
+    return { error: 'Matter not found or access denied' };
   }
   
   const matter = matterResult.rows[0];
   
-  // Get all documents for this matter
+  // Get documents for this matter that user can access
   const docsResult = await query(
-    `SELECT id, name, original_name, type, size, status, content_text, ai_summary, uploaded_at
-     FROM documents 
-     WHERE matter_id = $1 AND firm_id = $2
-     ORDER BY uploaded_at DESC`,
-    [matter_id, user.firmId]
+    `SELECT d.id, d.name, d.original_name, d.type, d.size, d.status, d.content_text, d.ai_summary, d.uploaded_at
+     FROM documents d
+     WHERE d.matter_id = $1 AND d.firm_id = $2
+       AND (
+         d.uploaded_by = $3 OR d.owner_id = $3
+         OR d.privacy_level IN ('firm', 'team')
+         OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $3 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
+         OR $4 = true
+       )
+     ORDER BY d.uploaded_at DESC`,
+    [matter_id, user.firmId, user.id, isAdmin]
   );
   
   const documents = docsResult.rows.map(d => {
@@ -5520,10 +5558,13 @@ async function searchDocumentContent(args, user) {
     WHERE d.firm_id = $1 
       AND (d.content_text ILIKE $3 OR d.ai_summary ILIKE $3 OR d.name ILIKE $3 OR d.original_name ILIKE $3)
       AND (
-        d.matter_id IS NULL
+        d.uploaded_by = $2 OR d.owner_id = $2
+        OR d.privacy_level = 'firm'
         OR m.responsible_attorney = $2
         OR m.originating_attorney = $2
         OR mp.user_id = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $2)
+        OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
         OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
       )
   `;
