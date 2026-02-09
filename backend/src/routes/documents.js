@@ -1449,6 +1449,12 @@ router.get('/:id/content', authenticate, requirePermission('documents:view'), as
     }
 
     const doc = result.rows[0];
+
+    // Security: verify user has access to this specific document
+    const access = await canAccessDocument(req.user.id, req.user.role, req.params.id, req.user.firmId, 'view');
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this document' });
+    }
     
     // First check if content is already stored in database (e.g., AI-generated documents)
     // Check both content_text column and metadata.content_text (for newer AI docs)
@@ -1616,6 +1622,12 @@ router.post('/:id/extract', authenticate, requirePermission('documents:edit'), a
 
     const doc = result.rows[0];
 
+    // Security: verify user has access to this specific document
+    const access = await canAccessDocument(req.user.id, req.user.role, req.params.id, req.user.firmId, 'edit');
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this document' });
+    }
+
     // Check if file exists
     try {
       await fs.access(doc.path);
@@ -1700,6 +1712,12 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
     }
 
     const doc = result.rows[0];
+
+    // Security: verify user has access to this specific document
+    const access = await canAccessDocument(req.user.id, req.user.role, req.params.id, req.user.firmId, 'view');
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this document' });
+    }
     
     // Determine the filename to use - prioritize original_name, then name
     const downloadFilename = doc.original_name || doc.name || 'document';
@@ -1828,16 +1846,32 @@ router.get('/:id/download', authenticate, requirePermission('documents:view'), a
 // Download ALL documents as a zip file
 router.get('/download-all/zip', authenticate, requirePermission('documents:view'), async (req, res) => {
   try {
-    // Get all documents for this firm that the user can access
-    const result = await query(
-      `SELECT d.*, m.name as matter_name, c.name as client_name
-       FROM documents d
-       LEFT JOIN matters m ON d.matter_id = m.id
-       LEFT JOIN clients c ON d.client_id = c.id
-       WHERE d.firm_id = $1 AND d.is_folder = false
-       ORDER BY d.folder_path, d.name`,
-      [req.user.firmId]
-    );
+    // Security: apply document access filtering based on user role
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    let result;
+
+    if (isAdmin) {
+      result = await query(
+        `SELECT d.*, m.name as matter_name, c.name as client_name
+         FROM documents d
+         LEFT JOIN matters m ON d.matter_id = m.id
+         LEFT JOIN clients c ON d.client_id = c.id
+         WHERE d.firm_id = $1 AND (d.is_folder = false OR d.is_folder IS NULL)
+         ORDER BY d.folder_path, d.name`,
+        [req.user.firmId]
+      );
+    } else {
+      const accessFilter = await buildDocumentAccessFilter(req.user.id, req.user.role, req.user.firmId, 'd', 1);
+      result = await query(
+        `SELECT d.*, m.name as matter_name, c.name as client_name
+         FROM documents d
+         LEFT JOIN matters m ON d.matter_id = m.id
+         LEFT JOIN clients c ON d.client_id = c.id
+         WHERE ${accessFilter.whereClause} AND (d.is_folder = false OR d.is_folder IS NULL)
+         ORDER BY d.folder_path, d.name`,
+        accessFilter.params
+      );
+    }
 
     const documents = result.rows;
     
@@ -1919,19 +1953,38 @@ router.post('/bulk-download', authenticate, requirePermission('documents:view'),
       return res.status(400).json({ error: 'Maximum 100 documents per download' });
     }
     
-    // Get documents that user has access to
-    const placeholders = documentIds.map((_, i) => `$${i + 2}`).join(',');
-    const result = await query(
-      `SELECT d.*, m.name as matter_name, c.name as client_name
-       FROM documents d
-       LEFT JOIN matters m ON d.matter_id = m.id
-       LEFT JOIN clients c ON d.client_id = c.id
-       WHERE d.firm_id = $1 
-         AND d.id IN (${placeholders})
-         AND d.is_folder = false
-       ORDER BY d.folder_path, d.name`,
-      [req.user.firmId, ...documentIds]
-    );
+    // Security: get documents with access filtering based on user role
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    let result;
+
+    if (isAdmin) {
+      const placeholders = documentIds.map((_, i) => `$${i + 2}`).join(',');
+      result = await query(
+        `SELECT d.*, m.name as matter_name, c.name as client_name
+         FROM documents d
+         LEFT JOIN matters m ON d.matter_id = m.id
+         LEFT JOIN clients c ON d.client_id = c.id
+         WHERE d.firm_id = $1 
+           AND d.id IN (${placeholders})
+           AND (d.is_folder = false OR d.is_folder IS NULL)
+         ORDER BY d.folder_path, d.name`,
+        [req.user.firmId, ...documentIds]
+      );
+    } else {
+      const accessFilter = await buildDocumentAccessFilter(req.user.id, req.user.role, req.user.firmId, 'd', 1);
+      const placeholders = documentIds.map((_, i) => `$${accessFilter.nextParamIndex + i}`).join(',');
+      result = await query(
+        `SELECT d.*, m.name as matter_name, c.name as client_name
+         FROM documents d
+         LEFT JOIN matters m ON d.matter_id = m.id
+         LEFT JOIN clients c ON d.client_id = c.id
+         WHERE ${accessFilter.whereClause}
+           AND d.id IN (${placeholders})
+           AND (d.is_folder = false OR d.is_folder IS NULL)
+         ORDER BY d.folder_path, d.name`,
+        [...accessFilter.params, ...documentIds]
+      );
+    }
 
     const documents = result.rows;
     
@@ -2051,6 +2104,12 @@ router.put('/:id', authenticate, requirePermission('documents:edit'), async (req
       return res.status(404).json({ error: 'Document not found' });
     }
 
+    // Security: verify user has edit access to this specific document
+    const access = await canAccessDocument(req.user.id, req.user.role, req.params.id, req.user.firmId, 'edit');
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this document' });
+    }
+
     const { name, matterId, clientId, tags, isConfidential, status, aiSummary, content, externalPath, externalType } = req.body;
 
     // Build dynamic update query
@@ -2149,6 +2208,12 @@ router.delete('/:id', authenticate, requirePermission('documents:delete'), async
     }
 
     const doc = result.rows[0];
+
+    // Security: only admins, the uploader, or the owner can delete
+    const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
+    if (!isAdmin && doc.uploaded_by !== req.user.id && doc.owner_id !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied - you can only delete documents you uploaded or own' });
+    }
 
     // Delete file from disk
     try {
