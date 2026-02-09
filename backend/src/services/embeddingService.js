@@ -80,12 +80,21 @@ export async function generateEmbedding(text, firmId) {
     embeddingVector = data.data[0].embedding;
   }
 
-  // Encrypt embedding for storage using encryptionService (HKDF + AES-256-GCM)
+  // Encrypt embedding for storage if Key Vault is configured
+  // IMPORTANT: Two encryption paths exist:
+  //   1. NEW (HKDF): Activated ONLY when ENCRYPTION_MASTER_SECRET is explicitly set.
+  //      Uses encryptionService.js with proper HKDF key derivation. Preferred for new deployments.
+  //   2. LEGACY (SHA-256): The original path, uses ENCRYPTION_SECRET with simple SHA-256 key derivation.
+  //      Kept as default to avoid breaking existing encrypted data.
+  // The two formats are NOT compatible - you cannot decrypt HKDF-encrypted data with the legacy
+  // decryptor or vice versa. Switching requires re-encrypting all existing embeddings.
   let encryptedEmbedding = null;
   if (KEY_VAULT_ENABLED) {
-    // Use the new encryption service with proper HKDF key derivation
-    encryptedEmbedding = encryptViaService(Array.from(embeddingVector), firmId);
-    // Fallback to legacy encryption if new service fails
+    if (process.env.ENCRYPTION_MASTER_SECRET) {
+      // New deployments: use HKDF encryption (explicit opt-in via ENCRYPTION_MASTER_SECRET)
+      encryptedEmbedding = encryptViaService(Array.from(embeddingVector), firmId);
+    }
+    // Fallback / existing deployments: legacy encryption with ENCRYPTION_SECRET
     if (!encryptedEmbedding) {
       encryptedEmbedding = await encryptEmbeddingLegacy(embeddingVector, firmId);
     }
