@@ -202,6 +202,9 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // Allow common document types by MIME type
+    // NOTE: application/octet-stream intentionally excluded -- it bypasses all
+    // MIME filtering. The extension-based fallback below handles browsers that
+    // send the wrong MIME type for known file types.
     const allowedTypes = [
       'application/pdf',
       'application/msword',
@@ -216,7 +219,6 @@ const upload = multer({
       'image/png',
       'image/gif',
       'image/webp',
-      'application/octet-stream', // Fallback for some browsers
     ];
 
     // Also allow by file extension as fallback

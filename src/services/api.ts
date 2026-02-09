@@ -1,29 +1,17 @@
 // API Configuration
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
-// Token storage key
-const TOKEN_STORAGE_KEY = 'apex-access-token';
-
-// Token management - initialize from localStorage
-let accessToken: string | null = (() => {
-  try {
-    return localStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-})();
+// In-memory only token storage.
+// Access tokens are NOT persisted to localStorage (XSS-vulnerable).
+// Session continuity across page reloads is handled by the httpOnly
+// refresh token cookie -- the app calls /auth/refresh on load to get
+// a fresh access token.
+let accessToken: string | null = null;
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
-  try {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
-  } catch (error) {
-    console.warn('Failed to persist access token:', error);
-  }
+  // Clean up any legacy localStorage token from before this fix
+  try { localStorage.removeItem('apex-access-token'); } catch { /* ignore */ }
 }
 
 export function getAccessToken() {
@@ -70,8 +58,12 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}): Promi
     credentials: 'include', // For cookies
   });
 
-  // Handle token refresh on 401
-  if (response.status === 401 && accessToken) {
+  // Handle token refresh on 401.
+  // Try refresh even when accessToken is null -- the httpOnly refresh token
+  // cookie may still be valid (e.g., after a page reload where the in-memory
+  // token was lost). Skip if the failing endpoint IS the refresh endpoint
+  // to avoid infinite loops.
+  if (response.status === 401 && !endpoint.includes('/auth/refresh')) {
     const refreshed = await refreshAccessToken();
     if (refreshed) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${accessToken}`;
@@ -100,26 +92,39 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}): Promi
   return text ? JSON.parse(text) : null;
 }
 
-// Refresh token
-async function refreshAccessToken(): Promise<boolean> {
-  try {
-    const response = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-    });
+// Refresh token -- with dedup to prevent concurrent refresh requests
+let refreshPromise: Promise<boolean> | null = null;
 
-    if (response.ok) {
-      const data = await response.json();
-      setAccessToken(data.accessToken);
-      return true;
+async function refreshAccessToken(): Promise<boolean> {
+  // If a refresh is already in flight, wait for it instead of making a second call
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAccessToken(data.accessToken);
+        return true;
+      }
+    } catch (error) {
+      console.error('Token refresh failed:', error);
     }
-  } catch (error) {
-    console.error('Token refresh failed:', error);
+
+    // Clear token on refresh failure
+    setAccessToken(null);
+    return false;
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
   }
-  
-  // Clear token on refresh failure
-  setAccessToken(null);
-  return false;
 }
 
 // ============================================

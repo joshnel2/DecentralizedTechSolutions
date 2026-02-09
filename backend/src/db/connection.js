@@ -1,23 +1,48 @@
 import pg from 'pg';
+import fs from 'fs';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const { Pool } = pg;
 
-// Configure SSL for Azure PostgreSQL in production
-const sslConfig = process.env.NODE_ENV === 'production' 
-  ? { rejectUnauthorized: false }
-  : false;
+// Configure SSL for Azure PostgreSQL
+// In production, ALWAYS verify the server certificate to prevent MITM attacks.
+// Set AZURE_PG_SSL_CA to the path of the DigiCert Global Root G2 CA cert,
+// or set DATABASE_SSL_REJECT_UNAUTHORIZED=false ONLY for local development.
+function buildSslConfig() {
+  if (process.env.NODE_ENV !== 'production' && !process.env.DATABASE_URL?.includes('sslmode')) {
+    return false; // No SSL in local development without explicit sslmode
+  }
+
+  const config = { rejectUnauthorized: true }; // Default: verify certs
+
+  // Allow a custom CA certificate (e.g., Azure DigiCert Global Root G2)
+  if (process.env.AZURE_PG_SSL_CA) {
+    try {
+      config.ca = fs.readFileSync(process.env.AZURE_PG_SSL_CA, 'utf-8');
+    } catch (err) {
+      console.error('[DB] Failed to read SSL CA certificate:', err.message);
+    }
+  }
+
+  // ONLY allow disabling cert verification via explicit env var (NOT by default)
+  if (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false') {
+    console.warn('[DB] WARNING: SSL certificate verification is DISABLED. This should NEVER be used in production with real data.');
+    config.rejectUnauthorized = false;
+  }
+
+  return config;
+}
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 20,
-  // Increase idle timeout for long-running operations (10 minutes)
-  idleTimeoutMillis: 600000,
-  // Increase connection timeout (10 seconds)
+  // 2 minute idle timeout (was 10 min -- too long, wastes Azure connection slots)
+  idleTimeoutMillis: 120000,
+  // Connection timeout (10 seconds)
   connectionTimeoutMillis: 10000,
-  ssl: sslConfig,
+  ssl: buildSslConfig(),
   // Keep connections alive - prevents Azure from closing idle connections
   keepAlive: true,
   keepAliveInitialDelayMillis: 10000,

@@ -86,17 +86,43 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Refresh-Token', 'X-Admin-Auth'],
 }));
 
-// Body parsing - large limit for full firm migration imports (can be 100s of MBs)
-app.use(express.json({ limit: '500mb' }));
-app.use(express.urlencoded({ extended: true, limit: '500mb' }));
+// Body parsing -- sensible defaults to prevent DoS via large payloads.
+// Individual routes that need larger limits (migration import) override this.
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
+
+// Route-specific larger body limits where justified:
+// - Migration imports can be hundreds of MBs (full firm data)
+// - AI agent routes send conversation history + document context
+app.use('/api/migration', express.json({ limit: '500mb' }));
+app.use('/api/ai', express.json({ limit: '10mb' }));
+app.use('/api/v1/agent', express.json({ limit: '10mb' }));
+app.use('/api/v1/background-agent', express.json({ limit: '10mb' }));
 
 // Rate limiting
 app.use('/api', apiLimiter);
 
-// Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check -- verifies database connectivity
+app.get('/health', async (req, res) => {
+  const checks = { database: 'unknown' };
+  let healthy = true;
+
+  try {
+    const { query: dbQuery } = await import('./db/connection.js');
+    const start = Date.now();
+    await dbQuery('SELECT 1');
+    checks.database = `ok (${Date.now() - start}ms)`;
+  } catch (err) {
+    checks.database = `error: ${err.message}`;
+    healthy = false;
+  }
+
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    checks,
+  });
 });
 
 // Apex Drive download shortcut - /installdrive redirects to latest installer

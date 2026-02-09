@@ -262,65 +262,17 @@ export const useAuthStore = create<AuthState>()(
           
           return { requires2FA: false }
         } catch (error) {
-          // Demo mode fallback - allows login when backend is unavailable
-          if (email === 'demo@apex.law' || email === 'admin@apex.law') {
-            const demoUser: User = {
-              id: 'demo-user-1',
-              email: email,
-              firstName: 'Demo',
-              lastName: 'User',
-              role: 'owner',
-              groupIds: [],
-              permissions: [],
-              isActive: true,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            }
-
-            const demoFirm: Firm = {
-              id: 'demo-firm-1',
-              name: 'Demo Law Firm',
-              address: '123 Legal Way',
-              city: 'San Francisco',
-              state: 'CA',
-              billingDefaults: {
-                hourlyRate: 350,
-                incrementMinutes: 6,
-                paymentTerms: 30,
-                currency: 'USD'
-              },
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            }
-
-            set({
-              user: demoUser,
-              firm: demoFirm,
-              isAuthenticated: true,
-              isLoading: false,
-              twoFactorRequired: false,
-              twoFactorVerified: true,
-              userPermissions: rolePermissions['owner'],
-            })
-
-            return { requires2FA: false }
-          }
-          
           set({ isLoading: false })
           throw error
         }
       },
 
-      verify2FA: async (code: string) => {
-        // TODO: Implement real 2FA verification
-        if (code.length === 6) {
-          set({
-            isAuthenticated: true,
-            twoFactorRequired: false,
-            twoFactorVerified: true,
-          })
-          return true
-        }
+      verify2FA: async (_code: string) => {
+        // 2FA verification is not yet implemented on the backend.
+        // Do NOT auto-approve -- return false until real server-side
+        // TOTP/SMS verification is built. The login flow will show an
+        // error message telling the user 2FA is unavailable.
+        console.warn('2FA verification called but not implemented on backend')
         return false
       },
 
@@ -485,23 +437,10 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      enable2FA: async (method) => {
-        const setup: TwoFactorSetup = {
-          enabled: true,
-          method,
-          verifiedAt: new Date().toISOString(),
-          backupCodes: get().generateBackupCodes()
-        }
-
-        set({ twoFactorSetup: setup })
-
-        if (method === 'authenticator') {
-          return {
-            secret: 'JBSWY3DPEHPK3PXP',
-            qrCode: 'otpauth://totp/Apex:user@apex.law?secret=JBSWY3DPEHPK3PXP&issuer=Apex'
-          }
-        }
-        
+      enable2FA: async (_method) => {
+        // 2FA setup is not yet implemented on the backend.
+        // Return empty -- the UI should show "coming soon" or similar.
+        console.warn('2FA enable called but not implemented on backend')
         return {}
       },
 
