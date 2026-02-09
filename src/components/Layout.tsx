@@ -21,7 +21,7 @@ import {
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
   Play, Pause, Square, Mail, Cloud, FileText, Video, MessageSquare, 
-  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck, Scale
+  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck, Scale, Bot
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -261,12 +261,12 @@ export function Layout() {
           )}
 
           <NavLink
-            to="/app/legal-research"
+            to="/app/background-agent"
             className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
-            style={{ '--mode-color': '#06B6D4' } as any}
+            style={{ '--mode-color': '#F59E0B' } as any}
           >
-            <Scale size={20} />
-            {(sidebarOpen || isMobile) && <span>Legal Research</span>}
+            <Bot size={20} />
+            {(sidebarOpen || isMobile) && <span>Background Agent</span>}
           </NavLink>
 
           <NavLink
@@ -274,7 +274,16 @@ export function Layout() {
             className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
           >
             <Sparkles size={20} />
-            {(sidebarOpen || isMobile) && <span>AI Assistant</span>}
+            {(sidebarOpen || isMobile) && <span>AI Tools</span>}
+          </NavLink>
+
+          <NavLink
+            to="/app/legal-research"
+            className={({ isActive }) => clsx(styles.navItem, styles.aiNav, isActive && styles.active)}
+            style={{ '--mode-color': '#06B6D4' } as any}
+          >
+            <Scale size={20} />
+            {(sidebarOpen || isMobile) && <span>Legal Research</span>}
           </NavLink>
 
           <div className={styles.navDivider} />
@@ -362,7 +371,8 @@ export function Layout() {
             <h1 className={styles.pageTitle}>
               {navItems.find(i => location.pathname.startsWith(i.path))?.label || 
                settingsItems.find(i => location.pathname === i.path)?.label ||
-               (location.pathname === '/app/ai' ? 'AI Assistant' : 
+               (location.pathname === '/app/ai' || location.pathname.startsWith('/app/ai/') ? 'AI Tools' : 
+                location.pathname === '/app/background-agent' || location.pathname.startsWith('/app/background-agent') ? 'Background Agent' :
                 location.pathname === '/app/legal-research' ? 'Legal Research' : 'Dashboard')}
             </h1>
           </div>
@@ -515,12 +525,12 @@ export function Layout() {
         </main>
       </div>
 
-      {/* Floating AI Button - hidden on AI Assistant page to avoid blocking the chat send button */}
+      {/* Floating AI Button - hidden on AI Tools page to avoid blocking the chat send button */}
       {location.pathname !== '/app/ai' && (
         <button 
           className={styles.aiFloatingBtn}
           onClick={() => openChat()}
-          title="Open AI Assistant"
+          title="Open AI Chat"
         >
           <Sparkles size={24} />
         </button>

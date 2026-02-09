@@ -5,8 +5,7 @@ import { useAuthStore } from '../stores/authStore'
 import { 
   Sparkles, Send, Plus, 
   MessageCircle, FileEdit, FileText, Paperclip, X,
-  FileSearch, ChevronRight, Loader2, Image,
-  Bot
+  FileSearch, ChevronRight, Loader2, Image
 } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { clsx } from 'clsx'
@@ -226,7 +225,7 @@ export function AIAssistantPage() {
       {/* Left Panel - Mode Selection & History */}
       <div className={styles.leftPanel}>
         <div className={styles.modeSection}>
-          <h3>AI Assistant</h3>
+          <h3>AI Tools</h3>
           <div className={styles.modeButtons}>
             {(Object.keys(AI_MODES) as AIMode[]).map((modeId) => {
               const mode = AI_MODES[modeId]
@@ -246,19 +245,6 @@ export function AIAssistantPage() {
               )
             })}
           </div>
-          
-          {/* Background Agent Link */}
-          <button
-            className={clsx(styles.modeBtn, styles.backgroundAgentBtn)}
-            onClick={() => navigate('/app/background-agent')}
-            style={{ '--mode-color': '#F59E0B' } as React.CSSProperties}
-          >
-            <div className={styles.modeBtnIcon}><Bot size={24} /></div>
-            <div className={styles.modeBtnText}>
-              <span className={styles.modeBtnName}>Background Agent</span>
-              <span className={styles.modeBtnDesc}>Autonomous long-running tasks</span>
-            </div>
-          </button>
         </div>
 
         <div className={styles.poweredBy}>
