@@ -13,10 +13,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAuthStore } from '../stores/authStore'
 import { useLegalResearchStore, type ResearchMessage } from '../stores/legalResearchStore'
+import { addResearchToBackgroundAgent } from '../stores/backgroundAgentFileStore'
+import { documentsApi } from '../services/api'
 import {
   Scale, Send, Plus, Trash2, Loader2, X,
   AlertCircle, Shield, FileText, FileSearch,
-  Gavel, ScrollText, ShieldCheck, BookOpen
+  Gavel, ScrollText, ShieldCheck, BookOpen,
+  Save, Rocket, Check
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './LegalResearchPage.module.css'
@@ -205,6 +208,69 @@ export function LegalResearchPage() {
     }
   }, [deleteSession])
 
+  // Track which messages have been saved / added to background agent
+  const [savedMessages, setSavedMessages] = useState<Set<number>>(new Set())
+  const [savingMessages, setSavingMessages] = useState<Set<number>>(new Set())
+  const [addedToAgent, setAddedToAgent] = useState<Set<number>>(new Set())
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  const handleSaveResearch = useCallback(async (msg: ResearchMessage) => {
+    if (savingMessages.has(msg.id)) return
+
+    const title = activeMessages.find(m => m.role === 'user')?.content?.slice(0, 60) || 'Legal Research'
+    const header = `# Legal Research Paper\n\n**Date:** ${new Date(msg.created_at).toLocaleDateString()}\n**Session:** ${activeSessionId || 'N/A'}\n\n---\n\n`
+    const fullContent = header + msg.content
+
+    const fileName = `Research - ${title.replace(/[^a-zA-Z0-9 ]/g, '').slice(0, 50).trim()} - ${new Date().toISOString().split('T')[0]}.md`
+
+    setSavingMessages(prev => new Set([...prev, msg.id]))
+    setSaveError(null)
+
+    try {
+      // Save to the documents section / drive via the documents API
+      const file = new File([fullContent], fileName, { type: 'text/markdown' })
+      await documentsApi.upload(file, {
+        tags: ['legal-research', 'research-paper'],
+      })
+
+      setSavedMessages(prev => new Set([...prev, msg.id]))
+    } catch (err: any) {
+      console.error('[LegalResearch] Failed to save to documents:', err)
+      setSaveError(err?.message || 'Failed to save research paper to documents')
+      // Fallback: download locally if the API call fails
+      const blob = new Blob([fullContent], { type: 'text/markdown' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      a.click()
+      URL.revokeObjectURL(url)
+      // Still mark as saved since user got the file via download
+      setSavedMessages(prev => new Set([...prev, msg.id]))
+    } finally {
+      setSavingMessages(prev => {
+        const next = new Set(prev)
+        next.delete(msg.id)
+        return next
+      })
+    }
+  }, [activeMessages, activeSessionId, savingMessages])
+
+  const handleAddToBackgroundAgent = useCallback((msg: ResearchMessage) => {
+    const title = activeMessages.find(m => m.role === 'user')?.content?.slice(0, 80) || 'Legal Research'
+    const header = `# Legal Research Paper\n\n**Date:** ${new Date(msg.created_at).toLocaleDateString()}\n**Session:** ${activeSessionId || 'N/A'}\n\n---\n\n`
+    const fullContent = header + msg.content
+
+    addResearchToBackgroundAgent({
+      title,
+      content: fullContent,
+      sessionId: activeSessionId || undefined,
+      model: selectedModel || undefined,
+    })
+
+    setAddedToAgent(prev => new Set([...prev, msg.id]))
+  }, [activeMessages, activeSessionId, selectedModel])
+
   const userInitials = user ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}` : '?'
 
   // Not configured state
@@ -324,6 +390,17 @@ export function LegalResearchPage() {
           </div>
         )}
 
+        {/* Save error banner */}
+        {saveError && (
+          <div className={styles.errorBanner}>
+            <AlertCircle size={16} style={{ color: '#FCA5A5', flexShrink: 0 }} />
+            <p>{saveError} (downloaded locally as fallback)</p>
+            <button className={styles.errorDismiss} onClick={() => setSaveError(null)}>
+              <X size={16} />
+            </button>
+          </div>
+        )}
+
         {/* Messages */}
         <div className={styles.messagesArea}>
           {activeMessages.length === 0 && !isStreaming ? (
@@ -353,26 +430,58 @@ export function LegalResearchPage() {
           ) : (
             <>
               {activeMessages.map((msg: ResearchMessage) => (
-                <div
-                  key={msg.id}
-                  className={clsx(
-                    styles.message,
-                    msg.role === 'user' ? styles.messageUser : styles.messageAssistant
-                  )}
-                >
-                  <div className={styles.messageAvatar}>
-                    {msg.role === 'user' ? userInitials : <Scale size={18} />}
-                  </div>
-                  <div className={styles.messageContent}>
-                    {msg.role === 'user' ? (
-                      <div className={styles.messageText}>{msg.content}</div>
-                    ) : (
-                      <div
-                        className={styles.messageText}
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
-                      />
+                <div key={msg.id}>
+                  <div
+                    className={clsx(
+                      styles.message,
+                      msg.role === 'user' ? styles.messageUser : styles.messageAssistant
                     )}
+                  >
+                    <div className={styles.messageAvatar}>
+                      {msg.role === 'user' ? userInitials : <Scale size={18} />}
+                    </div>
+                    <div className={styles.messageContent}>
+                      {msg.role === 'user' ? (
+                        <div className={styles.messageText}>{msg.content}</div>
+                      ) : (
+                        <div
+                          className={styles.messageText}
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+                        />
+                      )}
+                    </div>
                   </div>
+                  {/* Research action buttons - only on assistant messages */}
+                  {msg.role === 'assistant' && msg.content && (
+                    <div className={styles.researchActions}>
+                      <button
+                        className={clsx(styles.saveResearchBtn, savedMessages.has(msg.id) && styles.savedBtn)}
+                        onClick={() => handleSaveResearch(msg)}
+                        disabled={savingMessages.has(msg.id) || savedMessages.has(msg.id)}
+                        title="Save this research paper to your Documents"
+                      >
+                        {savingMessages.has(msg.id) ? (
+                          <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</>
+                        ) : savedMessages.has(msg.id) ? (
+                          <><Check size={14} /> Saved to Documents</>
+                        ) : (
+                          <><Save size={14} /> Save Research Paper</>
+                        )}
+                      </button>
+                      <button
+                        className={clsx(styles.addToAgentBtn, addedToAgent.has(msg.id) && styles.addedBtn)}
+                        onClick={() => handleAddToBackgroundAgent(msg)}
+                        disabled={addedToAgent.has(msg.id)}
+                        title="Send this research paper to the Background Agent as a file"
+                      >
+                        {addedToAgent.has(msg.id) ? (
+                          <><Check size={14} /> Added to Background Agent</>
+                        ) : (
+                          <><Rocket size={14} /> Add to Background Agent</>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
               

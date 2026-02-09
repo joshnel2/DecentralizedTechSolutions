@@ -2927,6 +2927,246 @@
   background: rgba(139, 92, 246, 0.2);
 }
 
+/* ============================
+   FILE MANAGEMENT SECTION
+   ============================ */
+
+.fileUploadArea {
+  border: 2px dashed rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 20px;
+  transition: all 0.2s ease;
+  background: rgba(15, 23, 42, 0.3);
+}
+
+.fileUploadArea:hover {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.03);
+}
+
+.fileUploadDragOver {
+  border-color: #a855f7 !important;
+  background: rgba(139, 92, 246, 0.1) !important;
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.2);
+}
+
+.fileUploadContent {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #94a3b8;
+}
+
+.fileUploadContent svg {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.fileUploadDragOver .fileUploadContent svg {
+  color: #a855f7;
+}
+
+.fileUploadText {
+  font-size: 13px;
+  color: #94a3b8;
+  display: block;
+}
+
+.fileUploadBrowse {
+  background: none;
+  border: none;
+  color: #a78bfa;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.fileUploadBrowse:hover {
+  color: #c4b5fd;
+}
+
+.fileUploadHint {
+  display: block;
+  font-size: 11px;
+  color: #475569;
+  margin-top: 4px;
+}
+
+.fileUploadResearchHint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.1);
+  font-size: 11px;
+  color: #64748b;
+}
+
+.fileUploadResearchHint svg {
+  color: #06B6D4;
+  flex-shrink: 0;
+}
+
+.fileUploadResearchHint strong {
+  color: #06B6D4;
+}
+
+/* File List */
+.fileList {
+  margin-top: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.fileListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: rgba(15, 23, 42, 0.5);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.fileListTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fileClearAll {
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.fileClearAll:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+  transition: background 0.2s;
+}
+
+.fileItem:last-child {
+  border-bottom: none;
+}
+
+.fileItem:hover {
+  background: rgba(139, 92, 246, 0.04);
+}
+
+.fileItemIcon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 8px;
+  color: #a78bfa;
+  flex-shrink: 0;
+}
+
+.fileItemInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.fileItemName {
+  font-size: 13px;
+  font-weight: 500;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: #64748b;
+}
+
+.fileSourceBadge {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.fileSourceResearch {
+  background: rgba(6, 182, 212, 0.12);
+  color: #06B6D4;
+}
+
+.fileSourceUpload {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+}
+
+.fileItemRemove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  opacity: 0;
+}
+
+.fileItem:hover .fileItemRemove {
+  opacity: 1;
+}
+
+.fileItemRemove:hover {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+}
+
+@media (max-width: 768px) {
+  .fileUploadContent {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .fileItemMeta {
+    flex-wrap: wrap;
+  }
+  
+  .fileItemRemove {
+    opacity: 1;
+  }
+}
+
 /* Configuration Alert */
 .configAlert {
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(220, 38, 38, 0.05) 100%);
