@@ -31,9 +31,10 @@
 import { query } from '../db/connection.js';
 
 // Azure OpenAI configuration
+// IMPORTANT: The rest of the codebase uses AZURE_OPENAI_DEPLOYMENT_NAME (with _NAME suffix)
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const CHAT_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4';
+const CHAT_DEPLOYMENT = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
 const CHAT_API_VERSION = '2024-02-15-preview';
 
 // RAPTOR configuration
