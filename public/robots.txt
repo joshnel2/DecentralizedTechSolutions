@@ -1,5 +1,35 @@
-# Strapped AI - Legal AI Software
+# Strapped AI - Apex Legal AI Platform
+# https://strappedai.com
+
 User-agent: *
 Allow: /
+Allow: /about
+Allow: /security
+Allow: /integrations
+Allow: /docs
+Allow: /blog
+Allow: /contact
+Allow: /support
+Allow: /api
+Allow: /status
+Allow: /login
+Allow: /register
+Allow: /privacy
+Allow: /terms
+Allow: /eula
+Allow: /compliance
+Allow: /solutions/legal-ai-platform
 
+# Block internal app routes from indexing
+Disallow: /app/
+Disallow: /rx760819
+
+# Sitemaps
 Sitemap: https://strappedai.com/sitemap.xml
+
+# Crawl-delay (be polite to crawlers)
+User-agent: Googlebot
+Crawl-delay: 1
+
+User-agent: Bingbot
+Crawl-delay: 2

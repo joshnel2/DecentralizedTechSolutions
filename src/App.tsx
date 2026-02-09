@@ -79,6 +79,7 @@ import { DocumentVersionsPage } from './pages/DocumentVersionsPage'
 import { DocumentComparePage } from './pages/DocumentComparePage'
 import { FolderPermissionsPage } from './pages/FolderPermissionsPage'
 // Public Pages
+import { SeoLegalAiPage } from './pages/SeoLegalAiPage'
 import { AboutPage } from './pages/AboutPage'
 import { SecurityPage } from './pages/SecurityPage'
 import { IntegrationsPublicPage } from './pages/IntegrationsPublicPage'
@@ -205,6 +206,8 @@ function AppContent() {
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/eula" element={<EULAPage />} />
       <Route path="/compliance" element={<CompliancePage />} />
+      {/* SEO Content Pages - not linked from navigation */}
+      <Route path="/solutions/legal-ai-platform" element={<SeoLegalAiPage />} />
       
       {/* Protected Routes */}
       <Route path="/app" element={
