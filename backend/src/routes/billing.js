@@ -74,8 +74,8 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
       });
     }
 
-    // Check if user is admin/owner (they can log to any matter in the firm)
-    const isAdmin = ['owner', 'admin'].includes(req.user.role);
+    // Check if user is admin/owner/partner (they can log to any matter in the firm)
+    const isAdmin = ['owner', 'admin', 'partner'].includes(req.user.role);
 
     // Verify matter exists and belongs to the firm
     const matterResult = await query(
@@ -108,16 +108,23 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
       });
     }
 
-    // Authorization check: user must be assigned to matter OR be responsible attorney OR be admin
+    // Authorization check: user must be assigned to matter OR be responsible/originating attorney OR be admin
     const isResponsibleAttorney = matter.responsible_attorney === req.user.id;
     const isAssigned = matter.user_is_assigned;
 
     if (!isAdmin && !isResponsibleAttorney && !isAssigned) {
-      return res.status(403).json({ 
-        success: false,
-        error: 'You are not authorized to log time to this matter. You must be assigned to the matter or be the responsible attorney.',
-        code: 'NOT_AUTHORIZED_FOR_MATTER'
-      });
+      // Also check originating_attorney
+      const origCheck = await query(
+        'SELECT 1 FROM matters WHERE id = $1 AND originating_attorney = $2',
+        [matter_id, req.user.id]
+      );
+      if (origCheck.rows.length === 0) {
+        return res.status(403).json({ 
+          success: false,
+          error: 'You are not authorized to log time to this matter. You must be assigned to the matter or be the responsible/originating attorney.',
+          code: 'NOT_AUTHORIZED_FOR_MATTER'
+        });
+      }
     }
 
     // Get billing rate (priority: user's rate for this matter > matter rate > user's default rate)
@@ -165,7 +172,7 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
 
     const timeEntry = result.rows[0];
 
-    // Log audit trail
+    // Log audit trail (both audit_logs and billing_audit_log)
     await query(
       `INSERT INTO audit_logs (firm_id, user_id, action, resource_type, resource_id, details)
        VALUES ($1, $2, 'time_entry.created_via_ai', 'time_entry', $3, $4)`,
@@ -181,7 +188,17 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
           ai_generated: true
         })
       ]
-    ).catch(err => console.error('Audit log error:', err)); // Don't fail if audit log fails
+    ).catch(err => console.error('Audit log error:', err));
+
+    // Billing-specific audit
+    await query(
+      `INSERT INTO billing_audit_log (firm_id, user_id, action, resource_type, resource_id, changes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        req.user.firmId, req.user.id, 'time_entry.created_via_ai', 'time_entry', timeEntry.id,
+        JSON.stringify({ matter_id, hours, amount: parseFloat(timeEntry.amount), ai_generated: true })
+      ]
+    ).catch(err => console.error('Billing audit log error:', err));
 
     // Return success response
     res.status(201).json({
@@ -226,10 +243,11 @@ router.post('/log-time', authenticate, requirePermission('billing:create'), asyn
  */
 router.get('/my-matters', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
-    const isAdmin = ['owner', 'admin'].includes(req.user.role);
+    const isAdmin = ['owner', 'admin', 'partner'].includes(req.user.role);
 
     let sql = `
       SELECT m.id, m.name, m.number, m.status, m.billing_type, m.billing_rate,
+             m.budget, m.flat_fee_amount,
              c.display_name as client_name
       FROM matters m
       LEFT JOIN clients c ON m.client_id = c.id
@@ -237,9 +255,9 @@ router.get('/my-matters', authenticate, requirePermission('billing:view'), async
     `;
     const params = [req.user.firmId];
 
-    // Non-admins only see matters they're assigned to or responsible for
+    // Non-admins only see matters they're assigned to or responsible/originating for
     if (!isAdmin) {
-      sql += ` AND (m.responsible_attorney = $2 OR EXISTS (
+      sql += ` AND (m.responsible_attorney = $2 OR m.originating_attorney = $2 OR m.created_by = $2 OR EXISTS (
         SELECT 1 FROM matter_assignments WHERE matter_id = m.id AND user_id = $2
       ))`;
       params.push(req.user.id);
