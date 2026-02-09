@@ -22,13 +22,18 @@ export function ApexDrivePage() {
     userCount: 0,
   })
 
-  // Admin: Connection info for mapping drive
+  // Connection info for mapping drive (all users get their personal path)
   const [connectionInfo, setConnectionInfo] = useState<{
     configured: boolean
+    paths?: { windows: string; mac: string; linux: string }
+    adminPaths?: { firmRoot: { windows: string; mac: string; linux: string }; description: string }
+    instructions?: { windows: string[]; mac: string[]; powershell: string[] }
+    userName?: string
+    userFolder?: string
+    // Legacy fields
     windowsPath?: string
     macPath?: string
     firmFolder?: string
-    instructions?: { windows: string[]; mac: string[] }
   } | null>(null)
   const [showConnectionInfo, setShowConnectionInfo] = useState(false)
   const [copiedPath, setCopiedPath] = useState(false)
@@ -48,14 +53,12 @@ export function ApexDrivePage() {
         userCount: 0,
       })
       
-      // Load connection info for admins
-      if (isAdmin) {
-        try {
-          const info = await driveApi.getConnectionInfo()
-          setConnectionInfo(info)
-        } catch (e) {
-          // Connection info not available
-        }
+      // Load connection info for ALL users (each user gets their personal drive path)
+      try {
+        const info = await driveApi.getConnectionInfo()
+        setConnectionInfo(info)
+      } catch (e) {
+        // Connection info not available
       }
     } catch (error) {
       console.error('Failed to check status:', error)
@@ -147,39 +150,32 @@ export function ApexDrivePage() {
           </div>
         </div>
 
-        {/* Admin: Drive Connection Info */}
-        {isAdmin && connectionInfo?.configured && (
+        {/* Map Drive - Available to ALL users */}
+        {connectionInfo?.configured && (
           <div className={styles.adminSection}>
             <div className={styles.adminHeader}>
               <HardDrive size={20} />
-              <h3>Admin: Map Drive to Your Computer</h3>
-              <button 
-                className={styles.setupBtn}
-                onClick={() => navigate('/app/settings/drive-setup')}
-              >
-                <HardDrive size={16} />
-                Setup Wizard
-              </button>
+              <h3>Map Drive to Your Computer</h3>
               <button 
                 className={styles.toggleBtn}
                 onClick={() => setShowConnectionInfo(!showConnectionInfo)}
               >
                 <Eye size={16} />
-                {showConnectionInfo ? 'Hide' : 'Show'} Connection Info
+                {showConnectionInfo ? 'Hide' : 'Show'} Setup Instructions
               </button>
             </div>
             
             {showConnectionInfo && (
               <div className={styles.connectionInfo}>
                 <p className={styles.connectionNote}>
-                  As an admin, you can map this drive to your computer to manage files directly. Regular users access documents through the web app.
+                  Map your personal Apex Drive to your computer. Save documents directly from Word, Excel, or any application. Only you can see your files.
                 </p>
                 
                 <div className={styles.pathBox}>
-                  <label>Windows Path:</label>
+                  <label>Windows Path (copy this):</label>
                   <div className={styles.pathRow}>
-                    <code>{connectionInfo.windowsPath}</code>
-                    <button onClick={() => copyPath(connectionInfo.windowsPath || '')}>
+                    <code>{connectionInfo.paths?.windows || connectionInfo.windowsPath}</code>
+                    <button onClick={() => copyPath(connectionInfo.paths?.windows || connectionInfo.windowsPath || '')}>
                       <Copy size={14} />
                       {copiedPath ? 'Copied!' : 'Copy'}
                     </button>
@@ -187,10 +183,10 @@ export function ApexDrivePage() {
                 </div>
 
                 <div className={styles.pathBox}>
-                  <label>Mac Path:</label>
+                  <label>Mac Path (copy this):</label>
                   <div className={styles.pathRow}>
-                    <code>{connectionInfo.macPath}</code>
-                    <button onClick={() => copyPath(connectionInfo.macPath || '')}>
+                    <code>{connectionInfo.paths?.mac || connectionInfo.macPath}</code>
+                    <button onClick={() => copyPath(connectionInfo.paths?.mac || connectionInfo.macPath || '')}>
                       <Copy size={14} />
                       {copiedPath ? 'Copied!' : 'Copy'}
                     </button>
@@ -198,9 +194,18 @@ export function ApexDrivePage() {
                 </div>
 
                 <div className={styles.instructions}>
-                  <h4>Windows Instructions:</h4>
+                  <h4>Windows Setup:</h4>
                   <ol>
-                    {connectionInfo.instructions?.windows.map((step, i) => (
+                    {(connectionInfo.instructions?.windows || []).map((step: string, i: number) => (
+                      <li key={i}>{step}</li>
+                    ))}
+                  </ol>
+                </div>
+
+                <div className={styles.instructions}>
+                  <h4>Mac Setup:</h4>
+                  <ol>
+                    {(connectionInfo.instructions?.mac || []).map((step: string, i: number) => (
                       <li key={i}>{step}</li>
                     ))}
                   </ol>
@@ -208,8 +213,24 @@ export function ApexDrivePage() {
 
                 <p className={styles.keyNote}>
                   <AlertCircle size={14} />
-                  Get the storage account key from your platform administrator or Azure Portal.
+                  Ask your firm administrator for the storage account access key to complete the setup.
                 </p>
+
+                {isAdmin && connectionInfo.adminPaths && (
+                  <div className={styles.pathBox} style={{ marginTop: '1rem', borderTop: '1px solid var(--border-color, #e2e8f0)', paddingTop: '1rem' }}>
+                    <label>Admin: Firm-Wide Root Path (all users' files):</label>
+                    <div className={styles.pathRow}>
+                      <code>{connectionInfo.adminPaths.firmRoot.windows}</code>
+                      <button onClick={() => copyPath(connectionInfo.adminPaths?.firmRoot.windows || '')}>
+                        <Copy size={14} />
+                        {copiedPath ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted, #94a3b8)', marginTop: '0.25rem' }}>
+                      {connectionInfo.adminPaths.description}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>
