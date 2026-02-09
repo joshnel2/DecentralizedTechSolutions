@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, Send, MessageCircle, Star, X, ThumbsUp, Clock, Search, ChevronDown, ChevronUp, Zap, FileText, Users, Calendar, DollarSign, Briefcase, Scale, LayoutTemplate, Brain, Lightbulb, Sparkles, Settings, TrendingUp, UserPlus, Building2, Mail, Shield, Play, Pause, Bell, ChevronRight, Check, AlertTriangle as Warning, Timer, Repeat, Plus, BookOpen } from 'lucide-react'
+import { AlertCircle, CheckCircle, Loader2, RefreshCw, Rocket, StopCircle, Wrench, Terminal, Send, MessageCircle, Star, X, ThumbsUp, Clock, Search, ChevronDown, ChevronUp, Zap, FileText, Users, Calendar, DollarSign, Briefcase, Scale, LayoutTemplate, Brain, Lightbulb, Sparkles, Settings, TrendingUp, UserPlus, Building2, Mail, Shield, Play, Pause, Bell, ChevronRight, Check, AlertTriangle as Warning, Timer, Repeat, Plus, BookOpen, Upload, Trash2, File, FolderOpen, Paperclip } from 'lucide-react'
 import { aiApi, mattersApi, calendarApi } from '../services/api'
 import { useNotifications } from '../utils/notifications'
 import { TaskTemplatesLibrary, TaskTemplate } from '../components/TaskTemplatesLibrary'
+import { useBackgroundAgentFileStore, type AgentFile } from '../stores/backgroundAgentFileStore'
 import styles from './BackgroundAgentPage.module.css'
 import { clsx } from 'clsx'
 
@@ -175,6 +176,75 @@ export function BackgroundAgentPage() {
     setShowTemplatesLibrary(false)
     setShowTemplates(false)
   }, [])
+
+  // ===== FILE HANDLING =====
+  const { files: agentFiles, loadFiles, addFile: addAgentFile, removeFile: removeAgentFile, clearFiles: clearAgentFiles } = useBackgroundAgentFileStore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showFilePanel, setShowFilePanel] = useState(false)
+  const [fileUploadDragOver, setFileUploadDragOver] = useState(false)
+
+  // Load files on mount and listen for new files from Legal Research
+  useEffect(() => {
+    loadFiles()
+    
+    const handleFileAdded = () => {
+      loadFiles()
+    }
+    window.addEventListener('backgroundAgentFileAdded', handleFileAdded)
+    return () => window.removeEventListener('backgroundAgentFileAdded', handleFileAdded)
+  }, [loadFiles])
+
+  const handleFileUpload = useCallback((fileList: FileList | null) => {
+    if (!fileList) return
+    
+    Array.from(fileList).forEach(file => {
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const content = e.target?.result as string
+        addAgentFile({
+          name: file.name,
+          type: 'uploaded-document',
+          content,
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size,
+          source: 'Upload',
+        })
+      }
+      reader.readAsText(file)
+    })
+    
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [addAgentFile])
+
+  const handleFileDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setFileUploadDragOver(false)
+    handleFileUpload(e.dataTransfer.files)
+  }, [handleFileUpload])
+
+  const handleFileDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setFileUploadDragOver(true)
+  }, [])
+
+  const handleFileDragLeave = useCallback(() => {
+    setFileUploadDragOver(false)
+  }, [])
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  const getFileIcon = (file: AgentFile) => {
+    if (file.type === 'research-paper') return <Scale size={16} />
+    if (file.mimeType?.includes('pdf')) return <FileText size={16} />
+    return <File size={16} />
+  }
   
   // Highlighted task (from navigation)
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null)
@@ -2256,6 +2326,117 @@ Take 20-25 minutes. Identify all compliance issues.`,
             <div className={styles.taskError}>{startError}</div>
           )}
         </div>
+      </div>
+
+      {/* ===== FILE MANAGEMENT SECTION ===== */}
+      <div className={styles.card}>
+        <div className={styles.cardHeader}>
+          <h2>
+            <Paperclip size={16} style={{ marginRight: 8, verticalAlign: 'middle' }} />
+            Files & Documents
+          </h2>
+          <div className={styles.cardHeaderRight}>
+            <button 
+              className={styles.templatesToggle}
+              onClick={() => setShowFilePanel(!showFilePanel)}
+            >
+              <FolderOpen size={14} />
+              {agentFiles.length > 0 ? `${agentFiles.length} file${agentFiles.length !== 1 ? 's' : ''}` : 'No files'}
+              {showFilePanel ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Upload Area */}
+        <div 
+          className={clsx(styles.fileUploadArea, fileUploadDragOver && styles.fileUploadDragOver)}
+          onDrop={handleFileDrop}
+          onDragOver={handleFileDragOver}
+          onDragLeave={handleFileDragLeave}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".txt,.md,.pdf,.doc,.docx,.csv,.json,.rtf"
+            onChange={(e) => handleFileUpload(e.target.files)}
+            style={{ display: 'none' }}
+          />
+          <div className={styles.fileUploadContent}>
+            <Upload size={20} />
+            <div>
+              <span className={styles.fileUploadText}>
+                Drag & drop files here, or{' '}
+                <button
+                  className={styles.fileUploadBrowse}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  browse files
+                </button>
+              </span>
+              <span className={styles.fileUploadHint}>
+                Supports .txt, .md, .pdf, .doc, .docx, .csv, .json, .rtf
+              </span>
+            </div>
+          </div>
+          <div className={styles.fileUploadResearchHint}>
+            <Scale size={14} />
+            <span>Research papers from <strong>Legal Research</strong> can also be added here via the "Add to Background Agent" button</span>
+          </div>
+        </div>
+
+        {/* File List */}
+        {showFilePanel && agentFiles.length > 0 && (
+          <div className={styles.fileList}>
+            <div className={styles.fileListHeader}>
+              <span className={styles.fileListTitle}>Available Files</span>
+              {agentFiles.length > 1 && (
+                <button 
+                  className={styles.fileClearAll}
+                  onClick={() => {
+                    if (confirm('Remove all files?')) clearAgentFiles()
+                  }}
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+            {agentFiles.map((file: AgentFile) => (
+              <div key={file.id} className={styles.fileItem}>
+                <div className={styles.fileItemIcon}>
+                  {getFileIcon(file)}
+                </div>
+                <div className={styles.fileItemInfo}>
+                  <div className={styles.fileItemName}>{file.name}</div>
+                  <div className={styles.fileItemMeta}>
+                    <span className={clsx(
+                      styles.fileSourceBadge,
+                      file.type === 'research-paper' && styles.fileSourceResearch,
+                      file.type === 'uploaded-document' && styles.fileSourceUpload
+                    )}>
+                      {file.source}
+                    </span>
+                    <span>{formatFileSize(file.size)}</span>
+                    <span>{new Date(file.addedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+                <button 
+                  className={styles.fileItemRemove}
+                  onClick={() => removeAgentFile(file.id)}
+                  title="Remove file"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {showFilePanel && agentFiles.length === 0 && (
+          <div className={styles.emptyState}>
+            No files yet. Upload files above or add research papers from the Legal Research section.
+          </div>
+        )}
       </div>
 
       {summary && (
