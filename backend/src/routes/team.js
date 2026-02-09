@@ -267,9 +267,8 @@ router.post('/invitations', authenticate, requirePermission('users:invite'), asy
       [req.user.firmId, req.user.id, invitation.id, JSON.stringify({ email, role })]
     );
 
-    // In a real system, you would send an email here with the invitation link
-    // For now, return the token (in production, don't return the token!)
-    res.status(201).json({
+    // In production, the invitation link should be sent via email, not returned in the response
+    const responseData = {
       invitation: {
         id: invitation.id,
         email: invitation.email,
@@ -280,9 +279,14 @@ router.post('/invitations', authenticate, requirePermission('users:invite'), asy
         expiresAt: invitation.expires_at,
         createdAt: invitation.created_at,
       },
-      // Only for development - remove in production
-      inviteLink: `${process.env.FRONTEND_URL}/accept-invite?token=${token}`,
-    });
+    };
+
+    // Only include invite link in development mode
+    if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'dev') {
+      responseData.inviteLink = `${process.env.FRONTEND_URL}/accept-invite?token=${token}`;
+    }
+
+    res.status(201).json(responseData);
   } catch (error) {
     console.error('Invite user error:', error);
     res.status(500).json({ error: 'Failed to send invitation' });
