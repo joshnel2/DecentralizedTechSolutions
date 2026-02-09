@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, withTransaction } from '../db/connection.js';
+import { seedFirmRoles } from '../services/roleService.js';
 import {
   hashPassword,
   verifyPassword,
@@ -55,6 +56,11 @@ router.post('/register', authLimiter, async (req, res) => {
       const user = userResult.rows[0];
 
       return { user, firm };
+    });
+
+    // Seed default roles for the new firm (non-blocking, best-effort)
+    seedFirmRoles(result.firm.id).catch(err => {
+      console.log('[AUTH] Role seeding note (will auto-seed on first access):', err.message);
     });
 
     // Generate tokens

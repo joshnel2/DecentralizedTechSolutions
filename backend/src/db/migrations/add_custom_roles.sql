@@ -43,10 +43,17 @@ CREATE INDEX IF NOT EXISTS idx_firm_roles_lookup ON firm_roles(firm_id, name);
 CREATE INDEX IF NOT EXISTS idx_user_perm_overrides_user ON user_permission_overrides(firm_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_user_perm_overrides_expiry ON user_permission_overrides(expires_at) WHERE expires_at IS NOT NULL;
 
--- Trigger for updated_at
-CREATE TRIGGER update_firm_roles_updated_at 
-    BEFORE UPDATE ON firm_roles 
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- Trigger for updated_at (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_firm_roles_updated_at'
+    ) THEN
+        CREATE TRIGGER update_firm_roles_updated_at 
+            BEFORE UPDATE ON firm_roles 
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END $$;
 
 -- Update users table to allow custom role values (remove the CHECK constraint)
 -- The old constraint only allowed: owner, admin, attorney, paralegal, staff, billing, readonly
