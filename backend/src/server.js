@@ -65,6 +65,9 @@ import eventsRoutes from './routes/events.js';
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
 
+// Background task scheduler (replaces raw setTimeout calls)
+import { scheduler } from './utils/backgroundTasks.js';
+
 // Note: dotenv is loaded via 'import dotenv/config' at the top of this file
 
 const app = express();
@@ -103,7 +106,7 @@ app.use('/api/v1/background-agent', express.json({ limit: '10mb' }));
 // Rate limiting
 app.use('/api', apiLimiter);
 
-// Health check -- verifies database connectivity
+// Health check -- verifies database connectivity and background task status
 app.get('/health', async (req, res) => {
   const checks = { database: 'unknown' };
   let healthy = true;
@@ -122,6 +125,7 @@ app.get('/health', async (req, res) => {
     status: healthy ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),
     checks,
+    backgroundTasks: scheduler.getStatus(),
   });
 });
 
@@ -248,46 +252,42 @@ app.listen(PORT, () => {
 ╚═══════════════════════════════════════════════════════════╝
   `);
   
-  // Background task: Extract text from existing documents for AI access
-  setTimeout(() => {
-    extractTextForExistingDocuments().catch(err => {
-      console.error('Background document extraction error:', err);
-    });
-  }, 5000); // Wait 5 seconds after startup
-  
-  // Resume any incomplete AI background tasks from before server restart
-  setTimeout(() => {
-    resumeIncompleteTasks().catch(err => {
-      console.error('Error resuming incomplete AI tasks:', err);
-    });
-  }, 10000); // Wait 10 seconds after startup
-  
-  // Initialize Amplifier background agent service
-  setTimeout(async () => {
-    try {
-      const configured = await amplifierService.configure();
-      if (configured) {
-        console.log('✓ Amplifier background agent initialized');
-        await amplifierService.resumePendingTasks();
-      } else {
-        console.log('⚠ Amplifier background agent not available');
-      }
-    } catch (err) {
-      console.error('Amplifier initialization error:', err);
+  // Schedule background tasks with proper error handling, retries, and observability.
+  // Each task is isolated -- one failing task does not affect others.
+  scheduler.schedule('extract-documents', extractTextForExistingDocuments, {
+    delayMs: 5000, retries: 2, retryDelayMs: 30000,
+  });
+
+  scheduler.schedule('resume-ai-tasks', resumeIncompleteTasks, {
+    delayMs: 10000, retries: 2, retryDelayMs: 30000,
+  });
+
+  scheduler.schedule('amplifier-init', async () => {
+    const configured = await amplifierService.configure();
+    if (configured) {
+      console.log('✓ Amplifier background agent initialized');
+      await amplifierService.resumePendingTasks();
+    } else {
+      console.log('⚠ Amplifier background agent not available (not configured)');
     }
-  }, 15000); // Wait 15 seconds after startup
-  
-  // Start Apex Drive background sync (syncs Azure files to database)
-  setTimeout(() => {
-    try {
-      startDriveSync();
-      console.log('✓ Apex Drive background sync started');
-    } catch (err) {
-      console.error('Apex Drive sync error:', err);
-    }
-  }, 20000); // Wait 20 seconds after startup
+  }, { delayMs: 15000, retries: 1, retryDelayMs: 60000 });
+
+  scheduler.schedule('drive-sync', () => {
+    startDriveSync();
+    console.log('✓ Apex Drive background sync started');
+  }, { delayMs: 20000, retries: 1, retryDelayMs: 60000 });
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('[SERVER] SIGTERM received, shutting down gracefully...');
+  scheduler.shutdown();
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  console.log('[SERVER] SIGINT received, shutting down gracefully...');
+  scheduler.shutdown();
+  process.exit(0);
 });
 
 export default app;
-// Deploy 1764554650
-// Backend rebuild trigger 1770325660
