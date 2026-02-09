@@ -58,6 +58,9 @@ import backgroundAgentRoutes from './routes/backgroundAgent.js';
 import agentStreamRoutes from './routes/agentStream.js';
 import amplifierService from './services/amplifierService.js';
 
+// Real-time event stream (SSE)
+import eventsRoutes from './routes/events.js';
+
 // Import middleware
 import { apiLimiter } from './middleware/rateLimit.js';
 
@@ -151,6 +154,9 @@ app.use('/api/v1/background-agent', backgroundAgentRoutes);
 // Agent Streaming (SSE for real-time Glass Cockpit UI)
 app.use('/api/v1/agent-stream', agentStreamRoutes);
 app.use('/api/v1/background-agent/stream', agentStreamRoutes);
+
+// Real-time event stream (SSE for all users - documents, matters, notifications)
+app.use('/api/events', eventsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

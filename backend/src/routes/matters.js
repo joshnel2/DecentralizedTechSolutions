@@ -4,6 +4,7 @@ import { authenticate, requirePermission } from '../middleware/auth.js';
 import { buildVisibilityFilter, canAccessMatter, FULL_ACCESS_ROLES } from '../middleware/matterPermissions.js';
 import { getCurrentYear } from '../utils/dateUtils.js';
 import { learnFromMatter, learnFromNote } from '../services/manualLearning.js';
+import { emitEvent } from '../services/eventBus.js';
 
 const router = Router();
 
@@ -549,6 +550,15 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       billing_type: result.billing_type,
       number: result.number
     }, req.user.id, req.user.firmId).catch(() => {});
+
+    // Emit real-time event for matter creation (firm-wide)
+    emitEvent(req.user.firmId, null, 'matter.created', {
+      matterId: result.id,
+      name: result.name,
+      number: result.number,
+      createdBy: req.user.id,
+      createdByName: `${req.user.firstName} ${req.user.lastName}`,
+    });
     
     res.status(201).json({
       id: result.id,

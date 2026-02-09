@@ -3,6 +3,7 @@ import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { getTodayInTimezone } from '../utils/dateUtils.js';
 import { learnFromTimeEntry } from '../services/manualLearning.js';
+import { emitEvent } from '../services/eventBus.js';
 
 const router = Router();
 
@@ -176,6 +177,14 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
 
     const te = result.rows[0];
     
+    // Emit real-time event for time entry creation
+    emitEvent(req.user.firmId, null, 'time_entry.created', {
+      timeEntryId: te.id,
+      matterId: te.matter_id,
+      hours: parseFloat(te.hours),
+      userId: req.user.id,
+    });
+
     // Learn from this manual time entry (async, non-blocking)
     learnFromTimeEntry({
       description: te.description,

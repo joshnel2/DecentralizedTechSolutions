@@ -3,6 +3,7 @@ import { query, withTransaction } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
 import { getTodayInTimezone, getCurrentYear } from '../utils/dateUtils.js';
 import { pushPaymentToQuickBooks, pushInvoiceToQuickBooks, syncPendingToQuickBooks } from '../utils/quickbooksSync.js';
+import { emitEvent } from '../services/eventBus.js';
 
 const router = Router();
 
@@ -274,6 +275,14 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
       return invoice;
     });
 
+    // Emit real-time event for invoice creation
+    emitEvent(req.user.firmId, null, 'invoice.created', {
+      invoiceId: result.id,
+      number: result.number,
+      total: parseFloat(result.total),
+      clientId: result.client_id,
+    });
+
     res.status(201).json({
       id: result.id,
       number: result.number,
@@ -439,6 +448,14 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
         });
       quickbooksSync = 'pending';
     }
+
+    // Emit real-time event for payment recorded
+    emitEvent(req.user.firmId, null, 'invoice.paid', {
+      invoiceId: invoice.id,
+      paymentId,
+      amount,
+      invoiceNumber: invoice.number,
+    });
 
     res.json({ 
       message: 'Payment recorded successfully',

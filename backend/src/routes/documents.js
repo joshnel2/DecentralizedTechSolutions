@@ -12,6 +12,7 @@ import mammoth from 'mammoth';
 import { uploadFile, isAzureConfigured, downloadFile, ensureUserFolder, getUserFolderPath } from '../utils/azureStorage.js';
 import { learnFromDocument } from '../services/manualLearning.js';
 import { onDocumentAccessed } from '../services/amplifier/documentLearning.js';
+import { emitEvent } from '../services/eventBus.js';
 import MsgReader from 'msgreader';
 import WordExtractor from 'word-extractor';
 
@@ -1416,6 +1417,15 @@ router.post('/', authenticate, requirePermission('documents:upload'), upload.sin
       folder_path: d.folder_path,
       folder_id: d.folder_path
     }, req.user.id, req.user.firmId).catch(() => {});
+
+    // Emit real-time event for document upload (firm-wide)
+    emitEvent(req.user.firmId, null, 'document.uploaded', {
+      documentId: d.id,
+      name: d.name,
+      matterId: d.matter_id,
+      uploadedBy: req.user.id,
+      uploadedByName: `${req.user.firstName} ${req.user.lastName}`,
+    });
     
     res.status(201).json({
       id: d.id,
