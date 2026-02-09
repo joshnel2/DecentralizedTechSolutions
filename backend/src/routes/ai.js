@@ -125,33 +125,32 @@ async function callAzureOpenAIVision(messages, imageData) {
 }
 
 // Build context based on page and fetch relevant data
-async function buildContext(page, firmId, userId, additionalContext = {}) {
+// Security: userRole is used to filter data for non-admin users
+async function buildContext(page, firmId, userId, userRole = 'staff', additionalContext = {}) {
   let context = '';
+  const isAdmin = ['owner', 'admin', 'billing'].includes(userRole);
   
-  console.log(`Building AI context for page: ${page}, firm: ${firmId}, user: ${userId}`);
+  console.log(`Building AI context for page: ${page}, firm: ${firmId}, user: ${userId}, role: ${userRole}, isAdmin: ${isAdmin}`);
   
   try {
     switch (page) {
       case 'dashboard': {
-        // Get summary stats
+        // Get summary stats - filtered by user permissions for non-admins
+        const matterAccessFilter = isAdmin ? '' : `AND (m.visibility = 'firm_wide' OR m.responsible_attorney = '${userId}' OR m.originating_attorney = '${userId}' OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = '${userId}'))`;
         const [mattersRes, clientsRes, timeRes, invoicesRes, eventsRes] = await Promise.all([
-          query(`SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status`, [firmId]),
+          isAdmin
+            ? query(`SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status`, [firmId])
+            : query(`SELECT status, COUNT(*) as count FROM matters m WHERE m.firm_id = $1 ${matterAccessFilter} GROUP BY status`, [firmId]),
           query(`SELECT COUNT(*) as count FROM clients WHERE firm_id = $1 AND is_active = true`, [firmId]),
-          query(`
-            SELECT SUM(hours) as total_hours, SUM(amount) as total_amount 
-            FROM time_entries 
-            WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)
-          `, [firmId]),
-          query(`
-            SELECT status, COUNT(*) as count, SUM(total) as total, SUM(amount_due) as due
-            FROM invoices WHERE firm_id = $1 GROUP BY status
-          `, [firmId]),
-          query(`
-            SELECT title, start_time, type, location 
-            FROM calendar_events 
-            WHERE firm_id = $1 AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days'
-            ORDER BY start_time LIMIT 10
-          `, [firmId]),
+          isAdmin
+            ? query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount FROM time_entries WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)`, [firmId])
+            : query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount FROM time_entries WHERE firm_id = $1 AND user_id = $2 AND date >= DATE_TRUNC('month', CURRENT_DATE)`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT status, COUNT(*) as count, SUM(total) as total, SUM(amount_due) as due FROM invoices WHERE firm_id = $1 GROUP BY status`, [firmId])
+            : query(`SELECT status, COUNT(*) as count, SUM(total) as total, SUM(amount_due) as due FROM invoices WHERE firm_id = $1 AND (created_by = $2 OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = matter_id AND (m2.responsible_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2)))) GROUP BY status`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT title, start_time, type, location FROM calendar_events WHERE firm_id = $1 AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days' ORDER BY start_time LIMIT 10`, [firmId])
+            : query(`SELECT title, start_time, type, location FROM calendar_events WHERE firm_id = $1 AND (created_by = $2 OR is_private = false) AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days' ORDER BY start_time LIMIT 10`, [firmId, userId]),
         ]);
 
         const matterStats = mattersRes.rows.reduce((acc, r) => ({ ...acc, [r.status]: parseInt(r.count) }), {});
@@ -177,15 +176,22 @@ UPCOMING EVENTS (Next 7 Days):
 ${eventsRes.rows.map(e => `- ${formatDateTime(e.start_time)}: ${e.title} (${e.type})${e.location ? ` at ${e.location}` : ''}`).join('\n') || 'No upcoming events'}
 `;
         
-        // Get urgent matters
-        const urgentMatters = await query(`
-          SELECT m.name, m.number, m.priority, c.display_name as client_name
-          FROM matters m
-          LEFT JOIN clients c ON m.client_id = c.id
-          WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('high', 'urgent')
-          ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 END
-          LIMIT 5
-        `, [firmId]);
+        // Get urgent matters - filtered by permissions for non-admins
+        const urgentMatters = isAdmin
+          ? await query(`
+              SELECT m.name, m.number, m.priority, c.display_name as client_name
+              FROM matters m LEFT JOIN clients c ON m.client_id = c.id
+              WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('high', 'urgent')
+              ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 END LIMIT 5
+            `, [firmId])
+          : await query(`
+              SELECT m.name, m.number, m.priority, c.display_name as client_name
+              FROM matters m LEFT JOIN clients c ON m.client_id = c.id
+              WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('high', 'urgent')
+                AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2
+                     OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2))
+              ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 END LIMIT 5
+            `, [firmId, userId]);
         
         if (urgentMatters.rows.length > 0) {
           context += `
@@ -197,16 +203,21 @@ ${urgentMatters.rows.map(m => `- ${m.name} (${m.number}) - ${m.client_name || 'N
       }
 
       case 'matters': {
-        const matters = await query(`
-          SELECT m.*, c.display_name as client_name,
-                 u.first_name || ' ' || u.last_name as attorney_name
-          FROM matters m
-          LEFT JOIN clients c ON m.client_id = c.id
-          LEFT JOIN users u ON m.responsible_attorney = u.id
-          WHERE m.firm_id = $1
-          ORDER BY m.created_at DESC
-          LIMIT 20
-        `, [firmId]);
+        // Security: filter matters by user permissions for non-admins
+        const matters = isAdmin
+          ? await query(`
+              SELECT m.*, c.display_name as client_name, u.first_name || ' ' || u.last_name as attorney_name
+              FROM matters m LEFT JOIN clients c ON m.client_id = c.id LEFT JOIN users u ON m.responsible_attorney = u.id
+              WHERE m.firm_id = $1 ORDER BY m.created_at DESC LIMIT 20
+            `, [firmId])
+          : await query(`
+              SELECT m.*, c.display_name as client_name, u.first_name || ' ' || u.last_name as attorney_name
+              FROM matters m LEFT JOIN clients c ON m.client_id = c.id LEFT JOIN users u ON m.responsible_attorney = u.id
+              WHERE m.firm_id = $1 AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2
+                OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+                OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2))
+              ORDER BY m.created_at DESC LIMIT 20
+            `, [firmId, userId]);
 
         context = `
 [CURRENT PAGE: Matters List]
@@ -276,15 +287,26 @@ ${eventsRes.rows.map(e => `- ${formatDateTime(e.start_time)}: ${e.title} (${e.ty
       }
 
       case 'clients': {
-        const clients = await query(`
-          SELECT c.*, 
-                 (SELECT COUNT(*) FROM matters WHERE client_id = c.id) as matter_count,
-                 (SELECT COALESCE(SUM(total), 0) FROM invoices WHERE client_id = c.id) as total_billed
-          FROM clients c
-          WHERE c.firm_id = $1
-          ORDER BY c.created_at DESC
-          LIMIT 20
-        `, [firmId]);
+        // Security: filter clients by user access for non-admins
+        const clients = isAdmin
+          ? await query(`
+              SELECT c.*, 
+                     (SELECT COUNT(*) FROM matters WHERE client_id = c.id) as matter_count,
+                     (SELECT COALESCE(SUM(total), 0) FROM invoices WHERE client_id = c.id) as total_billed
+              FROM clients c WHERE c.firm_id = $1 ORDER BY c.created_at DESC LIMIT 20
+            `, [firmId])
+          : await query(`
+              SELECT c.*, 
+                     (SELECT COUNT(*) FROM matters WHERE client_id = c.id) as matter_count,
+                     (SELECT COALESCE(SUM(total), 0) FROM invoices WHERE client_id = c.id) as total_billed
+              FROM clients c WHERE c.firm_id = $1 AND (
+                c.created_by = $2
+                OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.client_id = c.id AND (
+                  m2.responsible_attorney = $2 OR m2.originating_attorney = $2
+                  OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2)
+                ))
+              ) ORDER BY c.created_at DESC LIMIT 20
+            `, [firmId, userId]);
 
         context = `
 [CURRENT PAGE: Clients List]
@@ -329,25 +351,18 @@ ${invoicesRes.rows.map(i => `- ${i.number}: $${parseFloat(i.total).toLocaleStrin
       }
 
       case 'billing': {
+        // Security: filter billing data by user access for non-admins
+        const userInvoiceFilter = isAdmin ? '' : `AND (i.created_by = '${userId}' OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = i.matter_id AND (m2.responsible_attorney = '${userId}' OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = '${userId}'))))`;
         const [invoicesRes, unbilledRes, arRes] = await Promise.all([
-          query(`
-            SELECT i.*, c.display_name as client_name
-            FROM invoices i
-            LEFT JOIN clients c ON i.client_id = c.id
-            WHERE i.firm_id = $1
-            ORDER BY i.created_at DESC LIMIT 20
-          `, [firmId]),
-          query(`
-            SELECT SUM(amount) as total, SUM(hours) as hours
-            FROM time_entries
-            WHERE firm_id = $1 AND billable = true AND billed = false
-          `, [firmId]),
-          query(`
-            SELECT 
-              SUM(CASE WHEN status = 'sent' AND due_date >= CURRENT_DATE THEN amount_due ELSE 0 END) as current,
-              SUM(CASE WHEN status = 'overdue' OR (status = 'sent' AND due_date < CURRENT_DATE) THEN amount_due ELSE 0 END) as overdue
-            FROM invoices WHERE firm_id = $1
-          `, [firmId]),
+          isAdmin
+            ? query(`SELECT i.*, c.display_name as client_name FROM invoices i LEFT JOIN clients c ON i.client_id = c.id WHERE i.firm_id = $1 ORDER BY i.created_at DESC LIMIT 20`, [firmId])
+            : query(`SELECT i.*, c.display_name as client_name FROM invoices i LEFT JOIN clients c ON i.client_id = c.id WHERE i.firm_id = $1 AND (i.created_by = $2 OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = i.matter_id AND (m2.responsible_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2)))) ORDER BY i.created_at DESC LIMIT 20`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT SUM(amount) as total, SUM(hours) as hours FROM time_entries WHERE firm_id = $1 AND billable = true AND billed = false`, [firmId])
+            : query(`SELECT SUM(amount) as total, SUM(hours) as hours FROM time_entries WHERE firm_id = $1 AND user_id = $2 AND billable = true AND billed = false`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT SUM(CASE WHEN status = 'sent' AND due_date >= CURRENT_DATE THEN amount_due ELSE 0 END) as current, SUM(CASE WHEN status = 'overdue' OR (status = 'sent' AND due_date < CURRENT_DATE) THEN amount_due ELSE 0 END) as overdue FROM invoices WHERE firm_id = $1`, [firmId])
+            : query(`SELECT SUM(CASE WHEN status = 'sent' AND due_date >= CURRENT_DATE THEN amount_due ELSE 0 END) as current, SUM(CASE WHEN status = 'overdue' OR (status = 'sent' AND due_date < CURRENT_DATE) THEN amount_due ELSE 0 END) as overdue FROM invoices i WHERE i.firm_id = $1 AND (i.created_by = $2 OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = i.matter_id AND (m2.responsible_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2))))`, [firmId, userId]),
         ]);
 
         const unbilled = unbilledRes.rows[0];
@@ -397,43 +412,20 @@ ${events.rows.map(e => {
       }
 
       case 'time-tracking': {
+        // Security: non-admins only see their own time entries and accessible matters
         const [entriesRes, summaryRes, mattersRes, eventsRes] = await Promise.all([
-          query(`
-            SELECT te.*, m.name as matter_name, u.first_name || ' ' || u.last_name as user_name
-            FROM time_entries te
-            LEFT JOIN matters m ON te.matter_id = m.id
-            LEFT JOIN users u ON te.user_id = u.id
-            WHERE te.firm_id = $1
-            ORDER BY te.date DESC, te.created_at DESC
-            LIMIT 20
-          `, [firmId]),
-          query(`
-            SELECT 
-              SUM(hours) as total_hours,
-              SUM(amount) as total_amount,
-              SUM(CASE WHEN billable THEN hours ELSE 0 END) as billable_hours,
-              SUM(CASE WHEN billed THEN amount ELSE 0 END) as billed_amount
-            FROM time_entries
-            WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)
-          `, [firmId]),
-          query(`
-            SELECT m.id, m.name, m.number, m.billing_type, m.billing_rate, c.display_name as client_name
-            FROM matters m
-            LEFT JOIN clients c ON m.client_id = c.id
-            WHERE m.firm_id = $1 AND m.status = 'active'
-            ORDER BY m.created_at DESC
-            LIMIT 15
-          `, [firmId]),
-          query(`
-            SELECT e.title, e.start_time, e.end_time, e.type, m.name as matter_name
-            FROM calendar_events e
-            LEFT JOIN matters m ON e.matter_id = m.id
-            WHERE e.firm_id = $1 
-              AND e.start_time >= NOW() - INTERVAL '14 days'
-              AND e.start_time <= NOW() + INTERVAL '7 days'
-            ORDER BY e.start_time DESC
-            LIMIT 20
-          `, [firmId]),
+          isAdmin
+            ? query(`SELECT te.*, m.name as matter_name, u.first_name || ' ' || u.last_name as user_name FROM time_entries te LEFT JOIN matters m ON te.matter_id = m.id LEFT JOIN users u ON te.user_id = u.id WHERE te.firm_id = $1 ORDER BY te.date DESC, te.created_at DESC LIMIT 20`, [firmId])
+            : query(`SELECT te.*, m.name as matter_name, u.first_name || ' ' || u.last_name as user_name FROM time_entries te LEFT JOIN matters m ON te.matter_id = m.id LEFT JOIN users u ON te.user_id = u.id WHERE te.firm_id = $1 AND te.user_id = $2 ORDER BY te.date DESC, te.created_at DESC LIMIT 20`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount, SUM(CASE WHEN billable THEN hours ELSE 0 END) as billable_hours, SUM(CASE WHEN billed THEN amount ELSE 0 END) as billed_amount FROM time_entries WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)`, [firmId])
+            : query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount, SUM(CASE WHEN billable THEN hours ELSE 0 END) as billable_hours, SUM(CASE WHEN billed THEN amount ELSE 0 END) as billed_amount FROM time_entries WHERE firm_id = $1 AND user_id = $2 AND date >= DATE_TRUNC('month', CURRENT_DATE)`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT m.id, m.name, m.number, m.billing_type, m.billing_rate, c.display_name as client_name FROM matters m LEFT JOIN clients c ON m.client_id = c.id WHERE m.firm_id = $1 AND m.status = 'active' ORDER BY m.created_at DESC LIMIT 15`, [firmId])
+            : query(`SELECT m.id, m.name, m.number, m.billing_type, m.billing_rate, c.display_name as client_name FROM matters m LEFT JOIN clients c ON m.client_id = c.id WHERE m.firm_id = $1 AND m.status = 'active' AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)) ORDER BY m.created_at DESC LIMIT 15`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT e.title, e.start_time, e.end_time, e.type, m.name as matter_name FROM calendar_events e LEFT JOIN matters m ON e.matter_id = m.id WHERE e.firm_id = $1 AND e.start_time >= NOW() - INTERVAL '14 days' AND e.start_time <= NOW() + INTERVAL '7 days' ORDER BY e.start_time DESC LIMIT 20`, [firmId])
+            : query(`SELECT e.title, e.start_time, e.end_time, e.type, m.name as matter_name FROM calendar_events e LEFT JOIN matters m ON e.matter_id = m.id WHERE e.firm_id = $1 AND (e.created_by = $2 OR e.is_private = false) AND e.start_time >= NOW() - INTERVAL '14 days' AND e.start_time <= NOW() + INTERVAL '7 days' ORDER BY e.start_time DESC LIMIT 20`, [firmId, userId]),
         ]);
 
         const summary = summaryRes.rows[0];
@@ -468,15 +460,10 @@ SUGGESTION: Compare calendar events with time entries to identify work that may 
       }
 
       case 'documents': {
-        const docs = await query(`
-          SELECT d.*, m.name as matter_name, c.display_name as client_name
-          FROM documents d
-          LEFT JOIN matters m ON d.matter_id = m.id
-          LEFT JOIN clients c ON d.client_id = c.id
-          WHERE d.firm_id = $1
-          ORDER BY d.uploaded_at DESC
-          LIMIT 20
-        `, [firmId]);
+        // Security: non-admins only see documents they have access to
+        const docs = isAdmin
+          ? await query(`SELECT d.*, m.name as matter_name, c.display_name as client_name FROM documents d LEFT JOIN matters m ON d.matter_id = m.id LEFT JOIN clients c ON d.client_id = c.id WHERE d.firm_id = $1 ORDER BY d.uploaded_at DESC LIMIT 20`, [firmId])
+          : await query(`SELECT d.*, m.name as matter_name, c.display_name as client_name FROM documents d LEFT JOIN matters m ON d.matter_id = m.id LEFT JOIN clients c ON d.client_id = c.id WHERE d.firm_id = $1 AND (d.uploaded_by = $2 OR d.owner_id = $2 OR d.privacy_level = 'firm' OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = d.matter_id AND (m2.visibility = 'firm_wide' OR m2.responsible_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2)))) ORDER BY d.uploaded_at DESC LIMIT 20`, [firmId, userId]);
 
         context = `
 [CURRENT PAGE: Documents]
@@ -513,28 +500,20 @@ ${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})
 
       case 'analytics':
       case 'reports': {
+        // Security: non-admins only see their own data in analytics context
         const [mattersRes, revenueRes, teamRes, clientsRes] = await Promise.all([
-          query(`SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status`, [firmId]),
-          query(`
-            SELECT DATE_TRUNC('month', date) as month, SUM(hours) as hours, SUM(amount) as revenue
-            FROM time_entries WHERE firm_id = $1 AND date >= NOW() - INTERVAL '6 months'
-            GROUP BY DATE_TRUNC('month', date) ORDER BY month DESC
-          `, [firmId]),
-          query(`
-            SELECT u.first_name || ' ' || u.last_name as name, u.role,
-                   COALESCE(SUM(te.hours), 0) as total_hours, COALESCE(SUM(te.amount), 0) as total_revenue
-            FROM users u
-            LEFT JOIN time_entries te ON te.user_id = u.id AND te.date >= DATE_TRUNC('month', CURRENT_DATE)
-            WHERE u.firm_id = $1 AND u.is_active = true
-            GROUP BY u.id, u.first_name, u.last_name, u.role ORDER BY total_revenue DESC
-          `, [firmId]),
-          query(`
-            SELECT c.display_name, COUNT(DISTINCT m.id) as matter_count, COALESCE(SUM(i.total), 0) as total_billed
-            FROM clients c
-            LEFT JOIN matters m ON m.client_id = c.id
-            LEFT JOIN invoices i ON i.client_id = c.id
-            WHERE c.firm_id = $1 GROUP BY c.id, c.display_name ORDER BY total_billed DESC LIMIT 10
-          `, [firmId]),
+          isAdmin
+            ? query(`SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status`, [firmId])
+            : query(`SELECT status, COUNT(*) as count FROM matters m WHERE m.firm_id = $1 AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)) GROUP BY status`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT DATE_TRUNC('month', date) as month, SUM(hours) as hours, SUM(amount) as revenue FROM time_entries WHERE firm_id = $1 AND date >= NOW() - INTERVAL '6 months' GROUP BY DATE_TRUNC('month', date) ORDER BY month DESC`, [firmId])
+            : query(`SELECT DATE_TRUNC('month', date) as month, SUM(hours) as hours, SUM(amount) as revenue FROM time_entries WHERE firm_id = $1 AND user_id = $2 AND date >= NOW() - INTERVAL '6 months' GROUP BY DATE_TRUNC('month', date) ORDER BY month DESC`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT u.first_name || ' ' || u.last_name as name, u.role, COALESCE(SUM(te.hours), 0) as total_hours, COALESCE(SUM(te.amount), 0) as total_revenue FROM users u LEFT JOIN time_entries te ON te.user_id = u.id AND te.date >= DATE_TRUNC('month', CURRENT_DATE) WHERE u.firm_id = $1 AND u.is_active = true GROUP BY u.id, u.first_name, u.last_name, u.role ORDER BY total_revenue DESC`, [firmId])
+            : query(`SELECT u.first_name || ' ' || u.last_name as name, u.role, COALESCE(SUM(te.hours), 0) as total_hours, COALESCE(SUM(te.amount), 0) as total_revenue FROM users u LEFT JOIN time_entries te ON te.user_id = u.id AND te.date >= DATE_TRUNC('month', CURRENT_DATE) WHERE u.firm_id = $1 AND u.id = $2 GROUP BY u.id, u.first_name, u.last_name, u.role ORDER BY total_revenue DESC`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT c.display_name, COUNT(DISTINCT m.id) as matter_count, COALESCE(SUM(i.total), 0) as total_billed FROM clients c LEFT JOIN matters m ON m.client_id = c.id LEFT JOIN invoices i ON i.client_id = c.id WHERE c.firm_id = $1 GROUP BY c.id, c.display_name ORDER BY total_billed DESC LIMIT 10`, [firmId])
+            : query(`SELECT c.display_name, COUNT(DISTINCT m.id) as matter_count, COALESCE(SUM(i.total), 0) as total_billed FROM clients c LEFT JOIN matters m ON m.client_id = c.id LEFT JOIN invoices i ON i.client_id = c.id WHERE c.firm_id = $1 AND (c.created_by = $2 OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.client_id = c.id AND (m2.responsible_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2)))) GROUP BY c.id, c.display_name ORDER BY total_billed DESC LIMIT 10`, [firmId, userId]),
         ]);
 
         const matterStats = mattersRes.rows.reduce((acc, r) => ({ ...acc, [r.status]: parseInt(r.count) }), {});
@@ -559,25 +538,25 @@ ${clientsRes.rows.map(c => `- ${c.display_name}: ${c.matter_count} matters / $${
 
       case 'ai-assistant':
       case 'general': {
+        // Security: filter data by user permissions for non-admins
+        const matterFilter = isAdmin ? '' : `AND (m.visibility = 'firm_wide' OR m.responsible_attorney = '${userId}' OR m.originating_attorney = '${userId}' OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = '${userId}'))`;
         const [userRes, mattersRes, clientsRes, urgentRes, upcomingRes, unbilledRes] = await Promise.all([
           query(`SELECT first_name, last_name, role FROM users WHERE id = $1`, [userId]),
-          query(`
-            SELECT m.name, m.number, m.status, m.priority, c.display_name as client_name
-            FROM matters m LEFT JOIN clients c ON m.client_id = c.id
-            WHERE m.firm_id = $1 AND m.status = 'active'
-            ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END LIMIT 10
-          `, [firmId]),
-          query(`SELECT display_name, type FROM clients WHERE firm_id = $1 AND is_active = true LIMIT 10`, [firmId]),
-          query(`
-            SELECT m.name, m.number, m.priority FROM matters m
-            WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('urgent', 'high') LIMIT 5
-          `, [firmId]),
-          query(`
-            SELECT title, start_time, type FROM calendar_events
-            WHERE firm_id = $1 AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days'
-            ORDER BY start_time LIMIT 5
-          `, [firmId]),
-          query(`SELECT SUM(hours) as hours, SUM(amount) as amount FROM time_entries WHERE firm_id = $1 AND billable = true AND billed = false`, [firmId]),
+          isAdmin
+            ? query(`SELECT m.name, m.number, m.status, m.priority, c.display_name as client_name FROM matters m LEFT JOIN clients c ON m.client_id = c.id WHERE m.firm_id = $1 AND m.status = 'active' ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END LIMIT 10`, [firmId])
+            : query(`SELECT m.name, m.number, m.status, m.priority, c.display_name as client_name FROM matters m LEFT JOIN clients c ON m.client_id = c.id WHERE m.firm_id = $1 AND m.status = 'active' AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)) ORDER BY CASE m.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END LIMIT 10`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT display_name, type FROM clients WHERE firm_id = $1 AND is_active = true LIMIT 10`, [firmId])
+            : query(`SELECT c.display_name, c.type FROM clients c WHERE c.firm_id = $1 AND c.is_active = true AND (c.created_by = $2 OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.client_id = c.id AND (m2.responsible_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $2)))) LIMIT 10`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT m.name, m.number, m.priority FROM matters m WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('urgent', 'high') LIMIT 5`, [firmId])
+            : query(`SELECT m.name, m.number, m.priority FROM matters m WHERE m.firm_id = $1 AND m.status = 'active' AND m.priority IN ('urgent', 'high') AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)) LIMIT 5`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT title, start_time, type FROM calendar_events WHERE firm_id = $1 AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days' ORDER BY start_time LIMIT 5`, [firmId])
+            : query(`SELECT title, start_time, type FROM calendar_events WHERE firm_id = $1 AND (created_by = $2 OR is_private = false) AND start_time >= NOW() AND start_time < NOW() + INTERVAL '7 days' ORDER BY start_time LIMIT 5`, [firmId, userId]),
+          isAdmin
+            ? query(`SELECT SUM(hours) as hours, SUM(amount) as amount FROM time_entries WHERE firm_id = $1 AND billable = true AND billed = false`, [firmId])
+            : query(`SELECT SUM(hours) as hours, SUM(amount) as amount FROM time_entries WHERE firm_id = $1 AND user_id = $2 AND billable = true AND billed = false`, [firmId, userId]),
         ]);
 
         const user = userRes.rows[0];
@@ -657,7 +636,7 @@ router.post('/chat', authenticate, async (req, res) => {
     // Build context for current page (exclude imageData from context building)
     const contextWithoutImage = { ...additionalContext };
     delete contextWithoutImage.imageData;
-    const pageContext = await buildContext(page, req.user.firmId, req.user.id, contextWithoutImage);
+    const pageContext = await buildContext(page, req.user.firmId, req.user.id, req.user.role, contextWithoutImage);
 
     // Build system prompt - adjust for image analysis if needed
     // Include user's custom instructions if they exist

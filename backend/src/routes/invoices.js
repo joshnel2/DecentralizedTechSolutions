@@ -9,6 +9,26 @@ const router = Router();
 // Roles that can see all firm invoices (not just their own)
 const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 
+/**
+ * Helper: check if a non-privileged user has access to a specific invoice.
+ * Returns true if the user created the invoice or is associated with its matter.
+ */
+async function canAccessInvoice(userId, userRole, invoice) {
+  if (FULL_ACCESS_ROLES.includes(userRole)) return true;
+  if (invoice.created_by === userId) return true;
+  if (invoice.matter_id) {
+    const matterCheck = await query(
+      `SELECT 1 FROM matters m WHERE m.id = $1 AND (
+        m.responsible_attorney = $2 OR m.originating_attorney = $2 OR m.created_by = $2
+        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+      )`,
+      [invoice.matter_id, userId]
+    );
+    return matterCheck.rows.length > 0;
+  }
+  return false;
+}
+
 // Get invoices
 router.get('/', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
@@ -126,6 +146,12 @@ router.get('/:id', authenticate, requirePermission('billing:view'), async (req, 
     }
 
     const i = result.rows[0];
+
+    // Security: verify user has access to this specific invoice
+    if (!await canAccessInvoice(req.user.id, req.user.role, i)) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
+    }
+
     res.json({
       id: i.id,
       number: i.number,
@@ -557,6 +583,18 @@ router.post('/:id/merge', authenticate, requirePermission('billing:edit'), async
 // Get time entries linked to an invoice
 router.get('/:id/time-entries', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
+    // Security: verify user has access to this invoice
+    const invoiceCheck = await query(
+      'SELECT id, created_by, matter_id FROM invoices WHERE id = $1 AND firm_id = $2',
+      [req.params.id, req.user.firmId]
+    );
+    if (invoiceCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    if (!await canAccessInvoice(req.user.id, req.user.role, invoiceCheck.rows[0])) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
+    }
+
     const result = await query(
       `SELECT te.*, 
               m.name as matter_name, m.number as matter_number,
@@ -601,6 +639,18 @@ router.get('/:id/time-entries', authenticate, requirePermission('billing:view'),
 // Get payments for an invoice
 router.get('/:id/payments', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
+    // Security: verify user has access to this invoice
+    const invoiceCheck = await query(
+      'SELECT id, created_by, matter_id FROM invoices WHERE id = $1 AND firm_id = $2',
+      [req.params.id, req.user.firmId]
+    );
+    if (invoiceCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    if (!await canAccessInvoice(req.user.id, req.user.role, invoiceCheck.rows[0])) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
+    }
+
     const result = await query(
       `SELECT p.*, u.first_name || ' ' || u.last_name as created_by_name
        FROM payments p
@@ -709,8 +759,12 @@ router.delete('/:id', authenticate, requirePermission('billing:delete'), async (
   }
 });
 
-// Get all payments (with filtering)
+// Get all payments (with filtering) - restricted to admin/billing roles
 router.get('/all/payments', authenticate, requirePermission('billing:view'), async (req, res) => {
+  // Security: only privileged roles can see all firm payments
+  if (!FULL_ACCESS_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: 'Access denied - admin or billing role required' });
+  }
   try {
     const { startDate, endDate, clientId, syncStatus, limit = 100, offset = 0 } = req.query;
     

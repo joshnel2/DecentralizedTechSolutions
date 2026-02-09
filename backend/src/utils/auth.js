@@ -132,8 +132,8 @@ const rolePermissions = {
     'analytics:view'
   ],
   readonly: [
-    'matters:create', 'matters:view',
-    'clients:create', 'clients:view',
+    'matters:view',
+    'clients:view',
     'documents:view',
     'calendar:view',
     'reports:view'

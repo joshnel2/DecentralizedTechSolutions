@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requirePermission, requireRole } from '../middleware/auth.js';
 import { getDateInTimezone, getTodayInTimezone, createDateInTimezone } from '../utils/dateUtils.js';
 
 const router = Router();
@@ -10,7 +10,7 @@ const router = Router();
 // ============================================
 
 // Get billing settings
-router.get('/settings', authenticate, async (req, res) => {
+router.get('/settings', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
     let result = await query(
       'SELECT * FROM billing_settings WHERE firm_id = $1',
@@ -46,7 +46,7 @@ router.get('/settings', authenticate, async (req, res) => {
 });
 
 // Update billing settings
-router.put('/settings', authenticate, async (req, res) => {
+router.put('/settings', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const {
       defaultPaymentTerms,
@@ -111,7 +111,7 @@ router.put('/settings', authenticate, async (req, res) => {
 // ============================================
 
 // Get all invoice templates
-router.get('/invoice-templates', authenticate, async (req, res) => {
+router.get('/invoice-templates', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
     const result = await query(
       'SELECT * FROM invoice_templates WHERE firm_id = $1 ORDER BY is_default DESC, created_at DESC',
@@ -138,7 +138,7 @@ router.get('/invoice-templates', authenticate, async (req, res) => {
 });
 
 // Create invoice template
-router.post('/invoice-templates', authenticate, async (req, res) => {
+router.post('/invoice-templates', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { name, isDefault, header, lineItems, footer, styling } = req.body;
 
@@ -180,7 +180,7 @@ router.post('/invoice-templates', authenticate, async (req, res) => {
 });
 
 // Update invoice template
-router.put('/invoice-templates/:id', authenticate, async (req, res) => {
+router.put('/invoice-templates/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { name, isDefault, header, lineItems, footer, styling } = req.body;
 
@@ -229,7 +229,7 @@ router.put('/invoice-templates/:id', authenticate, async (req, res) => {
 });
 
 // Delete invoice template
-router.delete('/invoice-templates/:id', authenticate, async (req, res) => {
+router.delete('/invoice-templates/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const result = await query(
       'DELETE FROM invoice_templates WHERE id = $1 AND firm_id = $2 RETURNING id',
@@ -251,8 +251,8 @@ router.delete('/invoice-templates/:id', authenticate, async (req, res) => {
 // PAYMENT PROCESSORS
 // ============================================
 
-// Get all payment processors
-router.get('/payment-processors', authenticate, async (req, res) => {
+// Get all payment processors - restricted to admin/billing (contains credentials)
+router.get('/payment-processors', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const result = await query(
       'SELECT * FROM payment_processors WHERE firm_id = $1 ORDER BY is_default DESC, created_at DESC',
@@ -280,7 +280,7 @@ router.get('/payment-processors', authenticate, async (req, res) => {
 });
 
 // Create payment processor
-router.post('/payment-processors', authenticate, async (req, res) => {
+router.post('/payment-processors', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { name, type, isActive, isDefault, credentials, fees, supportedMethods } = req.body;
 
@@ -323,7 +323,7 @@ router.post('/payment-processors', authenticate, async (req, res) => {
 });
 
 // Update payment processor
-router.put('/payment-processors/:id', authenticate, async (req, res) => {
+router.put('/payment-processors/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { name, type, isActive, isDefault, credentials, fees, supportedMethods } = req.body;
 
@@ -374,7 +374,7 @@ router.put('/payment-processors/:id', authenticate, async (req, res) => {
 });
 
 // Delete payment processor
-router.delete('/payment-processors/:id', authenticate, async (req, res) => {
+router.delete('/payment-processors/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const result = await query(
       'DELETE FROM payment_processors WHERE id = $1 AND firm_id = $2 RETURNING id',
@@ -397,7 +397,7 @@ router.delete('/payment-processors/:id', authenticate, async (req, res) => {
 // ============================================
 
 // Get all payment links
-router.get('/payment-links', authenticate, async (req, res) => {
+router.get('/payment-links', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
     const result = await query(
       'SELECT * FROM payment_links WHERE firm_id = $1 ORDER BY created_at DESC',
@@ -423,7 +423,7 @@ router.get('/payment-links', authenticate, async (req, res) => {
 });
 
 // Create payment link
-router.post('/payment-links', authenticate, async (req, res) => {
+router.post('/payment-links', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const { invoiceId, clientId, amount, expiresAt } = req.body;
 
@@ -460,7 +460,7 @@ router.post('/payment-links', authenticate, async (req, res) => {
 });
 
 // Update payment link status
-router.put('/payment-links/:id', authenticate, async (req, res) => {
+router.put('/payment-links/:id', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const { status } = req.body;
 
@@ -495,7 +495,7 @@ router.put('/payment-links/:id', authenticate, async (req, res) => {
 // ============================================
 
 // Get all recurring payments
-router.get('/recurring-payments', authenticate, async (req, res) => {
+router.get('/recurring-payments', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
     const result = await query(
       'SELECT * FROM recurring_payments WHERE firm_id = $1 ORDER BY next_payment_date ASC',
@@ -524,7 +524,7 @@ router.get('/recurring-payments', authenticate, async (req, res) => {
 });
 
 // Create recurring payment
-router.post('/recurring-payments', authenticate, async (req, res) => {
+router.post('/recurring-payments', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const { clientId, matterId, amount, frequency, paymentMethod, nextPaymentDate } = req.body;
 
@@ -560,7 +560,7 @@ router.post('/recurring-payments', authenticate, async (req, res) => {
 });
 
 // Update recurring payment
-router.put('/recurring-payments/:id', authenticate, async (req, res) => {
+router.put('/recurring-payments/:id', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const { amount, frequency, paymentMethod, nextPaymentDate, lastPaymentDate, status } = req.body;
 
@@ -603,7 +603,7 @@ router.put('/recurring-payments/:id', authenticate, async (req, res) => {
 });
 
 // Delete recurring payment
-router.delete('/recurring-payments/:id', authenticate, async (req, res) => {
+router.delete('/recurring-payments/:id', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const result = await query(
       'DELETE FROM recurring_payments WHERE id = $1 AND firm_id = $2 RETURNING id',
@@ -625,8 +625,8 @@ router.delete('/recurring-payments/:id', authenticate, async (req, res) => {
 // TRUST ACCOUNTS (using existing tables)
 // ============================================
 
-// Get all trust accounts
-router.get('/trust-accounts', authenticate, async (req, res) => {
+// Get all trust accounts - sensitive financial data
+router.get('/trust-accounts', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const result = await query(
       'SELECT * FROM trust_accounts WHERE firm_id = $1 ORDER BY created_at DESC',
@@ -656,7 +656,7 @@ router.get('/trust-accounts', authenticate, async (req, res) => {
 });
 
 // Create trust account
-router.post('/trust-accounts', authenticate, async (req, res) => {
+router.post('/trust-accounts', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { bankName, accountName, accountNumber, routingNumber, accountType, balance, isVerified } = req.body;
 
@@ -698,7 +698,7 @@ router.post('/trust-accounts', authenticate, async (req, res) => {
 });
 
 // Update trust account
-router.put('/trust-accounts/:id', authenticate, async (req, res) => {
+router.put('/trust-accounts/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { bankName, accountName, accountType, balance, isVerified, lastReconciled } = req.body;
 
@@ -742,7 +742,7 @@ router.put('/trust-accounts/:id', authenticate, async (req, res) => {
 });
 
 // Delete trust account
-router.delete('/trust-accounts/:id', authenticate, async (req, res) => {
+router.delete('/trust-accounts/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const result = await query(
       'DELETE FROM trust_accounts WHERE id = $1 AND firm_id = $2 RETURNING id',
@@ -765,7 +765,7 @@ router.delete('/trust-accounts/:id', authenticate, async (req, res) => {
 // ============================================
 
 // Get all trust transactions
-router.get('/trust-transactions', authenticate, async (req, res) => {
+router.get('/trust-transactions', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { trustAccountId, clientId } = req.query;
     
@@ -815,7 +815,7 @@ router.get('/trust-transactions', authenticate, async (req, res) => {
 });
 
 // Create trust transaction
-router.post('/trust-transactions', authenticate, async (req, res) => {
+router.post('/trust-transactions', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { trustAccountId, clientId, matterId, type, amount, description, reference, paymentMethod, checkNumber } = req.body;
 
@@ -870,7 +870,7 @@ router.post('/trust-transactions', authenticate, async (req, res) => {
 });
 
 // Update trust transaction (mark as cleared)
-router.put('/trust-transactions/:id', authenticate, async (req, res) => {
+router.put('/trust-transactions/:id', authenticate, requireRole('owner', 'admin', 'billing'), async (req, res) => {
   try {
     const { clearedAt } = req.body;
 
@@ -911,7 +911,7 @@ router.put('/trust-transactions/:id', authenticate, async (req, res) => {
 // GET ALL BILLING DATA (for initial load)
 // ============================================
 
-router.get('/all', authenticate, async (req, res) => {
+router.get('/all', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
     const [settings, templates, processors, links, recurring, trustAccounts, trustTransactions] = await Promise.all([
       query('SELECT * FROM billing_settings WHERE firm_id = $1', [req.user.firmId]),

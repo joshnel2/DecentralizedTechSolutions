@@ -121,6 +121,24 @@ router.get('/:id', authenticate, requirePermission('clients:view'), async (req, 
     }
 
     const c = result.rows[0];
+
+    // Security: non-admin users can only view clients they created or have matters with
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    if (!isAdmin) {
+      const hasAccess = c.created_by === req.user.id;
+      if (!hasAccess) {
+        const matterLink = await query(
+          `SELECT 1 FROM matters m WHERE m.client_id = $1 AND (
+            m.responsible_attorney = $2 OR m.originating_attorney = $2 OR m.created_by = $2
+            OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+          ) LIMIT 1`,
+          [req.params.id, req.user.id]
+        );
+        if (matterLink.rows.length === 0) {
+          return res.status(403).json({ error: 'Access denied to this client' });
+        }
+      }
+    }
     res.json({
       id: c.id,
       type: c.type,
@@ -256,12 +274,27 @@ router.put('/:id', authenticate, requirePermission('clients:edit'), async (req, 
 
     // Check client exists and belongs to firm
     const existing = await query(
-      'SELECT id FROM clients WHERE id = $1 AND firm_id = $2',
+      'SELECT id, created_by FROM clients WHERE id = $1 AND firm_id = $2',
       [req.params.id, req.user.firmId]
     );
 
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Client not found' });
+    }
+
+    // Security: non-admin users can only edit clients they created or have matters with
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    if (!isAdmin && existing.rows[0].created_by !== req.user.id) {
+      const matterLink = await query(
+        `SELECT 1 FROM matters m WHERE m.client_id = $1 AND (
+          m.responsible_attorney = $2 OR m.originating_attorney = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+        ) LIMIT 1`,
+        [req.params.id, req.user.id]
+      );
+      if (matterLink.rows.length === 0) {
+        return res.status(403).json({ error: 'Access denied to this client' });
+      }
     }
 
     const result = await query(
