@@ -213,12 +213,18 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
 router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const existing = await query(
-      'SELECT id FROM time_entries WHERE id = $1 AND firm_id = $2',
+      'SELECT id, user_id FROM time_entries WHERE id = $1 AND firm_id = $2',
       [req.params.id, req.user.firmId]
     );
 
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Time entry not found' });
+    }
+
+    // Security: non-admin users can only edit their own time entries
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    if (!isAdmin && existing.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own time entries' });
     }
 
     const { matterId, date, hours, description, billable, billed, rate, activityCode, status } = req.body;
@@ -264,6 +270,21 @@ router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, 
 // Delete time entry
 router.delete('/:id', authenticate, requirePermission('billing:delete'), async (req, res) => {
   try {
+    // Security: non-admin users can only delete their own time entries
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    if (!isAdmin) {
+      const ownerCheck = await query(
+        'SELECT user_id FROM time_entries WHERE id = $1 AND firm_id = $2',
+        [req.params.id, req.user.firmId]
+      );
+      if (ownerCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Time entry not found' });
+      }
+      if (ownerCheck.rows[0].user_id !== req.user.id) {
+        return res.status(403).json({ error: 'You can only delete your own time entries' });
+      }
+    }
+
     const result = await query(
       'DELETE FROM time_entries WHERE id = $1 AND firm_id = $2 AND billed = false RETURNING id',
       [req.params.id, req.user.firmId]
