@@ -580,11 +580,19 @@ export function generateBrief(goal, matterContext = null, options = {}) {
     brief += `\n`;
   }
   
-  // 7. Partner check (compact: just 3 key checks)
+  // 7. Focus warning
+  brief += `### Stay Focused\n`;
+  brief += `Your ONLY job is: "${goal}". Do NOT investigate tangential issues.\n`;
+  brief += `If you find something unrelated but important, note it briefly and move on.\n`;
+  brief += `Budget your time: don't read more than you need. Shift to creating deliverables early.\n`;
+  brief += `\n`;
+  
+  // 8. Partner check (compact: just 3 key checks)
   brief += `### Before Completing\n`;
   brief += `1. Did I READ the matter and produce SPECIFIC (not generic) work?\n`;
   brief += `2. Did I create REAL content (no placeholders)?\n`;
   brief += `3. Are there follow-up tasks and clear next steps?\n`;
+  brief += `4. Did I stay focused on the assigned task throughout?\n`;
   brief += `\n`;
   
   brief += `== BEGIN WORK ==\n`;
@@ -702,10 +710,13 @@ function _generateThinnedBrief(goal, workType, totalMinutes, matterContext, iden
   ).join(' → ');
   brief += `**Time:** ~${totalMinutes}min total: ${phases}\n\n`;
   
+  brief += `**Stay focused on:** "${goal}" — do not go on tangents.\n\n`;
+  
   brief += `### Before Completing\n`;
   brief += `1. SPECIFIC to this matter (not generic)?\n`;
   brief += `2. REAL content (no placeholders)?\n`;
-  brief += `3. Follow-up tasks and next steps included?\n\n`;
+  brief += `3. Follow-up tasks and next steps included?\n`;
+  brief += `4. Stayed focused on the assigned task?\n\n`;
   
   brief += `== BEGIN WORK ==\n`;
   brief += `Call think_and_plan, then execute.\n`;
