@@ -23,6 +23,8 @@ import { legalResearchModule } from './legalResearch.js';
 import { discoveryPrepModule } from './discoveryPrep.js';
 import { contractAnalysisModule } from './contractAnalysis.js';
 import { complianceCheckModule } from './complianceCheck.js';
+import { ndaTriageModule } from './ndaTriage.js';
+import { legalRiskAssessmentModule } from './legalRiskAssessment.js';
 
 /**
  * All available modules
@@ -38,6 +40,8 @@ export const MODULES = {
   'discovery-prep': discoveryPrepModule,
   'contract-analysis': contractAnalysisModule,
   'compliance-check': complianceCheckModule,
+  'nda-triage': ndaTriageModule,
+  'legal-risk-assessment': legalRiskAssessmentModule,
 };
 
 /**
@@ -82,7 +86,17 @@ const MODULE_TRIGGERS = {
   ],
   'compliance-check': [
     'compliance', 'trust account', 'ethical', 'conflict check',
-    'iola', 'retainer', 'engagement letter'
+    'iola', 'retainer', 'engagement letter', 'gdpr', 'ccpa',
+    'privacy', 'data protection', 'dpa review', 'data subject request'
+  ],
+  'nda-triage': [
+    'nda', 'non-disclosure', 'nondisclosure', 'confidentiality agreement',
+    'triage nda', 'review nda', 'screen nda', 'nda review', 'mutual nda'
+  ],
+  'legal-risk-assessment': [
+    'risk assessment', 'risk analysis', 'risk evaluation', 'risk matrix',
+    'assess risk', 'evaluate risk', 'risk score', 'escalation',
+    'outside counsel', 'risk register'
   ],
 };
 
@@ -232,4 +246,6 @@ export {
   discoveryPrepModule,
   contractAnalysisModule,
   complianceCheckModule,
+  ndaTriageModule,
+  legalRiskAssessmentModule,
 };
