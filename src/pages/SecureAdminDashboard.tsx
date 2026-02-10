@@ -1240,7 +1240,13 @@ export default function SecureAdminDashboard() {
           withoutMatter: data.withoutMatter
         }
         setScanResult(resultInfo)
-        showNotification('success', data.message)
+        
+        // If backend recommends full scan, show as info rather than success
+        if (data.hint === 'full_scan_recommended') {
+          showNotification('success', 'No unmatched docs found. Run Full Scan to re-match documents after adding new users/matters.')
+        } else {
+          showNotification('success', data.message)
+        }
         
         // Refresh firm data
         if (selectedFirmDetail && selectedFirmDetail.id === firmId) {

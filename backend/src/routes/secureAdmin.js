@@ -3094,18 +3094,21 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
       const totalDocs = await query('SELECT COUNT(*) as total FROM documents WHERE firm_id = $1', [firmId]);
       const total = parseInt(totalDocs.rows[0].total) || 0;
       
+      // No unmatched docs - but if user just added new matters/users, they should run Full Scan
+      // Full Scan re-evaluates ALL documents against the current matter list
       return res.json({
         success: true,
         message: total === 0 
-          ? 'No documents found. Please run a Full Scan first to import documents.'
-          : 'All documents are already matched to matters.',
+          ? 'No documents found. Run Full Scan to import documents from Azure.'
+          : `All ${total} documents already have a matter assigned. If you just added a new user or matters, run Full Scan instead — it will re-match existing documents against the updated matter list.`,
         checked: 0,
         matched: 0,
         stillUnmatched: 0,
         totalDocuments: total,
         withMatter: total,
         withoutMatter: 0,
-        sampleMatches: []
+        sampleMatches: [],
+        hint: 'full_scan_recommended'
       });
     }
     
