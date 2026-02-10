@@ -886,9 +886,28 @@ export async function onDocumentAccessed(userId, firmId, document, content) {
   if (!content || content.length < 500) return;
   
   // Learn in background (don't block the request)
-  setImmediate(() => {
-    learnFromDocument(userId, firmId, document, content).catch(err => {
+  setImmediate(async () => {
+    try {
+      await learnFromDocument(userId, firmId, document, content);
+    } catch (err) {
       console.error('[DocumentLearning] Background learning failed:', err.message);
-    });
+    }
+    
+    // Also populate the user's AI memory file with document-based insights
+    try {
+      const { learnFromDocument: memoryLearnFromDoc } = await import('../../services/userAIMemory.js');
+      
+      // Detect document type and add as context
+      const docName = document?.original_name || document?.name || '';
+      const docType = document?.type || document?.document_type || '';
+      
+      if (docType) {
+        await memoryLearnFromDoc(userId, firmId,
+          `Works with ${docType} documents (e.g., "${docName.substring(0, 60)}")`
+        );
+      }
+    } catch (memErr) {
+      // Non-fatal
+    }
   });
 }

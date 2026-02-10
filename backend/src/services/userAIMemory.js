@@ -489,7 +489,15 @@ export async function consolidateMemory(userId, firmId) {
       entriesPruned = pruneResult.rowCount || 0;
     }
 
-    // 4. Also prune entries with confidence below threshold
+    // 4. Synthesize high-confidence learning patterns into memory entries
+    // This pulls from ai_learning_patterns to auto-populate the memory file
+    try {
+      await synthesizeFromLearningPatterns(userId, firmId);
+    } catch (synthError) {
+      console.log('[UserAIMemory] Pattern synthesis note:', synthError.message);
+    }
+
+    // 5. Also prune entries with confidence below threshold
     const pruneLowResult = await query(
       `UPDATE user_ai_memory 
        SET dismissed = true, updated_at = NOW()
@@ -626,6 +634,90 @@ export async function updateActiveContext(userId, firmId, contextEntry) {
     });
   } catch (error) {
     console.log('[UserAIMemory] Error updating active context:', error.message);
+  }
+}
+
+/**
+ * Synthesize high-confidence learning patterns into memory entries.
+ * This bridges the existing ai_learning_patterns system with the memory file.
+ * Called during consolidation to ensure the memory file stays populated.
+ */
+async function synthesizeFromLearningPatterns(userId, firmId) {
+  try {
+    // Get high-confidence user-level patterns that might be worth memorizing
+    const patterns = await query(
+      `SELECT pattern_type, pattern_category, pattern_data, confidence, occurrences
+       FROM ai_learning_patterns
+       WHERE firm_id = $1 AND user_id = $2
+         AND confidence > 0.6
+         AND occurrences >= 3
+       ORDER BY confidence DESC, occurrences DESC
+       LIMIT 10`,
+      [firmId, userId]
+    );
+
+    for (const pattern of (patterns?.rows || [])) {
+      const data = typeof pattern.pattern_data === 'string' 
+        ? JSON.parse(pattern.pattern_data) 
+        : pattern.pattern_data;
+      
+      let memoryContent = null;
+      let category = 'learned_preference';
+
+      // Convert pattern types to human-readable memory entries
+      switch (pattern.pattern_type) {
+        case 'description_template':
+          if (data.sample) {
+            memoryContent = `Billing description style: "${data.sample.substring(0, 100)}" (${data.category || 'general'})`;
+            category = 'working_style';
+          }
+          break;
+        case 'workflow':
+          if (data.pattern || data.description) {
+            memoryContent = `Common task type: ${data.description || data.pattern}`;
+            category = 'working_style';
+          }
+          break;
+        case 'tool_sequence':
+          if (data.description) {
+            memoryContent = `Effective approach: ${data.description.substring(0, 150)}`;
+            category = 'insight';
+          }
+          break;
+        case 'rate_pattern':
+          if (data.matter_type && data.rate) {
+            memoryContent = `Typical billing rate for ${data.matter_type}: $${data.rate}/hr`;
+            category = 'working_style';
+          }
+          break;
+        case 'billing_timing':
+          if (data.day_of_week && data.time_slot) {
+            memoryContent = `Typically enters time on ${data.day_of_week}s in the ${data.time_slot}`;
+            category = 'insight';
+          }
+          break;
+        default:
+          // Generic pattern
+          if (data.description || data.pattern) {
+            memoryContent = `${pattern.pattern_category || 'General'}: ${(data.description || data.pattern || '').substring(0, 200)}`;
+            category = 'learned_preference';
+          }
+      }
+
+      if (memoryContent) {
+        await addMemoryEntry(userId, firmId, {
+          category,
+          content: memoryContent,
+          source: 'system_observed',
+          confidence: Math.min(0.8, parseFloat(pattern.confidence)),
+        });
+      }
+    }
+  } catch (error) {
+    // Non-fatal
+    if (!error.message?.includes('ai_learning_patterns')) {
+      console.log('[UserAIMemory] Pattern synthesis error:', error.message);
+    }
   }
 }
 
