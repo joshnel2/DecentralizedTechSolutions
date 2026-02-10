@@ -6961,15 +6961,32 @@ router.get('/documents/manifest/:firmId', requireSecureAdmin, async (req, res) =
     const { firmId } = req.params;
     
     // Get ACTUAL document counts from documents table (not manifest)
-    const actualStats = await query(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(CASE WHEN matter_id IS NOT NULL THEN 1 END) as linked_to_matter,
-        COUNT(CASE WHEN owner_id IS NOT NULL THEN 1 END) as with_owner,
-        COUNT(CASE WHEN storage_location = 'azure' THEN 1 END) as in_azure
-      FROM documents
-      WHERE firm_id = $1
-    `, [firmId]);
+    // Use a safe query that only references columns that always exist
+    let actualStats = { total: 0, linked_to_matter: 0, with_owner: 0, in_azure: 0 };
+    try {
+      const result = await query(`
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN matter_id IS NOT NULL THEN 1 END) as linked_to_matter,
+          COUNT(CASE WHEN owner_id IS NOT NULL THEN 1 END) as with_owner,
+          COUNT(CASE WHEN storage_location = 'azure' THEN 1 END) as in_azure
+        FROM documents
+        WHERE firm_id = $1
+      `, [firmId]);
+      actualStats = result.rows[0] || actualStats;
+    } catch (e) {
+      // Fallback if owner_id or storage_location columns don't exist yet
+      try {
+        const result = await query(`
+          SELECT 
+            COUNT(*) as total,
+            COUNT(CASE WHEN matter_id IS NOT NULL THEN 1 END) as linked_to_matter
+          FROM documents
+          WHERE firm_id = $1
+        `, [firmId]);
+        actualStats = { ...actualStats, ...result.rows[0] };
+      } catch (e2) { /* documents table may not exist */ }
+    }
     
     // Also get manifest stats if available
     let manifestStats = { total: 0, pending: 0, matched: 0, imported: 0 };
@@ -6986,29 +7003,45 @@ router.get('/documents/manifest/:firmId', requireSecureAdmin, async (req, res) =
       manifestStats = mStats.rows[0] || manifestStats;
     } catch (e) { /* manifest table may not exist */ }
     
-    // Get recent documents
-    const recent = await query(`
-      SELECT id, name, folder_path, matter_id, owner_id, created_at
-      FROM documents
-      WHERE firm_id = $1
-      ORDER BY created_at DESC
-      LIMIT 20
-    `, [firmId]);
+    // Get recent documents - use safe column list
+    let recentDocs = [];
+    try {
+      const recent = await query(`
+        SELECT id, name, folder_path, matter_id, owner_id, created_at
+        FROM documents
+        WHERE firm_id = $1
+        ORDER BY created_at DESC
+        LIMIT 20
+      `, [firmId]);
+      recentDocs = recent.rows;
+    } catch (e) {
+      // Fallback if some columns don't exist
+      try {
+        const recent = await query(`
+          SELECT id, name, matter_id, uploaded_at as created_at
+          FROM documents
+          WHERE firm_id = $1
+          ORDER BY uploaded_at DESC
+          LIMIT 20
+        `, [firmId]);
+        recentDocs = recent.rows;
+      } catch (e2) { /* table may not exist or have different schema */ }
+    }
     
     res.json({
       success: true,
       stats: {
-        total: parseInt(actualStats.rows[0]?.total || 0),
-        linkedToMatter: parseInt(actualStats.rows[0]?.linked_to_matter || 0),
-        withOwner: parseInt(actualStats.rows[0]?.with_owner || 0),
-        inAzure: parseInt(actualStats.rows[0]?.in_azure || 0),
+        total: parseInt(actualStats.total || 0),
+        linkedToMatter: parseInt(actualStats.linked_to_matter || 0),
+        withOwner: parseInt(actualStats.with_owner || 0),
+        inAzure: parseInt(actualStats.in_azure || 0),
         // Legacy manifest stats
         manifestTotal: parseInt(manifestStats.total || 0),
         manifestPending: parseInt(manifestStats.pending || 0),
         manifestMatched: parseInt(manifestStats.matched || 0),
         manifestImported: parseInt(manifestStats.imported || 0)
       },
-      recentDocuments: recent.rows
+      recentDocuments: recentDocs
     });
   } catch (error) {
     console.error('Get manifest error:', error);

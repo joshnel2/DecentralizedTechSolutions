@@ -183,14 +183,27 @@ export function AdminPortalPage() {
     setLoading(true)
     setError(null)
     try {
-      const [statsRes, firmsRes, usersRes] = await Promise.all([
+      // Load data independently so one failure doesn't block others
+      const [statsResult, firmsResult, usersResult] = await Promise.allSettled([
         adminApi.getStats(),
         adminApi.getFirms(),
         adminApi.getUsers()
       ])
-      setStats(statsRes)
-      setFirms(firmsRes.firms || [])
-      setUsers(usersRes.users || [])
+      
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value)
+      }
+      if (firmsResult.status === 'fulfilled') {
+        setFirms(firmsResult.value.firms || [])
+      }
+      if (usersResult.status === 'fulfilled') {
+        setUsers(usersResult.value.users || [])
+      }
+      
+      // If all failed, show error
+      if (statsResult.status === 'rejected' && firmsResult.status === 'rejected' && usersResult.status === 'rejected') {
+        setError(firmsResult.reason?.message || 'Failed to load admin data. You may not have admin access.')
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load admin data. You may not have admin access.')
     } finally {

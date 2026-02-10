@@ -601,45 +601,34 @@ export default function SecureAdminDashboard() {
 
   const loadData = async () => {
     setIsLoading(true)
-    try {
-      // Load firms
-      const firmsRes = await fetch(`${API_URL}/secure-admin/firms`, {
-        headers: getAuthHeaders()
-      })
-      if (firmsRes.ok) {
-        const firmsData = await firmsRes.json()
-        setFirms(firmsData)
+    const headers = getAuthHeaders()
+    
+    // Helper to safely fetch and parse JSON
+    const safeFetch = async (url: string) => {
+      try {
+        const res = await fetch(url, { headers })
+        if (res.ok) return await res.json()
+        console.warn(`[Admin] ${url} returned ${res.status}`)
+        return null
+      } catch (err) {
+        console.error(`[Admin] Failed to fetch ${url}:`, err)
+        return null
       }
-
-      // Load users
-      const usersRes = await fetch(`${API_URL}/secure-admin/users`, {
-        headers: getAuthHeaders()
-      })
-      if (usersRes.ok) {
-        const usersData = await usersRes.json()
-        setUsers(usersData)
-      }
-
-      // Load detailed stats
-      const statsRes = await fetch(`${API_URL}/secure-admin/detailed-stats`, {
-        headers: getAuthHeaders()
-      })
-      if (statsRes.ok) {
-        const statsData = await statsRes.json()
-        setDetailedStats(statsData)
-      }
-
-      // Load audit logs
-      const auditRes = await fetch(`${API_URL}/secure-admin/audit`, {
-        headers: getAuthHeaders()
-      })
-      if (auditRes.ok) {
-        const auditData = await auditRes.json()
-        setAuditLogs(auditData)
-      }
-    } catch (error) {
-      console.error('Failed to load data:', error)
     }
+    
+    // Load all data in parallel - each request is independent
+    const [firmsData, usersData, statsData, auditData] = await Promise.all([
+      safeFetch(`${API_URL}/secure-admin/firms`),
+      safeFetch(`${API_URL}/secure-admin/users`),
+      safeFetch(`${API_URL}/secure-admin/detailed-stats`),
+      safeFetch(`${API_URL}/secure-admin/audit`)
+    ])
+    
+    if (firmsData) setFirms(firmsData)
+    if (usersData) setUsers(usersData)
+    if (statsData) setDetailedStats(statsData)
+    if (auditData) setAuditLogs(auditData)
+    
     setIsLoading(false)
   }
 
@@ -1297,51 +1286,60 @@ export default function SecureAdminDashboard() {
     setFirmStats(null)
     setFirmManifestStats(null)
     
-    // Fetch all firm data in parallel
-    try {
-      const [usersRes, statsRes, manifestRes] = await Promise.all([
-        // Fetch users for this firm
-        fetch(`${API_URL}/secure-admin/firms/${firm.id}/users`, { headers: getAuthHeaders() }),
-        // Fetch firm stats
-        fetch(`${API_URL}/secure-admin/firms/${firm.id}/stats`, { headers: getAuthHeaders() }),
-        // Fetch document manifest
-        fetch(`${API_URL}/migration/documents/manifest/${firm.id}`, { headers: getAuthHeaders() })
-      ])
-      
-      if (usersRes.ok) {
-        const usersData = await usersRes.json()
-        setFirmUsers(usersData.users || usersData || [])
-      }
-      
-      if (statsRes.ok) {
-        const statsData = await statsRes.json()
-        setFirmStats(statsData)
-      }
-      
-      if (manifestRes.ok) {
-        const manifestData = await manifestRes.json()
-        setFirmManifestStats(manifestData)
-      }
-      
-      // Also fetch streaming status
+    const headers = getAuthHeaders()
+    
+    // Helper to safely fetch and parse JSON
+    const safeFetch = async (url: string): Promise<{ ok: boolean; data: any }> => {
       try {
-        const streamRes = await fetch(`${API_URL}/migration/documents/stream-status/${firm.id}`, {
-          headers: getAuthHeaders()
-        })
-        if (streamRes.ok) {
-          const streamData = await streamRes.json()
-          if (streamData.success) {
-            setStreamingStatus(streamData.status)
-          }
+        const res = await fetch(url, { headers })
+        if (res.ok) {
+          const data = await res.json()
+          return { ok: true, data }
         }
-      } catch (e) {
-        console.log('Streaming status not available:', e)
+        console.warn(`[Admin] ${url} returned ${res.status}`)
+        return { ok: false, data: null }
+      } catch (err) {
+        console.error(`[Admin] Failed to fetch ${url}:`, err)
+        return { ok: false, data: null }
       }
-    } catch (error) {
-      console.error('Failed to load firm data:', error)
+    }
+    
+    // Fetch all firm data in parallel - each request is independent so one failure doesn't block others
+    const [usersResult, statsResult, manifestResult] = await Promise.all([
+      safeFetch(`${API_URL}/secure-admin/firms/${firm.id}/users`),
+      safeFetch(`${API_URL}/secure-admin/firms/${firm.id}/stats`),
+      safeFetch(`${API_URL}/migration/documents/manifest/${firm.id}`)
+    ])
+    
+    if (usersResult.ok && usersResult.data) {
+      const usersData = usersResult.data
+      const users = Array.isArray(usersData) ? usersData : (usersData.users || [])
+      setFirmUsers(users)
+    }
+    
+    if (statsResult.ok && statsResult.data) {
+      setFirmStats(statsResult.data)
+    }
+    
+    if (manifestResult.ok && manifestResult.data) {
+      setFirmManifestStats(manifestResult.data)
     }
     
     setLoadingFirmData(false)
+    
+    // Fetch streaming status (non-critical, don't block UI)
+    try {
+      const streamRes = await fetch(`${API_URL}/migration/documents/stream-status/${firm.id}`, { headers })
+      if (streamRes.ok) {
+        const streamData = await streamRes.json()
+        if (streamData.success) {
+          setStreamingStatus(streamData.status)
+        }
+      }
+    } catch (e) {
+      console.log('Streaming status not available:', e)
+    }
+    
     setLoadingManifest(false)
   }
 
@@ -5699,7 +5697,7 @@ bob@example.com, Bob, Wilson, partner"
                 {/* Quick Stats in Header */}
                 <div style={{ display: 'flex', gap: '24px' }}>
                   {[
-                    { icon: Users, value: firmUsers.length, label: 'Users' },
+                    { icon: Users, value: firmUsers.length || firmStats?.users || selectedFirmDetail.users_count || 0, label: 'Users' },
                     { icon: Briefcase, value: firmStats?.matters || 0, label: 'Matters' },
                     { icon: FileText, value: firmStats?.documents || 0, label: 'Documents' }
                   ].map((stat, i) => (
@@ -5760,7 +5758,7 @@ bob@example.com, Bob, Wilson, partner"
                   >
                     <tab.icon size={20} />
                     {tab.label}
-                    {tab.id === 'users' && <span style={{ background: '#E2E8F0', padding: '2px 8px', borderRadius: '10px', fontSize: '12px' }}>{firmUsers.length}</span>}
+                    {tab.id === 'users' && <span style={{ background: '#E2E8F0', padding: '2px 8px', borderRadius: '10px', fontSize: '12px' }}>{firmUsers.length || firmStats?.users || selectedFirmDetail.users_count || 0}</span>}
                   </button>
                 ))}
               </div>
