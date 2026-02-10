@@ -11,6 +11,8 @@ import {
   formatMonthYear
 } from '../utils/dateUtils.js';
 import { getMemoryForPrompt, addMemoryEntry } from '../services/userAIMemory.js';
+import { getUserDocumentProfile, formatProfileForPrompt as formatDocProfile } from '../services/amplifier/documentLearning.js';
+import { getLawyerProfile, formatProfileForPrompt as formatLawyerProfile } from '../services/amplifier/lawyerProfile.js';
 
 // Azure OpenAI configuration
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
@@ -691,7 +693,18 @@ ${userCustomInstructions}`;
       systemPrompt = `${systemPrompt}
 ${userMemoryContext}`;
     }
+    if (learnedProfileContext) {
+      systemPrompt = `${systemPrompt}
+${learnedProfileContext}`;
+    }
+    // Always append page context (firm data for this page)
+    if (pageContext) {
+      systemPrompt = `${systemPrompt}
+${pageContext}`;
+    }
     if (hasImage) {
+      // Vision path: override system prompt but preserve memory, custom instructions, and context.
+      // Also include the MEMORY extraction instruction so memories are learned from image conversations too.
       systemPrompt = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. 
 
 You have vision capabilities and can analyze images. When the user uploads an image:
@@ -709,11 +722,18 @@ For legal documents, identify:
 - Any notable terms or clauses visible
 
 Be professional, accurate, and helpful.
+
+MEMORY:
+If during this conversation the user reveals a PERSISTENT fact about themselves (their practice area, a preference, a correction, what they're currently working on), append it at the very end of your response inside a <memory> tag. The user will NOT see this tag. Only include genuinely persistent facts -- not one-off questions. Format each fact on its own line with a category prefix.
+Categories: IDENTITY (who they are), STYLE (how they like things), CONTEXT (what they're working on now), PREFERENCE (general preference), CORRECTION (something you should always do/avoid)
+Example: <memory>IDENTITY: Specializes in commercial real estate transactions in NYC</memory>
+Most messages will have NOTHING worth remembering. Only add <memory> when there is a clear, persistent fact.
 ${userCustomInstructions ? `
 USER'S CUSTOM INSTRUCTIONS (follow these preferences when responding to this user):
 ${userCustomInstructions}
 ` : ''}
 ${userMemoryContext || ''}
+${learnedProfileContext || ''}
 ${pageContext}`;
     }
 
