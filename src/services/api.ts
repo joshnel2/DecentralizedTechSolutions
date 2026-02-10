@@ -863,6 +863,47 @@ export const userSettingsApi = {
       body: JSON.stringify(data),
     });
   },
+
+  // AI Memory File
+  async getAIMemory() {
+    return fetchWithAuth('/user-settings/ai/memory');
+  },
+
+  async getAIMemoryStats() {
+    return fetchWithAuth('/user-settings/ai/memory/stats');
+  },
+
+  async addAIMemory(data: { category: string; content: string; pinned?: boolean }) {
+    return fetchWithAuth('/user-settings/ai/memory', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAIMemory(id: string, data: { content?: string; category?: string; pinned?: boolean }) {
+    return fetchWithAuth(`/user-settings/ai/memory/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAIMemory(id: string) {
+    return fetchWithAuth(`/user-settings/ai/memory/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async togglePinAIMemory(id: string) {
+    return fetchWithAuth(`/user-settings/ai/memory/${id}/pin`, {
+      method: 'POST',
+    });
+  },
+
+  async consolidateAIMemory() {
+    return fetchWithAuth('/user-settings/ai/memory/consolidate', {
+      method: 'POST',
+    });
+  },
 };
 
 // ============================================

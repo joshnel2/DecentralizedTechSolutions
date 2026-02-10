@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
@@ -6,7 +6,8 @@ import { userSettingsApi } from '../services/api'
 import { 
   User, Lock, Bell, Shield, Save, Calendar, Clock, 
   Palette, Download, Trash2, CheckCircle2, ArrowLeft,
-  Tags, Plus, Edit2, Bot, Sparkles
+  Tags, Plus, Edit2, Bot, Sparkles, Pin, PinOff, Brain,
+  RefreshCw, X, ChevronDown, ChevronUp, Info
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 import { useToast } from '../components/Toast'
@@ -82,6 +83,29 @@ export function SettingsPage() {
   })
   const [_aiSettingsLoading, setAiSettingsLoading] = useState(false)
 
+  // AI Memory File state
+  const [memoryEntries, setMemoryEntries] = useState<any[]>([])
+  const [memoryStats, setMemoryStats] = useState<any>(null)
+  const [memoryLoading, setMemoryLoading] = useState(false)
+  const [newMemoryContent, setNewMemoryContent] = useState('')
+  const [newMemoryCategory, setNewMemoryCategory] = useState('learned_preference')
+  const [showAddMemory, setShowAddMemory] = useState(false)
+  const [memoryExpanded, setMemoryExpanded] = useState(true)
+  const [consolidating, setConsolidating] = useState(false)
+
+  const loadMemoryFile = useCallback(async () => {
+    setMemoryLoading(true)
+    try {
+      const result = await userSettingsApi.getAIMemory()
+      setMemoryEntries(result.entries || [])
+      setMemoryStats(result.stats || null)
+    } catch (error) {
+      console.error('Failed to load AI memory file:', error)
+    } finally {
+      setMemoryLoading(false)
+    }
+  }, [])
+
   // Load AI settings on mount
   useEffect(() => {
     const loadAISettings = async () => {
@@ -95,7 +119,8 @@ export function SettingsPage() {
       }
     }
     loadAISettings()
-  }, [])
+    loadMemoryFile()
+  }, [loadMemoryFile])
 
   const handleSave = async () => {
     // Save profile updates
@@ -982,6 +1007,443 @@ export function SettingsPage() {
                     <li>Note any recurring tasks you need help with</li>
                   </ul>
                 </div>
+              </div>
+
+              {/* AI Memory File Section */}
+              <div className={styles.section} style={{ marginTop: 'var(--spacing-xl)' }}>
+                <div className={styles.sectionHeader} style={{ cursor: 'pointer' }} onClick={() => setMemoryExpanded(!memoryExpanded)}>
+                  <Brain size={20} />
+                  <div style={{ flex: 1 }}>
+                    <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      AI Memory File
+                      {memoryStats && memoryStats.totalActive > 0 && (
+                        <span style={{
+                          fontSize: '0.75rem',
+                          background: 'var(--gold-primary)',
+                          color: 'var(--bg-primary)',
+                          padding: '0.125rem 0.5rem',
+                          borderRadius: '9999px',
+                          fontWeight: 600,
+                        }}>
+                          {memoryStats.totalActive} memories
+                        </span>
+                      )}
+                    </h2>
+                    <p>Things the AI has learned about you over time. It reads this file on every interaction to personalize its work.</p>
+                  </div>
+                  {memoryExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                </div>
+
+                {memoryExpanded && (
+                  <>
+                    {/* Memory Stats Banner */}
+                    {memoryStats && memoryStats.totalActive > 0 && (
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                        gap: 'var(--spacing-sm)',
+                        marginBottom: 'var(--spacing-lg)',
+                        padding: 'var(--spacing-md)',
+                        background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(59, 130, 246, 0.08))',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid rgba(139, 92, 246, 0.15)',
+                      }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {memoryStats.totalActive}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Active
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--gold-primary)' }}>
+                            {memoryStats.totalPinned}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Pinned
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent-primary)' }}>
+                            {memoryStats.aiLearned}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            AI Learned
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                            {memoryStats.userCreated}
+                          </div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            You Added
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Bar */}
+                    <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => setShowAddMemory(!showAddMemory)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.375rem',
+                          padding: '0.5rem 0.875rem',
+                          fontSize: '0.8rem',
+                          fontWeight: 500,
+                          background: 'var(--gold-primary)',
+                          color: 'var(--bg-primary)',
+                          border: 'none',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <Plus size={14} />
+                        Add Memory
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setConsolidating(true)
+                          try {
+                            const result = await userSettingsApi.consolidateAIMemory()
+                            setMemoryEntries(result.entries || [])
+                            setMemoryStats(result.stats || null)
+                            toast.success('Memory cleaned up successfully')
+                          } catch (error) {
+                            toast.error('Failed to clean up memory')
+                          } finally {
+                            setConsolidating(false)
+                          }
+                        }}
+                        disabled={consolidating}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.375rem',
+                          padding: '0.5rem 0.875rem',
+                          fontSize: '0.8rem',
+                          fontWeight: 500,
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: consolidating ? 'wait' : 'pointer',
+                          opacity: consolidating ? 0.6 : 1,
+                        }}
+                      >
+                        <RefreshCw size={14} className={consolidating ? 'spin' : ''} />
+                        {consolidating ? 'Cleaning...' : 'Clean Up'}
+                      </button>
+                      <button
+                        onClick={loadMemoryFile}
+                        disabled={memoryLoading}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.375rem',
+                          padding: '0.5rem 0.875rem',
+                          fontSize: '0.8rem',
+                          fontWeight: 500,
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: memoryLoading ? 'wait' : 'pointer',
+                          opacity: memoryLoading ? 0.6 : 1,
+                        }}
+                      >
+                        <RefreshCw size={14} />
+                        Refresh
+                      </button>
+                    </div>
+
+                    {/* Add Memory Form */}
+                    {showAddMemory && (
+                      <div style={{
+                        background: 'var(--bg-tertiary)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: 'var(--spacing-md)',
+                        marginBottom: 'var(--spacing-md)',
+                        border: '1px solid var(--border-primary)',
+                      }}>
+                        <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                          <label style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+                            Category
+                          </label>
+                          <select
+                            value={newMemoryCategory}
+                            onChange={e => setNewMemoryCategory(e.target.value)}
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                              fontSize: '0.85rem',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: 'var(--radius-sm)',
+                              background: 'var(--bg-secondary)',
+                              color: 'var(--text-primary)',
+                            }}
+                          >
+                            <option value="core_identity">Who I Am (practice areas, role, specialization)</option>
+                            <option value="working_style">How I Work (style preferences, formatting, tone)</option>
+                            <option value="active_context">Current Focus (matters, projects I'm working on)</option>
+                            <option value="learned_preference">Preference (general preference or note)</option>
+                            <option value="correction">Correction (something the AI should always remember)</option>
+                            <option value="insight">Insight (pattern or observation)</option>
+                          </select>
+                        </div>
+                        <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                          <label style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                            <span>Memory Content</span>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>{newMemoryContent.length}/1000</span>
+                          </label>
+                          <textarea
+                            value={newMemoryContent}
+                            onChange={e => setNewMemoryContent(e.target.value.slice(0, 1000))}
+                            placeholder="e.g., I specialize in commercial real estate transactions in NYC..."
+                            rows={3}
+                            style={{
+                              width: '100%',
+                              padding: '0.5rem',
+                              fontSize: '0.85rem',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: 'var(--radius-sm)',
+                              background: 'var(--bg-secondary)',
+                              color: 'var(--text-primary)',
+                              resize: 'vertical',
+                              fontFamily: 'inherit',
+                            }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
+                          <button
+                            onClick={async () => {
+                              if (!newMemoryContent.trim()) return
+                              try {
+                                const result = await userSettingsApi.addAIMemory({
+                                  category: newMemoryCategory,
+                                  content: newMemoryContent.trim(),
+                                })
+                                setMemoryEntries(result.entries || [])
+                                setMemoryStats(result.stats || null)
+                                setNewMemoryContent('')
+                                setShowAddMemory(false)
+                                toast.success('Memory added')
+                              } catch (error) {
+                                toast.error('Failed to add memory')
+                              }
+                            }}
+                            disabled={!newMemoryContent.trim()}
+                            style={{
+                              padding: '0.5rem 1rem',
+                              fontSize: '0.8rem',
+                              fontWeight: 500,
+                              background: 'var(--gold-primary)',
+                              color: 'var(--bg-primary)',
+                              border: 'none',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: newMemoryContent.trim() ? 'pointer' : 'not-allowed',
+                              opacity: newMemoryContent.trim() ? 1 : 0.5,
+                            }}
+                          >
+                            Save Memory
+                          </button>
+                          <button
+                            onClick={() => { setShowAddMemory(false); setNewMemoryContent('') }}
+                            style={{
+                              padding: '0.5rem 1rem',
+                              fontSize: '0.8rem',
+                              background: 'transparent',
+                              color: 'var(--text-secondary)',
+                              border: '1px solid var(--border-primary)',
+                              borderRadius: 'var(--radius-sm)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Info Box */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.625rem',
+                      padding: 'var(--spacing-md)',
+                      background: 'rgba(59, 130, 246, 0.06)',
+                      border: '1px solid rgba(59, 130, 246, 0.15)',
+                      borderRadius: 'var(--radius-sm)',
+                      marginBottom: 'var(--spacing-md)',
+                      fontSize: '0.8rem',
+                      color: 'var(--text-secondary)',
+                      lineHeight: 1.5,
+                    }}>
+                      <Info size={16} style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent-primary)' }} />
+                      <div>
+                        <strong>How it works:</strong> The AI automatically learns about you as you use the platform - from your documents, tasks, feedback, and interactions. These memories are read on every AI conversation to personalize its responses. You can also add your own memories, pin important ones, or dismiss ones that aren't relevant. The system periodically cleans up stale entries.
+                      </div>
+                    </div>
+
+                    {/* Memory Entries List */}
+                    {memoryLoading ? (
+                      <div style={{ textAlign: 'center', padding: 'var(--spacing-xl)', color: 'var(--text-tertiary)' }}>
+                        Loading memory file...
+                      </div>
+                    ) : memoryEntries.length === 0 ? (
+                      <div style={{
+                        textAlign: 'center',
+                        padding: 'var(--spacing-xl)',
+                        color: 'var(--text-tertiary)',
+                        background: 'var(--bg-tertiary)',
+                        borderRadius: 'var(--radius-md)',
+                      }}>
+                        <Brain size={32} style={{ margin: '0 auto 0.75rem', opacity: 0.3 }} />
+                        <p style={{ margin: 0, fontSize: '0.9rem' }}>No memories yet</p>
+                        <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>The AI will start learning about you as you use the platform, or you can add your own above.</p>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                        {memoryEntries.map((entry: any) => {
+                          const categoryStyles: Record<string, { bg: string; border: string; label: string; color: string }> = {
+                            core_identity: { bg: 'rgba(139, 92, 246, 0.06)', border: 'rgba(139, 92, 246, 0.2)', label: 'Identity', color: 'rgb(139, 92, 246)' },
+                            working_style: { bg: 'rgba(59, 130, 246, 0.06)', border: 'rgba(59, 130, 246, 0.2)', label: 'Style', color: 'rgb(59, 130, 246)' },
+                            active_context: { bg: 'rgba(16, 185, 129, 0.06)', border: 'rgba(16, 185, 129, 0.2)', label: 'Context', color: 'rgb(16, 185, 129)' },
+                            learned_preference: { bg: 'rgba(245, 158, 11, 0.06)', border: 'rgba(245, 158, 11, 0.2)', label: 'Preference', color: 'rgb(245, 158, 11)' },
+                            correction: { bg: 'rgba(239, 68, 68, 0.06)', border: 'rgba(239, 68, 68, 0.2)', label: 'Correction', color: 'rgb(239, 68, 68)' },
+                            insight: { bg: 'rgba(99, 102, 241, 0.06)', border: 'rgba(99, 102, 241, 0.2)', label: 'Insight', color: 'rgb(99, 102, 241)' },
+                          }
+                          const style = categoryStyles[entry.category] || categoryStyles.learned_preference
+                          const sourceLabels: Record<string, string> = {
+                            user_explicit: 'You',
+                            ai_inferred: 'AI',
+                            system_observed: 'System',
+                            task_feedback: 'Feedback',
+                            document_analysis: 'Documents',
+                            chat_interaction: 'Chat',
+                          }
+                          return (
+                            <div
+                              key={entry.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '0.75rem',
+                                padding: '0.75rem',
+                                background: style.bg,
+                                border: `1px solid ${style.border}`,
+                                borderRadius: 'var(--radius-sm)',
+                                borderLeft: entry.pinned ? `3px solid var(--gold-primary)` : `3px solid ${style.border}`,
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                    color: style.color,
+                                    background: `${style.color}15`,
+                                    padding: '0.1rem 0.375rem',
+                                    borderRadius: '3px',
+                                  }}>
+                                    {style.label}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    color: 'var(--text-tertiary)',
+                                    background: 'var(--bg-tertiary)',
+                                    padding: '0.1rem 0.375rem',
+                                    borderRadius: '3px',
+                                  }}>
+                                    {sourceLabels[entry.source] || entry.source}
+                                  </span>
+                                  {entry.pinned && (
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--gold-primary)', fontWeight: 600 }}>
+                                      PINNED
+                                    </span>
+                                  )}
+                                  {entry.reinforcement_count > 1 && (
+                                    <span style={{
+                                      fontSize: '0.65rem',
+                                      color: 'var(--text-tertiary)',
+                                    }}>
+                                      x{entry.reinforcement_count}
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{
+                                  fontSize: '0.85rem',
+                                  color: 'var(--text-primary)',
+                                  lineHeight: 1.5,
+                                  wordBreak: 'break-word',
+                                }}>
+                                  {entry.content}
+                                </div>
+                                <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                                  {entry.confidence && `${Math.round(entry.confidence * 100)}% confidence`}
+                                  {entry.updated_at && ` · ${new Date(entry.updated_at).toLocaleDateString()}`}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      const result = await userSettingsApi.togglePinAIMemory(entry.id)
+                                      setMemoryEntries(prev => prev.map(e => 
+                                        e.id === entry.id ? { ...e, pinned: result.pinned } : e
+                                      ))
+                                    } catch (error) {
+                                      toast.error('Failed to toggle pin')
+                                    }
+                                  }}
+                                  title={entry.pinned ? 'Unpin' : 'Pin (always include in AI context)'}
+                                  style={{
+                                    padding: '0.25rem',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: entry.pinned ? 'var(--gold-primary)' : 'var(--text-tertiary)',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  {entry.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    try {
+                                      await userSettingsApi.deleteAIMemory(entry.id)
+                                      setMemoryEntries(prev => prev.filter(e => e.id !== entry.id))
+                                      setMemoryStats((prev: any) => prev ? { ...prev, totalActive: Math.max(0, prev.totalActive - 1) } : prev)
+                                      toast.success('Memory dismissed')
+                                    } catch (error) {
+                                      toast.error('Failed to dismiss memory')
+                                    }
+                                  }}
+                                  title="Dismiss this memory"
+                                  style={{
+                                    padding: '0.25rem',
+                                    background: 'transparent',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    color: 'var(--text-tertiary)',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}
