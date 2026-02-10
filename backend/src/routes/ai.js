@@ -10,6 +10,7 @@ import {
   formatDateTime,
   formatMonthYear
 } from '../utils/dateUtils.js';
+import { getMemoryForPrompt } from '../services/userAIMemory.js';
 
 const router = Router();
 
@@ -629,6 +630,18 @@ router.post('/chat', authenticate, async (req, res) => {
       // Continue without custom instructions if there's an error
     }
 
+    // Fetch user's AI memory file (persistent learned context)
+    let userMemoryContext = '';
+    try {
+      const memoryPrompt = await getMemoryForPrompt(req.user.id, req.user.firmId);
+      if (memoryPrompt) {
+        userMemoryContext = memoryPrompt;
+      }
+    } catch (err) {
+      console.error('Error fetching user AI memory:', err);
+      // Continue without memory context if there's an error
+    }
+
     // Check if there's image data in the context (for vision analysis)
     const imageData = additionalContext?.imageData;
     const hasImage = imageData && imageData.base64 && imageData.mimeType;
@@ -639,7 +652,7 @@ router.post('/chat', authenticate, async (req, res) => {
     const pageContext = await buildContext(page, req.user.firmId, req.user.id, req.user.role, contextWithoutImage);
 
     // Build system prompt - adjust for image analysis if needed
-    // Include user's custom instructions if they exist
+    // Include user's custom instructions and memory file if they exist
     let systemPrompt = getSystemPrompt();
     
     if (userCustomInstructions) {
@@ -647,6 +660,10 @@ router.post('/chat', authenticate, async (req, res) => {
 
 USER'S CUSTOM INSTRUCTIONS (follow these preferences when responding to this user):
 ${userCustomInstructions}`;
+    }
+    if (userMemoryContext) {
+      systemPrompt = `${systemPrompt}
+${userMemoryContext}`;
     }
     if (hasImage) {
       systemPrompt = `You are an intelligent AI assistant for a law firm management platform called Apex Legal. 
@@ -670,6 +687,7 @@ ${userCustomInstructions ? `
 USER'S CUSTOM INSTRUCTIONS (follow these preferences when responding to this user):
 ${userCustomInstructions}
 ` : ''}
+${userMemoryContext || ''}
 ${pageContext}`;
     }
 

@@ -16,6 +16,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
 import amplifierService from '../services/amplifierService.js';
+import { learnFromTask as memoryLearnFromTask } from '../services/userAIMemory.js';
 
 const router = Router();
 
@@ -882,6 +883,21 @@ router.post('/review-queue/:id/reject', authenticate, async (req, res) => {
       // Non-fatal
     }
     
+    // ===== USER AI MEMORY FILE: Learn from rejection =====
+    try {
+      const taskForMemory = await dbQuery(
+        `SELECT goal FROM ai_background_tasks WHERE id = $1`,
+        [req.params.id]
+      );
+      await memoryLearnFromTask(req.user.id, req.user.firmId, {
+        goal: taskForMemory.rows[0]?.goal || '',
+        feedback_rating: 2,
+        feedback_text: feedback,
+      });
+    } catch (e) {
+      console.log('[ReviewQueue] Memory file learning note:', e.message);
+    }
+    
     // ===== HARNESS INTELLIGENCE: Learn from rejection =====
     // This is the closed feedback loop. The rejection creates quality overrides
     // that automatically tighten gates for this lawyer + work type on future tasks.
@@ -1057,6 +1073,23 @@ router.post('/tasks/:id/feedback', authenticate, async (req, res) => {
     
     if (!result.success) {
       return res.status(404).json({ error: result.error || 'Task not found' });
+    }
+    
+    // ===== USER AI MEMORY FILE: Learn from feedback =====
+    try {
+      const { query: dbQuery2 } = await import('../db/connection.js');
+      const taskForMemory = await dbQuery2(
+        `SELECT goal FROM ai_background_tasks WHERE id = $1`,
+        [req.params.id]
+      );
+      const taskGoalForMemory = taskForMemory.rows[0]?.goal || '';
+      await memoryLearnFromTask(req.user.id, req.user.firmId, {
+        goal: taskGoalForMemory,
+        feedback_rating: rating,
+        feedback_text: feedback || correction,
+      });
+    } catch (e) {
+      console.log('[Feedback] Memory file learning note:', e.message);
     }
     
     // ===== ATTORNEY IDENTITY: Learn from corrections =====

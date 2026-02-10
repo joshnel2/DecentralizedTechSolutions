@@ -72,6 +72,9 @@ import { loadResonanceGraph, renderGraphForPrompt, invalidateGraphCache } from '
 // Focus Guard: goal drift detection, re-anchoring, budget awareness
 // The supervising partner that keeps the agent laser-focused on the assigned task
 import { createFocusGuard } from './amplifier/focusGuard.js';
+// User AI Memory File: persistent per-user memory that grows as the attorney uses the platform
+// Automatically populated from tasks, documents, interactions, and chat
+import { getMemoryForPrompt, learnFromTask as memoryLearnFromTask, updateActiveContext } from '../services/userAIMemory.js';
 
 // ===== SINGLETON INSTANCES for cross-task learning =====
 // These persist across tasks so learnings accumulate over the service lifetime
@@ -1623,6 +1626,20 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         }
       }
       
+      // ===== USER AI MEMORY FILE: Persistent per-user learned context =====
+      // This is the "memory file" that accumulates as the attorney uses the platform.
+      // It contains things like practice areas, style preferences, corrections, and
+      // active context — everything the agent needs to "remember" about this person.
+      try {
+        this.userMemoryContext = await getMemoryForPrompt(this.userId, this.firmId);
+        if (this.userMemoryContext) {
+          console.log(`[Amplifier] Loaded user AI memory file for user ${this.userId}`);
+        }
+      } catch (e) {
+        console.log('[Amplifier] User AI memory file not available:', e.message);
+        this.userMemoryContext = null;
+      }
+      
       // ===== COGNITIVE IMPRINTING: Infer current cognitive state =====
       // Detects deep_work/triage/urgent/review mode from observable DB signals
       // and adapts detail level, brevity, structure, and phase budgets
@@ -2789,6 +2806,13 @@ ${hasMatterPreloaded && matterIsVerified
     }
     prompt += `\nBEGIN NOW. ${startInstruction}\n`;
 
+    // ===== USER AI MEMORY FILE =====
+    // The persistent per-user memory that grows as the attorney uses the platform.
+    // Includes things like practice areas, style preferences, corrections, and active context.
+    if (this.userMemoryContext && this.userMemoryContext.trim().length > 20) {
+      prompt += this.userMemoryContext + '\n';
+    }
+
     // ===== UNIFIED LEARNING CONTEXT =====
     // All learning sources are combined into a single, selective, budgeted section.
     // This replaces the previous scattered approach where each module independently
@@ -3781,6 +3805,23 @@ Keep working on: "${this.goal}"`
                 await updateProfileAfterTask(this.userId, this.firmId, this);
               } catch (profileError) {
                 console.log('[Amplifier] Profile update note:', profileError.message);
+              }
+              
+              // ===== USER AI MEMORY FILE: Learn from this completed task =====
+              try {
+                await memoryLearnFromTask(this.userId, this.firmId, {
+                  goal: this.goal,
+                  feedback_rating: this.feedbackRating || toolArgs?.feedback_rating,
+                  feedback_text: this.feedbackText || toolArgs?.feedback_text,
+                });
+                // Also update active context with what they're working on
+                if (this.preloadedMatterName) {
+                  await updateActiveContext(this.userId, this.firmId, 
+                    `Recently worked on matter: "${this.preloadedMatterName}" - task: ${this.goal.substring(0, 100)}`
+                  );
+                }
+              } catch (memError) {
+                console.log('[Amplifier] Memory file update note:', memError.message);
               }
               
               // ===== HARNESS INTELLIGENCE: Store per-matter memory =====

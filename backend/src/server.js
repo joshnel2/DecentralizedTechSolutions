@@ -43,6 +43,7 @@ import rolesRoutes from './routes/roles.js';
 
 // Background services
 import { startDriveSync } from './services/driveSync.js';
+import { startMemoryConsolidationScheduler } from './services/userAIMemory.js';
 
 // AI Agent Tool Routes (v1 API)
 import billingRoutes from './routes/billing.js';
@@ -264,6 +265,17 @@ app.listen(PORT, () => {
       console.error('Apex Drive sync error:', err);
     }
   }, 20000); // Wait 20 seconds after startup
+  
+  // Start User AI Memory consolidation scheduler
+  // This periodically cleans up memory files (confidence decay, expiry, pruning)
+  setTimeout(() => {
+    try {
+      startMemoryConsolidationScheduler();
+      console.log('✓ User AI Memory consolidation scheduler started');
+    } catch (err) {
+      console.error('Memory consolidation scheduler error:', err);
+    }
+  }, 25000); // Wait 25 seconds after startup
 });
 
 export default app;
