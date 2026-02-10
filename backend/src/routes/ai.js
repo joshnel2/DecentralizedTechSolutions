@@ -395,14 +395,24 @@ ${invoicesRes.rows.map(i => `- ${i.number} | ${i.client_name || 'Unknown'} | $${
       }
 
       case 'calendar': {
-        const events = await query(`
-          SELECT e.*, m.name as matter_name
-          FROM calendar_events e
-          LEFT JOIN matters m ON e.matter_id = m.id
-          WHERE e.firm_id = $1 AND e.start_time >= NOW() - INTERVAL '7 days'
-          ORDER BY e.start_time
-          LIMIT 30
-        `, [firmId]);
+        const events = isAdmin
+          ? await query(`
+              SELECT e.*, m.name as matter_name
+              FROM calendar_events e
+              LEFT JOIN matters m ON e.matter_id = m.id
+              WHERE e.firm_id = $1 AND e.start_time >= NOW() - INTERVAL '7 days'
+              ORDER BY e.start_time
+              LIMIT 30
+            `, [firmId])
+          : await query(`
+              SELECT e.*, m.name as matter_name
+              FROM calendar_events e
+              LEFT JOIN matters m ON e.matter_id = m.id
+              WHERE e.firm_id = $1 AND (e.created_by = $2 OR e.is_private = false)
+                AND e.start_time >= NOW() - INTERVAL '7 days'
+              ORDER BY e.start_time
+              LIMIT 30
+            `, [firmId, userId]);
 
         context = `
 [CURRENT PAGE: Calendar]

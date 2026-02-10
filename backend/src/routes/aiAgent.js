@@ -3121,10 +3121,12 @@ async function createMatter(args, user) {
   // Use today's date for open_date (in Eastern timezone)
   const openDate = getTodayInTimezone(DEFAULT_TIMEZONE);
   
+  // AI-created matters are 'restricted' so only the creating user sees them.
+  // The user can change visibility to 'firm_wide' later if they want to share.
   const result = await query(
     `INSERT INTO matters (firm_id, number, name, description, client_id, type, status, priority,
-      responsible_attorney, billing_type, billing_rate, court_name, case_number, open_date, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $8) RETURNING *`,
+      responsible_attorney, billing_type, billing_rate, court_name, case_number, open_date, created_by, visibility)
+     VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11, $12, $13, $8, 'restricted') RETURNING *`,
     [user.firmId, number, name, description || null, client_id || null, type, priority, 
      user.id, billing_type, billing_rate || null, court_name || null, case_number || null, openDate]
   );
@@ -4273,9 +4275,10 @@ async function createCalendarEvent(args, user) {
   try {
     console.log('Inserting calendar event:', { title, startDate: startDate.toISOString(), endDate: endDate.toISOString(), eventType });
     
+    // AI-created events are private to the requesting user by default
     const result = await query(
-      `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, matter_id, location, description, all_day, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      `INSERT INTO calendar_events (firm_id, title, start_time, end_time, type, matter_id, location, description, all_day, created_by, is_private)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true) RETURNING *`,
       [user.firmId, title, startDate.toISOString(), endDate.toISOString(), eventType, validMatterId, location || null, description || null, all_day, user.id]
     );
     

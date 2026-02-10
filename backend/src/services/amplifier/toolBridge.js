@@ -915,9 +915,11 @@ async function createMatter(params, userId, firmId) {
   const countResult = await query('SELECT COUNT(*) FROM matters WHERE firm_id = $1', [firmId]);
   const number = `M-${String(parseInt(countResult.rows[0].count) + 1).padStart(5, '0')}`;
   
+  // AI-created matters are 'restricted' so only the creating user sees them by default.
+  // The user can change visibility to 'firm_wide' later if they want to share it.
   const result = await query(`
-    INSERT INTO matters (firm_id, name, number, client_id, description, type, priority, billing_type, billing_rate, status, responsible_attorney)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10)
+    INSERT INTO matters (firm_id, name, number, client_id, description, type, priority, billing_type, billing_rate, status, responsible_attorney, created_by, visibility)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', $10, $10, 'restricted')
     RETURNING *
   `, [firmId, name, number, client_id || null, description || null, type || 'general', priority, billing_type, billing_rate || null, userId]);
   
@@ -1006,11 +1008,13 @@ async function getClient(params, userId, firmId) {
 async function createClient(params, userId, firmId) {
   const { display_name, type = 'person', email, phone, first_name, last_name } = params;
   
+  // Set created_by so "My Clients" filtering works - only the creating user sees this client
+  // unless they share a matter with another user.
   const result = await query(`
-    INSERT INTO clients (firm_id, display_name, type, email, phone, first_name, last_name)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO clients (firm_id, display_name, type, email, phone, first_name, last_name, created_by)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *
-  `, [firmId, display_name, type, email || null, phone || null, first_name || null, last_name || null]);
+  `, [firmId, display_name, type, email || null, phone || null, first_name || null, last_name || null, userId]);
   
   return { success: true, client: result.rows[0] };
 }
@@ -1735,9 +1739,11 @@ async function getCalendarEvents(params, userId, firmId) {
 async function createCalendarEvent(params, userId, firmId) {
   const { title, start_time, end_time, type = 'meeting', matter_id, location, description } = params;
   
+  // AI-created events are private to the requesting user by default.
+  // Other users won't see them on their calendar unless is_private is later changed.
   const result = await query(`
-    INSERT INTO calendar_events (firm_id, created_by, title, start_time, end_time, type, matter_id, location, description)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    INSERT INTO calendar_events (firm_id, created_by, title, start_time, end_time, type, matter_id, location, description, is_private)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
     RETURNING *
   `, [firmId, userId, title, start_time, end_time || null, type, matter_id || null, location || null, description || null]);
   
@@ -2090,14 +2096,14 @@ async function setCriticalDeadline(params, userId, firmId) {
     matterId = matterResult.rows[0].id;
   }
   
-  // Create the main deadline event
+  // Create the main deadline event (private to the requesting user)
   const deadlineTitle = `⚠️ DEADLINE: ${description}`;
   const deadlineResult = await query(`
     INSERT INTO calendar_events (
       firm_id, created_by, title, start_time, end_time, type, matter_id, 
-      description, all_day
+      description, all_day, is_private
     )
-    VALUES ($1, $2, $3, $4, $4, 'deadline', $5, $6, true)
+    VALUES ($1, $2, $3, $4, $4, 'deadline', $5, $6, true, true)
     RETURNING id, title, start_time
   `, [firmId, userId, deadlineTitle, date, matterId, 
       `URGENT - ${deadline_type.toUpperCase()}: ${description}\n\nThis is a critical legal deadline. Missing this deadline may constitute malpractice.`]);
@@ -2117,9 +2123,9 @@ async function setCriticalDeadline(params, userId, firmId) {
     await query(`
       INSERT INTO calendar_events (
         firm_id, created_by, title, start_time, end_time, type, matter_id,
-        description, all_day
+        description, all_day, is_private
       )
-      VALUES ($1, $2, $3, $4, $4, 'reminder', $5, $6, true)
+      VALUES ($1, $2, $3, $4, $4, 'reminder', $5, $6, true, true)
     `, [firmId, userId, reminderTitle, reminderDate.toISOString().split('T')[0], matterId,
         `Reminder: ${daysBefore} days until ${deadline_type}: ${description}`]);
     
