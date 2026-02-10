@@ -2492,10 +2492,16 @@ Take 20-25 minutes. Identify all compliance issues.`,
                 {displayStatus === 'error' && <AlertCircle size={18} className={styles.error} />}
                 {displayStatus === 'cancelled' && <StopCircle size={18} className={styles.cancelled} />}
                 {displayStatus === 'running' && <Rocket size={18} className={styles.running} />}
-                <div>
+                <div style={{ flex: 1 }}>
                   <div className={styles.taskGoal}>{displayTask.goal}</div>
                   <div className={styles.taskStep}>{displayTask.progress?.currentStep || (displayStatus === 'complete' ? 'Completed successfully' : 'Working...')}</div>
                 </div>
+                {displayStatus === 'running' && (
+                  <button className={styles.cancelBtn} onClick={handleCancel} disabled={isCancelling} title="Cancel this task">
+                    {isCancelling ? <Loader2 size={14} className={styles.spin} /> : <StopCircle size={14} />}
+                    Cancel
+                  </button>
+                )}
               </div>
               <div className={styles.progressRow}>
                 <div className={styles.progressBar}>
