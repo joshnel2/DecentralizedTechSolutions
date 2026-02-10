@@ -3815,6 +3815,27 @@ ${hasMatterPreloaded && matterIsVerified
                 WT_REQS[workTypeId]();
               }
               
+              // ===== MODULE QUALITY GATE ENFORCEMENT =====
+              // If a module was detected for this task, enforce its specific quality gates.
+              // This makes the module's qualityGates actually block premature completion
+              // instead of being purely advisory prompt text.
+              if (this.detectedModule?.qualityGates) {
+                for (const gate of this.detectedModule.qualityGates) {
+                  const metricMap = {
+                    'documents_read': this.substantiveActions.research || 0,
+                    'notes_created': this.substantiveActions.notes || 0,
+                    'documents_created': this.substantiveActions.documents || 0,
+                    'tasks_created': this.substantiveActions.tasks || 0,
+                    'calendar_events': this.substantiveActions.events || 0,
+                    'events_created': this.substantiveActions.events || 0,
+                  };
+                  const actual = metricMap[gate.metric] ?? 0;
+                  if (actual < gate.minValue) {
+                    missing.push(`MODULE REQUIREMENT (${this.detectedModule.metadata?.name || 'active module'}): ${gate.description} — need ${gate.minValue}, have ${actual}.`);
+                  }
+                }
+              }
+              
               // ===== GOAL-RELEVANCE CHECK =====
               // Verify the agent's summary actually relates to the original goal.
               // This catches cases where the agent completed work but on the wrong topic.
