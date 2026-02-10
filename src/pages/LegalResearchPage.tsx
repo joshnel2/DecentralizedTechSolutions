@@ -11,6 +11,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useLegalResearchStore, type ResearchMessage } from '../stores/legalResearchStore'
 import { addResearchToBackgroundAgent } from '../stores/backgroundAgentFileStore'
@@ -121,6 +122,7 @@ const QUICK_ACTIONS = [
 ]
 
 export function LegalResearchPage() {
+  const navigate = useNavigate()
   const { user } = useAuthStore()
   const {
     config,
@@ -269,7 +271,10 @@ export function LegalResearchPage() {
     })
 
     setAddedToAgent(prev => new Set([...prev, msg.id]))
-  }, [activeMessages, activeSessionId, selectedModel])
+
+    // Navigate to background agent page so the user can see the attached file
+    navigate('/app/background-agent')
+  }, [activeMessages, activeSessionId, selectedModel, navigate])
 
   const userInitials = user ? `${user.firstName?.[0] || ''}${user.lastName?.[0] || ''}` : '?'
 
