@@ -587,9 +587,13 @@ export async function addFirmMemoryEntry(firmId, userId, { category = 'firm_poli
  * Update a firm memory entry (admin only).
  */
 export async function updateFirmMemoryEntry(firmId, entryId, userId, updates) {
-  const setClauses = ['updated_at = NOW()', `updated_by = '${userId}'`];
+  const setClauses = ['updated_at = NOW()'];
   const values = [];
   let paramIdx = 1;
+
+  // Parameterize userId to prevent SQL injection
+  setClauses.push(`updated_by = $${paramIdx++}`);
+  values.push(userId);
 
   if (updates.content !== undefined) {
     setClauses.push(`content = $${paramIdx++}`);
