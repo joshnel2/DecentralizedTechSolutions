@@ -1,6 +1,16 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
+import {
+  getUserMemoryFile,
+  getMemoryForPrompt,
+  addMemoryEntry,
+  updateMemoryEntry,
+  dismissMemoryEntry,
+  togglePinMemory,
+  getMemoryStats,
+  consolidateMemory,
+} from '../services/userAIMemory.js';
 
 const router = Router();
 
@@ -147,6 +157,184 @@ router.put('/ai', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Update AI settings error:', error);
     res.status(500).json({ error: 'Failed to update AI settings' });
+  }
+});
+
+// ============================================
+// AI MEMORY FILE ROUTES
+// ============================================
+
+/**
+ * GET /user-settings/ai/memory
+ * Get the user's full AI memory file (all active entries)
+ */
+router.get('/ai/memory', authenticate, async (req, res) => {
+  try {
+    const entries = await getUserMemoryFile(req.user.id, req.user.firmId);
+    const stats = await getMemoryStats(req.user.id, req.user.firmId);
+    
+    res.json({
+      entries,
+      stats,
+    });
+  } catch (error) {
+    console.error('Get AI memory file error:', error);
+    res.status(500).json({ error: 'Failed to get AI memory file' });
+  }
+});
+
+/**
+ * GET /user-settings/ai/memory/stats
+ * Get memory file statistics
+ */
+router.get('/ai/memory/stats', authenticate, async (req, res) => {
+  try {
+    const stats = await getMemoryStats(req.user.id, req.user.firmId);
+    res.json(stats);
+  } catch (error) {
+    console.error('Get memory stats error:', error);
+    res.status(500).json({ error: 'Failed to get memory stats' });
+  }
+});
+
+/**
+ * POST /user-settings/ai/memory
+ * Add a new memory entry (user-created)
+ */
+router.post('/ai/memory', authenticate, async (req, res) => {
+  try {
+    const { category, content, pinned } = req.body;
+    
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+    
+    if (content.length > 1000) {
+      return res.status(400).json({ error: 'Content must be 1000 characters or less' });
+    }
+    
+    const validCategories = ['core_identity', 'working_style', 'active_context', 'learned_preference', 'correction', 'insight'];
+    if (category && !validCategories.includes(category)) {
+      return res.status(400).json({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` });
+    }
+    
+    const entry = await addMemoryEntry(req.user.id, req.user.firmId, {
+      category: category || 'learned_preference',
+      content: content.trim(),
+      source: 'user_explicit',
+      confidence: 1.0, // User-created entries get max confidence
+      pinned: pinned || false,
+    });
+    
+    if (!entry) {
+      return res.status(500).json({ error: 'Failed to add memory entry' });
+    }
+    
+    // Return the full updated memory file
+    const entries = await getUserMemoryFile(req.user.id, req.user.firmId);
+    const stats = await getMemoryStats(req.user.id, req.user.firmId);
+    
+    res.json({
+      message: 'Memory entry added',
+      entry,
+      entries,
+      stats,
+    });
+  } catch (error) {
+    console.error('Add memory entry error:', error);
+    res.status(500).json({ error: 'Failed to add memory entry' });
+  }
+});
+
+/**
+ * PUT /user-settings/ai/memory/:id
+ * Update a memory entry
+ */
+router.put('/ai/memory/:id', authenticate, async (req, res) => {
+  try {
+    const { content, category, confidence, pinned } = req.body;
+    
+    const updates = {};
+    if (content !== undefined) {
+      if (content.length > 1000) {
+        return res.status(400).json({ error: 'Content must be 1000 characters or less' });
+      }
+      updates.content = content;
+    }
+    if (category !== undefined) updates.category = category;
+    if (confidence !== undefined) updates.confidence = confidence;
+    if (pinned !== undefined) updates.pinned = pinned;
+    
+    const updated = await updateMemoryEntry(req.user.id, req.user.firmId, req.params.id, updates);
+    
+    if (!updated) {
+      return res.status(404).json({ error: 'Memory entry not found' });
+    }
+    
+    res.json({ message: 'Memory entry updated', entry: updated });
+  } catch (error) {
+    console.error('Update memory entry error:', error);
+    res.status(500).json({ error: 'Failed to update memory entry' });
+  }
+});
+
+/**
+ * DELETE /user-settings/ai/memory/:id
+ * Dismiss (soft-delete) a memory entry
+ */
+router.delete('/ai/memory/:id', authenticate, async (req, res) => {
+  try {
+    const dismissed = await dismissMemoryEntry(req.user.id, req.user.firmId, req.params.id);
+    
+    if (!dismissed) {
+      return res.status(404).json({ error: 'Memory entry not found' });
+    }
+    
+    res.json({ message: 'Memory entry dismissed' });
+  } catch (error) {
+    console.error('Dismiss memory entry error:', error);
+    res.status(500).json({ error: 'Failed to dismiss memory entry' });
+  }
+});
+
+/**
+ * POST /user-settings/ai/memory/:id/pin
+ * Toggle pin state of a memory entry
+ */
+router.post('/ai/memory/:id/pin', authenticate, async (req, res) => {
+  try {
+    const result = await togglePinMemory(req.user.id, req.user.firmId, req.params.id);
+    
+    if (!result) {
+      return res.status(404).json({ error: 'Memory entry not found' });
+    }
+    
+    res.json({ message: result.pinned ? 'Memory pinned' : 'Memory unpinned', pinned: result.pinned });
+  } catch (error) {
+    console.error('Toggle pin error:', error);
+    res.status(500).json({ error: 'Failed to toggle pin' });
+  }
+});
+
+/**
+ * POST /user-settings/ai/memory/consolidate
+ * Manually trigger memory cleanup/consolidation
+ */
+router.post('/ai/memory/consolidate', authenticate, async (req, res) => {
+  try {
+    await consolidateMemory(req.user.id, req.user.firmId);
+    
+    const entries = await getUserMemoryFile(req.user.id, req.user.firmId);
+    const stats = await getMemoryStats(req.user.id, req.user.firmId);
+    
+    res.json({
+      message: 'Memory consolidated successfully',
+      entries,
+      stats,
+    });
+  } catch (error) {
+    console.error('Consolidate memory error:', error);
+    res.status(500).json({ error: 'Failed to consolidate memory' });
   }
 });
 
