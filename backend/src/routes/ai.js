@@ -12,104 +12,6 @@ import {
 } from '../utils/dateUtils.js';
 import { getMemoryForPrompt, addMemoryEntry } from '../services/userAIMemory.js';
 
-const router = Router();
-
-// ===== BACKGROUND MEMORY EXTRACTION =====
-// After a chat response is sent, asynchronously ask the LLM to extract
-// any memorable facts about the user from the conversation.
-// This runs AFTER res.json() so it adds ZERO latency to the user's experience.
-
-const MEMORY_EXTRACTION_PROMPT = `You are a memory extraction system. Your job is to read a conversation between an attorney and an AI assistant, and extract any NEW facts worth remembering about this attorney for future conversations.
-
-EXTRACT facts like:
-- Their practice area or specialization (e.g., "Specializes in commercial real estate")
-- Preferences they stated (e.g., "Prefers bullet-point summaries over paragraphs")
-- Corrections they made (e.g., "Told the AI to stop using 'shall' in documents")
-- Current projects or focus areas (e.g., "Currently working on the Smith v. Jones case")
-- Personal working style (e.g., "Likes detailed IRAC analysis for legal questions")
-
-DO NOT extract:
-- Generic questions or answers (e.g., "Asked about statute of limitations" -- too generic)
-- Anything already in the existing memory (listed below)
-- Temporary information like "is having a meeting today"
-- Anything that would be a privacy concern
-
-Respond with a JSON array of objects, each with:
-- "content": the fact to remember (short, specific, third-person)
-- "category": one of "core_identity", "working_style", "active_context", "learned_preference", "correction"
-
-If there is NOTHING worth remembering, respond with an empty array: []
-
-IMPORTANT: Be very selective. Most conversations have nothing worth remembering. Only extract genuinely persistent facts about who this attorney is and how they work.`;
-
-async function extractMemoriesFromChat(userId, firmId, userMessage, aiResponse, existingMemory) {
-  try {
-    if (!AZURE_ENDPOINT || !AZURE_API_KEY || !AZURE_DEPLOYMENT) return;
-    
-    // Skip very short exchanges -- nothing to learn from "hello" / "hi there"
-    if (userMessage.length < 30 && aiResponse.length < 100) return;
-    
-    // Rate limit: don't extract on every single message.
-    // Use a simple in-memory counter -- extract at most once per 5 conversations per user.
-    const rateKey = `memextract:${userId}`;
-    const counter = (extractionCounters.get(rateKey) || 0) + 1;
-    extractionCounters.set(rateKey, counter);
-    if (counter % 5 !== 1) return; // Only on 1st, 6th, 11th, ... message
-    
-    const extractionMessages = [
-      { role: 'system', content: MEMORY_EXTRACTION_PROMPT },
-      { role: 'user', content: `EXISTING MEMORY (do not re-extract these):\n${existingMemory || '(empty -- no memories yet)'}\n\n---\n\nCONVERSATION:\nUser: ${userMessage.substring(0, 1000)}\n\nAssistant: ${aiResponse.substring(0, 1000)}` },
-    ];
-    
-    const result = await callAzureOpenAI(extractionMessages, {
-      temperature: 0.1,  // Low temperature for factual extraction
-      max_tokens: 500,   // Keep it cheap
-    });
-    
-    // Parse the response
-    let memories = [];
-    try {
-      // Handle markdown-wrapped JSON
-      const cleaned = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      memories = JSON.parse(cleaned);
-    } catch (e) {
-      // If the model didn't return valid JSON, skip
-      return;
-    }
-    
-    if (!Array.isArray(memories) || memories.length === 0) return;
-    
-    // Cap at 3 memories per extraction to prevent spam
-    const validCategories = ['core_identity', 'working_style', 'active_context', 'learned_preference', 'correction'];
-    const toSave = memories
-      .filter(m => m.content && typeof m.content === 'string' && m.content.length > 10 && m.content.length < 500)
-      .filter(m => validCategories.includes(m.category))
-      .slice(0, 3);
-    
-    for (const mem of toSave) {
-      await addMemoryEntry(userId, firmId, {
-        category: mem.category,
-        content: mem.content,
-        source: 'chat_interaction',
-        confidence: 0.65,
-        expiresInDays: mem.category === 'active_context' ? 14 : null,
-      });
-    }
-    
-    if (toSave.length > 0) {
-      console.log(`[AIMemory] Extracted ${toSave.length} memories from chat for user ${userId}`);
-    }
-  } catch (error) {
-    // Completely non-fatal -- this is background work
-    console.log('[AIMemory] Chat extraction note:', error.message);
-  }
-}
-
-// Simple in-memory rate limiter for memory extraction
-const extractionCounters = new Map();
-// Reset counters every hour to prevent unbounded growth
-setInterval(() => extractionCounters.clear(), 3600000);
-
 // Azure OpenAI configuration
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
 const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
@@ -134,6 +36,13 @@ RULES:
 7. When suggesting priorities or tasks, be specific and actionable
 8. Format responses nicely with bullet points or numbered lists when appropriate
 9. When referencing dates, deadlines, or timeframes, always use the current date (${todayStr}) as your reference point
+
+MEMORY:
+If during this conversation the user reveals a PERSISTENT fact about themselves (their practice area, a preference, a correction, what they're currently working on), append it at the very end of your response inside a <memory> tag. The user will NOT see this tag. Only include genuinely persistent facts -- not one-off questions. Format each fact on its own line with a category prefix.
+Categories: IDENTITY (who they are), STYLE (how they like things), CONTEXT (what they're working on now), PREFERENCE (general preference), CORRECTION (something you should always do/avoid)
+Example: <memory>IDENTITY: Specializes in commercial real estate transactions in NYC
+STYLE: Prefers bullet-point responses over long paragraphs</memory>
+Most messages will have NOTHING worth remembering. Only add <memory> when there is a clear, persistent fact. Do NOT mention the memory system to the user.
 
 You are speaking directly to a law firm professional. Be their intelligent assistant.`;
 }
@@ -735,7 +644,28 @@ router.post('/chat', authenticate, async (req, res) => {
       }
     } catch (err) {
       console.error('Error fetching user AI memory:', err);
-      // Continue without memory context if there's an error
+    }
+
+    // Fetch user's learned profiles (document style, lawyer profile)
+    // These are the same learning systems the background agent uses --
+    // now the chat AI benefits from them too.
+    let learnedProfileContext = '';
+    try {
+      const [docProfile, lawyerProfile] = await Promise.all([
+        getUserDocumentProfile(req.user.id, req.user.firmId).catch(() => null),
+        getLawyerProfile(req.user.id, req.user.firmId).catch(() => null),
+      ]);
+      
+      if (docProfile) {
+        const docPrompt = formatDocProfile(docProfile);
+        if (docPrompt) learnedProfileContext += docPrompt;
+      }
+      if (lawyerProfile) {
+        const profilePrompt = formatLawyerProfile(lawyerProfile);
+        if (profilePrompt) learnedProfileContext += profilePrompt;
+      }
+    } catch (err) {
+      // Non-fatal -- chat works fine without this
     }
 
     // Check if there's image data in the context (for vision analysis)
@@ -805,12 +735,67 @@ ${pageContext}`;
     ];
 
     // Call Azure OpenAI (with or without vision)
-    let response;
+    let rawResponse;
     if (hasImage) {
       console.log('Processing image with vision API, mimeType:', imageData.mimeType);
-      response = await callAzureOpenAIVision(messages, imageData);
+      rawResponse = await callAzureOpenAIVision(messages, imageData);
     } else {
-      response = await callAzureOpenAI(messages);
+      rawResponse = await callAzureOpenAI(messages);
+    }
+
+    // ===== MEMORY EXTRACTION: Parse <memory> tags from the response =====
+    // The AI may include <memory>...</memory> at the end of its response with
+    // facts worth remembering. We strip it before sending to the user and
+    // save the entries to the memory file. One model call, no extra cost.
+    let response = rawResponse;
+    const memoryMatch = rawResponse.match(/<memory>([\s\S]*?)<\/memory>/i);
+    if (memoryMatch) {
+      // Strip the memory tag from what the user sees
+      response = rawResponse.replace(/<memory>[\s\S]*?<\/memory>/gi, '').trim();
+      
+      // Parse and save memories in background (don't block response)
+      const memoryBlock = memoryMatch[1].trim();
+      if (memoryBlock.length > 0) {
+        setImmediate(async () => {
+          try {
+            const categoryMap = {
+              'IDENTITY': 'core_identity',
+              'STYLE': 'working_style',
+              'CONTEXT': 'active_context',
+              'PREFERENCE': 'learned_preference',
+              'CORRECTION': 'correction',
+            };
+            
+            const lines = memoryBlock.split('\n').filter(l => l.trim().length > 0);
+            let saved = 0;
+            
+            for (const line of lines.slice(0, 3)) { // Cap at 3 per response
+              const match = line.match(/^(IDENTITY|STYLE|CONTEXT|PREFERENCE|CORRECTION):\s*(.+)/i);
+              if (match) {
+                const category = categoryMap[match[1].toUpperCase()] || 'learned_preference';
+                const content = match[2].trim();
+                if (content.length > 5 && content.length < 500) {
+                  await addMemoryEntry(req.user.id, req.user.firmId, {
+                    category,
+                    content,
+                    source: 'chat_interaction',
+                    confidence: 0.7,
+                    expiresInDays: category === 'active_context' ? 14 : null,
+                  });
+                  saved++;
+                }
+              }
+            }
+            
+            if (saved > 0) {
+              console.log(`[AIMemory] Saved ${saved} memories from chat for user ${req.user.id}`);
+            }
+          } catch (memErr) {
+            // Completely non-fatal
+            console.log('[AIMemory] Chat memory save note:', memErr.message);
+          }
+        });
+      }
     }
 
     // Log AI usage (optional - for analytics)
@@ -823,18 +808,6 @@ ${pageContext}`;
     res.json({
       response,
       page,
-    });
-    
-    // ===== BACKGROUND: Extract memories from this conversation =====
-    // This runs AFTER the response is sent to the user (zero latency impact).
-    // It asks the LLM to identify any persistent facts about the attorney
-    // that are worth remembering for future conversations.
-    setImmediate(() => {
-      extractMemoriesFromChat(
-        req.user.id, req.user.firmId,
-        message, response,
-        userMemoryContext
-      ).catch(() => {}); // Completely non-fatal
     });
   } catch (error) {
     console.error('AI chat error:', error);
