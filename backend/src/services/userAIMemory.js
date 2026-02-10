@@ -22,15 +22,19 @@ import { query } from '../db/connection.js';
 
 // ===== CONFIGURATION =====
 const MAX_MEMORY_ENTRIES = 50;          // Hard cap per user
-const MAX_PROMPT_ENTRIES = 15;          // Max entries injected into prompt
-const MAX_PROMPT_CHARS = 2000;          // Character budget for memory in prompt
+const MAX_FIRM_MEMORY_ENTRIES = 30;     // Hard cap per firm
+const MAX_PROMPT_ENTRIES = 15;          // Max user entries injected into prompt
+const MAX_FIRM_PROMPT_ENTRIES = 10;     // Max firm entries injected into prompt
+const MAX_PROMPT_CHARS = 2000;          // Character budget for user memory in prompt
+const MAX_FIRM_PROMPT_CHARS = 1200;     // Character budget for firm memory in prompt
 const CONFIDENCE_DECAY_DAYS = 30;       // Days before confidence starts decaying
 const ACTIVE_CONTEXT_EXPIRY_DAYS = 14;  // Active context entries expire after 2 weeks
 const MIN_CONFIDENCE_THRESHOLD = 0.3;   // Entries below this get pruned
 const CONSOLIDATION_INTERVAL_HOURS = 24; // How often cleanup runs
 
-// In-memory cache per user
+// In-memory cache per user and per firm
 const memoryCache = new Map();
+const firmMemoryCache = new Map();
 const CACHE_TTL_MS = 120000; // 2 minutes
 
 /**
@@ -64,11 +68,15 @@ export async function getUserMemoryFile(userId, firmId) {
 }
 
 /**
- * Get the memory context formatted for AI prompt injection.
+ * Get the COMBINED memory context (firm + user) formatted for AI prompt injection.
  * This is the key function - called on every AI interaction.
  * 
  * Returns a formatted string ready to be inserted into the system prompt,
  * or null if no meaningful memories exist.
+ * 
+ * Memory hierarchy:
+ * 1. Firm memory (admin-managed, applies to everyone) - injected first
+ * 2. User memory (per-user, personalized) - injected second
  */
 export async function getMemoryForPrompt(userId, firmId) {
   // Check cache first
@@ -79,42 +87,59 @@ export async function getMemoryForPrompt(userId, firmId) {
   }
 
   try {
-    const result = await query(
-      `SELECT id, category, content, source, confidence, pinned
-       FROM user_ai_memory
-       WHERE user_id = $1 AND firm_id = $2 
-         AND dismissed = false
-         AND confidence >= $3
-         AND (expires_at IS NULL OR expires_at > NOW())
-       ORDER BY 
-         pinned DESC,
-         category = 'core_identity' DESC,
-         category = 'correction' DESC,
-         category = 'working_style' DESC,
-         confidence DESC,
-         updated_at DESC
-       LIMIT $4`,
-      [userId, firmId, MIN_CONFIDENCE_THRESHOLD, MAX_PROMPT_ENTRIES]
-    );
+    // Load both firm and user memory in parallel
+    const [firmMemory, userResult] = await Promise.all([
+      getFirmMemoryForPrompt(firmId).catch(() => null),
+      query(
+        `SELECT id, category, content, source, confidence, pinned
+         FROM user_ai_memory
+         WHERE user_id = $1 AND firm_id = $2 
+           AND dismissed = false
+           AND confidence >= $3
+           AND (expires_at IS NULL OR expires_at > NOW())
+         ORDER BY 
+           pinned DESC,
+           category = 'core_identity' DESC,
+           category = 'correction' DESC,
+           category = 'working_style' DESC,
+           confidence DESC,
+           updated_at DESC
+         LIMIT $4`,
+        [userId, firmId, MIN_CONFIDENCE_THRESHOLD, MAX_PROMPT_ENTRIES]
+      ).catch(() => ({ rows: [] })),
+    ]);
 
-    if (result.rows.length === 0) {
+    const hasUserMemory = userResult.rows.length > 0;
+    const hasFirmMemory = !!firmMemory;
+
+    if (!hasUserMemory && !hasFirmMemory) {
       memoryCache.set(cacheKey, { formatted: null, timestamp: Date.now() });
       return null;
     }
 
-    // Update last_used_at for included entries (non-blocking)
-    const ids = result.rows.map(r => r.id);
-    query(
-      `UPDATE user_ai_memory SET last_used_at = NOW() WHERE id = ANY($1)`,
-      [ids]
-    ).catch(() => {}); // Fire and forget
+    // Update last_used_at for included user entries (non-blocking)
+    if (hasUserMemory) {
+      const ids = userResult.rows.map(r => r.id);
+      query(
+        `UPDATE user_ai_memory SET last_used_at = NOW() WHERE id = ANY($1)`,
+        [ids]
+      ).catch(() => {}); // Fire and forget
+    }
 
-    // Format for prompt
-    const formatted = formatMemoryForPrompt(result.rows);
+    // Combine: firm memory first, then user memory
+    let combined = '';
+    if (hasFirmMemory) {
+      combined += firmMemory;
+    }
+    if (hasUserMemory) {
+      combined += formatMemoryForPrompt(userResult.rows);
+    }
+
+    const formatted = combined || null;
     memoryCache.set(cacheKey, { formatted, timestamp: Date.now() });
     return formatted;
   } catch (error) {
-    if (error.message?.includes('user_ai_memory')) {
+    if (error.message?.includes('user_ai_memory') || error.message?.includes('firm_ai_memory')) {
       return null;
     }
     console.error('[UserAIMemory] Error getting memory for prompt:', error.message);
@@ -404,6 +429,245 @@ export async function getMemoryStats(userId, firmId) {
   }
 }
 
+// ===================================================================
+// FIRM-LEVEL AI MEMORY (admin-managed, shared across all users)
+// ===================================================================
+
+/**
+ * Get the full firm memory file (all active entries).
+ * Only admins should call the management functions, but all users read it.
+ */
+export async function getFirmMemoryFile(firmId) {
+  try {
+    const result = await query(
+      `SELECT fm.id, fm.category, fm.content, fm.created_by, fm.updated_by,
+              fm.active, fm.created_at, fm.updated_at,
+              u.first_name || ' ' || u.last_name as created_by_name
+       FROM firm_ai_memory fm
+       LEFT JOIN users u ON fm.created_by = u.id
+       WHERE fm.firm_id = $1 AND fm.active = true
+       ORDER BY 
+         fm.category = 'firm_correction' DESC,
+         fm.category = 'firm_policy' DESC,
+         fm.category = 'firm_identity' DESC,
+         fm.updated_at DESC
+       LIMIT $2`,
+      [firmId, MAX_FIRM_MEMORY_ENTRIES]
+    );
+    return result.rows;
+  } catch (error) {
+    if (error.message?.includes('firm_ai_memory')) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+/**
+ * Get the firm memory context formatted for AI prompt injection.
+ * This is read by every user in the firm on every AI interaction.
+ */
+export async function getFirmMemoryForPrompt(firmId) {
+  const cacheKey = `firm:${firmId}`;
+  const cached = firmMemoryCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.formatted;
+  }
+
+  try {
+    const result = await query(
+      `SELECT category, content
+       FROM firm_ai_memory
+       WHERE firm_id = $1 AND active = true
+       ORDER BY
+         category = 'firm_correction' DESC,
+         category = 'firm_policy' DESC,
+         category = 'firm_identity' DESC,
+         category = 'firm_style' DESC,
+         updated_at DESC
+       LIMIT $2`,
+      [firmId, MAX_FIRM_PROMPT_ENTRIES]
+    );
+
+    if (result.rows.length === 0) {
+      firmMemoryCache.set(cacheKey, { formatted: null, timestamp: Date.now() });
+      return null;
+    }
+
+    const formatted = formatFirmMemoryForPrompt(result.rows);
+    firmMemoryCache.set(cacheKey, { formatted, timestamp: Date.now() });
+    return formatted;
+  } catch (error) {
+    if (error.message?.includes('firm_ai_memory')) {
+      return null;
+    }
+    console.error('[FirmAIMemory] Error getting firm memory for prompt:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Format firm memory entries into a prompt-ready string.
+ */
+function formatFirmMemoryForPrompt(entries) {
+  if (!entries || entries.length === 0) return null;
+
+  const categoryLabels = {
+    firm_identity: 'ABOUT THIS FIRM',
+    firm_policy: 'FIRM POLICIES & STANDARDS',
+    firm_style: 'FIRM WRITING STYLE & TERMINOLOGY',
+    firm_context: 'CURRENT FIRM PRIORITIES',
+    firm_correction: 'FIRM-WIDE CORRECTIONS (always follow)',
+  };
+
+  const grouped = {};
+  for (const entry of entries) {
+    const cat = entry.category;
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(entry);
+  }
+
+  let output = '\n## FIRM MEMORY (applies to all attorneys at this firm)\n';
+  let charCount = output.length;
+
+  const categoryOrder = ['firm_correction', 'firm_policy', 'firm_identity', 'firm_style', 'firm_context'];
+
+  for (const cat of categoryOrder) {
+    const catEntries = grouped[cat];
+    if (!catEntries || catEntries.length === 0) continue;
+
+    const sectionHeader = `\n**${categoryLabels[cat] || cat}:**\n`;
+    if (charCount + sectionHeader.length > MAX_FIRM_PROMPT_CHARS) break;
+
+    output += sectionHeader;
+    charCount += sectionHeader.length;
+
+    for (const entry of catEntries) {
+      const line = `- ${entry.content}\n`;
+      if (charCount + line.length > MAX_FIRM_PROMPT_CHARS) break;
+      output += line;
+      charCount += line.length;
+    }
+  }
+
+  return output;
+}
+
+/**
+ * Add a firm memory entry (admin only).
+ */
+export async function addFirmMemoryEntry(firmId, userId, { category = 'firm_policy', content }) {
+  if (!content || content.trim().length === 0) return null;
+  const truncatedContent = content.trim().substring(0, 1000);
+
+  try {
+    const result = await query(
+      `INSERT INTO firm_ai_memory (firm_id, category, content, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $4)
+       ON CONFLICT (firm_id, category, content_hash) WHERE active = true
+       DO UPDATE SET updated_at = NOW(), updated_by = $4
+       RETURNING id`,
+      [firmId, category, truncatedContent, userId]
+    );
+
+    firmMemoryCache.delete(`firm:${firmId}`);
+    console.log(`[FirmAIMemory] Added firm memory: [${category}] ${truncatedContent.substring(0, 60)}...`);
+    return result.rows[0];
+  } catch (error) {
+    if (error.message?.includes('firm_ai_memory')) {
+      console.log('[FirmAIMemory] Table not available yet');
+      return null;
+    }
+    console.error('[FirmAIMemory] Error adding firm memory:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Update a firm memory entry (admin only).
+ */
+export async function updateFirmMemoryEntry(firmId, entryId, userId, updates) {
+  const setClauses = ['updated_at = NOW()', `updated_by = '${userId}'`];
+  const values = [];
+  let paramIdx = 1;
+
+  if (updates.content !== undefined) {
+    setClauses.push(`content = $${paramIdx++}`);
+    values.push(updates.content.substring(0, 1000));
+  }
+  if (updates.category !== undefined) {
+    setClauses.push(`category = $${paramIdx++}`);
+    values.push(updates.category);
+  }
+  if (updates.active !== undefined) {
+    setClauses.push(`active = $${paramIdx++}`);
+    values.push(updates.active);
+  }
+
+  values.push(entryId, firmId);
+
+  try {
+    const result = await query(
+      `UPDATE firm_ai_memory
+       SET ${setClauses.join(', ')}
+       WHERE id = $${paramIdx++} AND firm_id = $${paramIdx}
+       RETURNING id, category, content, active`,
+      values
+    );
+
+    firmMemoryCache.delete(`firm:${firmId}`);
+    return result.rows[0] || null;
+  } catch (error) {
+    console.error('[FirmAIMemory] Error updating firm memory:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Deactivate (soft-delete) a firm memory entry (admin only).
+ */
+export async function deactivateFirmMemoryEntry(firmId, entryId, userId) {
+  return updateFirmMemoryEntry(firmId, entryId, userId, { active: false });
+}
+
+/**
+ * Get firm memory stats.
+ */
+export async function getFirmMemoryStats(firmId) {
+  try {
+    const statsResult = await query(
+      `SELECT
+         COUNT(*) FILTER (WHERE active = true) as total_active,
+         COUNT(*) FILTER (WHERE active = false) as total_inactive
+       FROM firm_ai_memory
+       WHERE firm_id = $1`,
+      [firmId]
+    );
+
+    const categoryResult = await query(
+      `SELECT category, COUNT(*) as count
+       FROM firm_ai_memory
+       WHERE firm_id = $1 AND active = true
+       GROUP BY category
+       ORDER BY count DESC`,
+      [firmId]
+    );
+
+    const stats = statsResult.rows[0] || {};
+    return {
+      totalActive: parseInt(stats.total_active) || 0,
+      totalInactive: parseInt(stats.total_inactive) || 0,
+      categories: Object.fromEntries(categoryResult.rows.map(r => [r.category, parseInt(r.count)])),
+      maxEntries: MAX_FIRM_MEMORY_ENTRIES,
+    };
+  } catch (error) {
+    if (error.message?.includes('firm_ai_memory')) {
+      return { totalActive: 0, totalInactive: 0, maxEntries: MAX_FIRM_MEMORY_ENTRIES };
+    }
+    return { totalActive: 0, maxEntries: MAX_FIRM_MEMORY_ENTRIES };
+  }
+}
+
 // ===== MEMORY CONSOLIDATION (CLEANUP) =====
 
 /**
@@ -450,6 +714,21 @@ export async function consolidateMemory(userId, firmId) {
 
     // 2. Decay confidence on old, low-reinforcement entries
     // Entries not used in CONFIDENCE_DECAY_DAYS lose confidence gradually
+    // Two tiers of decay:
+    //   - 30+ days unused, <3 reinforcements: gentle decay (0.85x)
+    //   - 60+ days unused, <2 reinforcements: aggressive decay (0.7x)
+    await query(
+      `UPDATE user_ai_memory 
+       SET confidence = GREATEST($3, confidence * 0.7),
+           updated_at = NOW()
+       WHERE user_id = $1 AND firm_id = $2
+         AND dismissed = false
+         AND pinned = false
+         AND source != 'user_explicit'
+         AND last_used_at < NOW() - INTERVAL '60 days'
+         AND reinforcement_count < 2`,
+      [userId, firmId, MIN_CONFIDENCE_THRESHOLD]
+    );
     await query(
       `UPDATE user_ai_memory 
        SET confidence = GREATEST($3, confidence * 0.85),
@@ -462,6 +741,20 @@ export async function consolidateMemory(userId, firmId) {
          AND reinforcement_count < 3`,
       [userId, firmId, MIN_CONFIDENCE_THRESHOLD]
     );
+
+    // 2b. Dismiss "active_context" entries older than expiry even if no expires_at set
+    // Active context is inherently transient - anything older than 30 days is stale
+    const staleContextResult = await query(
+      `UPDATE user_ai_memory 
+       SET dismissed = true, updated_at = NOW()
+       WHERE user_id = $1 AND firm_id = $2
+         AND dismissed = false
+         AND category = 'active_context'
+         AND pinned = false
+         AND updated_at < NOW() - INTERVAL '30 days'`,
+      [userId, firmId]
+    );
+    entriesExpired += staleContextResult.rowCount || 0;
 
     // 3. Prune low-confidence entries if over the cap
     const currentCount = await query(

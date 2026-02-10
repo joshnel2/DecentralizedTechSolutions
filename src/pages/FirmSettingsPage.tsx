@@ -1,13 +1,14 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useDataStore } from '../stores/dataStore'
+import { userSettingsApi } from '../services/api'
 import { 
   Building2, CreditCard, Brain, Shield, Save, Users, Briefcase,
   DollarSign, Sparkles, CheckCircle2,
   AlertTriangle, Plus, Trash2, Edit2, UserPlus, X,
   Mail, UserCog, UserMinus, Landmark, Wallet, PiggyBank, ArrowLeft,
-  Tags
+  Tags, Info, RefreshCw
 } from 'lucide-react'
 import styles from './FirmSettingsPage.module.css'
 import { useToast } from '../components/Toast'
@@ -38,10 +39,38 @@ const groupColors = [
 
 export function FirmSettingsPage() {
   const navigate = useNavigate()
-  const _toast = useToast()
+  const toast = useToast()
+  const _toast = toast
   const { firm, updateFirm, user } = useAuthStore()
   const { groups, addGroup, updateGroup, deleteGroup, clients, invoices, matterTypes, addMatterType, updateMatterType, deleteMatterType, toggleMatterTypeActive } = useDataStore()
   const [activeTab, setActiveTab] = useState('accounts')
+
+  // Firm AI Memory state
+  const [firmMemoryEntries, setFirmMemoryEntries] = useState<any[]>([])
+  const [firmMemoryStats, setFirmMemoryStats] = useState<any>(null)
+  const [firmMemoryLoading, setFirmMemoryLoading] = useState(false)
+  const [showAddFirmMemory, setShowAddFirmMemory] = useState(false)
+  const [newFirmContent, setNewFirmContent] = useState('')
+  const [newFirmCategory, setNewFirmCategory] = useState('firm_policy')
+
+  const loadFirmMemory = useCallback(async () => {
+    setFirmMemoryLoading(true)
+    try {
+      const result = await userSettingsApi.getFirmAIMemory()
+      setFirmMemoryEntries(result.entries || [])
+      setFirmMemoryStats(result.stats || null)
+    } catch (error) {
+      console.error('Failed to load firm memory:', error)
+    } finally {
+      setFirmMemoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'ai') {
+      loadFirmMemory()
+    }
+  }, [activeTab, loadFirmMemory])
   
   // Calculate account balances
   const accountBalances = useMemo(() => {
@@ -998,6 +1027,306 @@ export function FirmSettingsPage() {
                       </div>
                     </div>
                   </>
+                )}
+              </div>
+
+              {/* Firm AI Memory Section */}
+              <div className={styles.section} style={{ marginTop: 'var(--spacing-xl)' }}>
+                <div className={styles.sectionHeader}>
+                  <Brain size={20} />
+                  <div>
+                    <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      Firm AI Memory
+                      {firmMemoryStats && firmMemoryStats.totalActive > 0 && (
+                        <span style={{
+                          fontSize: '0.75rem',
+                          background: 'var(--gold-primary)',
+                          color: 'var(--bg-primary)',
+                          padding: '0.125rem 0.5rem',
+                          borderRadius: '9999px',
+                          fontWeight: 600,
+                        }}>
+                          {firmMemoryStats.totalActive} entries
+                        </span>
+                      )}
+                    </h2>
+                    <p>Firm-wide instructions the AI follows for every attorney. All users in the firm share these memories.</p>
+                  </div>
+                </div>
+
+                {/* Info Box */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.625rem',
+                  padding: 'var(--spacing-md)',
+                  background: 'rgba(59, 130, 246, 0.06)',
+                  border: '1px solid rgba(59, 130, 246, 0.15)',
+                  borderRadius: 'var(--radius-sm)',
+                  marginBottom: 'var(--spacing-md)',
+                  fontSize: '0.8rem',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.5,
+                }}>
+                  <Info size={16} style={{ flexShrink: 0, marginTop: '1px', color: 'var(--accent-primary)' }} />
+                  <div>
+                    <strong>Firm memory vs. user memory:</strong> Firm memories apply to <em>all</em> attorneys in your firm. Use them for firm-wide policies, preferred terminology, standard procedures, and jurisdictions. Each user also has their own private memory file that learns about them personally (in Settings &gt; AI Assistant).
+                  </div>
+                </div>
+
+                {/* Action Bar */}
+                <div style={{ display: 'flex', gap: 'var(--spacing-sm)', marginBottom: 'var(--spacing-md)', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => setShowAddFirmMemory(!showAddFirmMemory)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.375rem',
+                      padding: '0.5rem 0.875rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 500,
+                      background: 'var(--gold-primary)',
+                      color: 'var(--bg-primary)',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Plus size={14} />
+                    Add Firm Memory
+                  </button>
+                  <button
+                    onClick={loadFirmMemory}
+                    disabled={firmMemoryLoading}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.375rem',
+                      padding: '0.5rem 0.875rem',
+                      fontSize: '0.8rem',
+                      fontWeight: 500,
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border-primary)',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: firmMemoryLoading ? 'wait' : 'pointer',
+                      opacity: firmMemoryLoading ? 0.6 : 1,
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    Refresh
+                  </button>
+                </div>
+
+                {/* Add Form */}
+                {showAddFirmMemory && (
+                  <div style={{
+                    background: 'var(--bg-tertiary)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 'var(--spacing-md)',
+                    marginBottom: 'var(--spacing-md)',
+                    border: '1px solid var(--border-primary)',
+                  }}>
+                    <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+                        Category
+                      </label>
+                      <select
+                        value={newFirmCategory}
+                        onChange={e => setNewFirmCategory(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem',
+                          fontSize: '0.85rem',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                        }}
+                      >
+                        <option value="firm_identity">Firm Identity (name, practice areas, jurisdictions)</option>
+                        <option value="firm_policy">Firm Policy (procedures, standards, rules)</option>
+                        <option value="firm_style">Firm Style (writing style, terminology, formatting)</option>
+                        <option value="firm_context">Current Priorities (active firm-wide projects)</option>
+                        <option value="firm_correction">Correction (something the AI must always follow)</option>
+                      </select>
+                    </div>
+                    <div style={{ marginBottom: 'var(--spacing-sm)' }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 500, color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                        <span>Memory Content</span>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>{newFirmContent.length}/1000</span>
+                      </label>
+                      <textarea
+                        value={newFirmContent}
+                        onChange={e => setNewFirmContent(e.target.value.slice(0, 1000))}
+                        placeholder='e.g., "Our firm uses Bluebook citation format. Always cite NY CPLR for procedural references."'
+                        rows={3}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem',
+                          fontSize: '0.85rem',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-primary)',
+                          resize: 'vertical',
+                          fontFamily: 'inherit',
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 'var(--spacing-sm)' }}>
+                      <button
+                        onClick={async () => {
+                          if (!newFirmContent.trim()) return
+                          try {
+                            const result = await userSettingsApi.addFirmAIMemory({
+                              category: newFirmCategory,
+                              content: newFirmContent.trim(),
+                            })
+                            setFirmMemoryEntries(result.entries || [])
+                            setFirmMemoryStats(result.stats || null)
+                            setNewFirmContent('')
+                            setShowAddFirmMemory(false)
+                            toast.success('Firm memory added')
+                          } catch (error: any) {
+                            toast.error(error?.message || 'Failed to add firm memory')
+                          }
+                        }}
+                        disabled={!newFirmContent.trim()}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8rem',
+                          fontWeight: 500,
+                          background: 'var(--gold-primary)',
+                          color: 'var(--bg-primary)',
+                          border: 'none',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: newFirmContent.trim() ? 'pointer' : 'not-allowed',
+                          opacity: newFirmContent.trim() ? 1 : 0.5,
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => { setShowAddFirmMemory(false); setNewFirmContent('') }}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          fontSize: '0.8rem',
+                          background: 'transparent',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-primary)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Entries List */}
+                {firmMemoryLoading ? (
+                  <div style={{ textAlign: 'center', padding: 'var(--spacing-xl)', color: 'var(--text-tertiary)' }}>
+                    Loading firm memory...
+                  </div>
+                ) : firmMemoryEntries.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center',
+                    padding: 'var(--spacing-xl)',
+                    color: 'var(--text-tertiary)',
+                    background: 'var(--bg-tertiary)',
+                    borderRadius: 'var(--radius-md)',
+                  }}>
+                    <Brain size={32} style={{ margin: '0 auto 0.75rem', opacity: 0.3 }} />
+                    <p style={{ margin: 0, fontSize: '0.9rem' }}>No firm memories yet</p>
+                    <p style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>Add firm-wide policies, terminology, and procedures that the AI should follow for every attorney.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-xs)' }}>
+                    {firmMemoryEntries.map((entry: any) => {
+                      const firmCategoryStyles: Record<string, { bg: string; border: string; label: string; color: string }> = {
+                        firm_identity: { bg: 'rgba(139, 92, 246, 0.06)', border: 'rgba(139, 92, 246, 0.2)', label: 'Identity', color: 'rgb(139, 92, 246)' },
+                        firm_policy: { bg: 'rgba(59, 130, 246, 0.06)', border: 'rgba(59, 130, 246, 0.2)', label: 'Policy', color: 'rgb(59, 130, 246)' },
+                        firm_style: { bg: 'rgba(16, 185, 129, 0.06)', border: 'rgba(16, 185, 129, 0.2)', label: 'Style', color: 'rgb(16, 185, 129)' },
+                        firm_context: { bg: 'rgba(245, 158, 11, 0.06)', border: 'rgba(245, 158, 11, 0.2)', label: 'Priority', color: 'rgb(245, 158, 11)' },
+                        firm_correction: { bg: 'rgba(239, 68, 68, 0.06)', border: 'rgba(239, 68, 68, 0.2)', label: 'Correction', color: 'rgb(239, 68, 68)' },
+                      }
+                      const catStyle = firmCategoryStyles[entry.category] || firmCategoryStyles.firm_policy
+                      return (
+                        <div
+                          key={entry.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'flex-start',
+                            gap: '0.75rem',
+                            padding: '0.75rem',
+                            background: catStyle.bg,
+                            border: `1px solid ${catStyle.border}`,
+                            borderRadius: 'var(--radius-sm)',
+                            borderLeft: `3px solid ${catStyle.color}`,
+                          }}
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontSize: '0.65rem',
+                                fontWeight: 600,
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.05em',
+                                color: catStyle.color,
+                                background: `${catStyle.color}15`,
+                                padding: '0.1rem 0.375rem',
+                                borderRadius: '3px',
+                              }}>
+                                {catStyle.label}
+                              </span>
+                              {entry.created_by_name && (
+                                <span style={{ fontSize: '0.65rem', color: 'var(--text-tertiary)' }}>
+                                  by {entry.created_by_name}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{
+                              fontSize: '0.85rem',
+                              color: 'var(--text-primary)',
+                              lineHeight: 1.5,
+                              wordBreak: 'break-word',
+                            }}>
+                              {entry.content}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '0.25rem' }}>
+                              {entry.updated_at && new Date(entry.updated_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await userSettingsApi.deleteFirmAIMemory(entry.id)
+                                setFirmMemoryEntries(prev => prev.filter(e => e.id !== entry.id))
+                                setFirmMemoryStats((prev: any) => prev ? { ...prev, totalActive: Math.max(0, prev.totalActive - 1) } : prev)
+                                toast.success('Firm memory removed')
+                              } catch (error) {
+                                toast.error('Failed to remove')
+                              }
+                            }}
+                            title="Remove this firm memory"
+                            style={{
+                              padding: '0.25rem',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: 'var(--text-tertiary)',
+                              borderRadius: '4px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </div>
             </div>

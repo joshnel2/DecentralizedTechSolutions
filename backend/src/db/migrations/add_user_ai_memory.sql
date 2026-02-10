@@ -101,10 +101,60 @@ CREATE TABLE IF NOT EXISTS user_ai_memory_consolidation_log (
 CREATE INDEX IF NOT EXISTS idx_user_ai_memory_consolidation_user
     ON user_ai_memory_consolidation_log(user_id, firm_id, created_at DESC);
 
+-- ===== FIRM-LEVEL AI MEMORY =====
+-- Managed by admins. Shared across ALL users in the firm.
+-- Injected into every AI interaction for every user in this firm.
+-- Use cases: firm policies, preferred terminology, standard procedures, jurisdictions
+
+CREATE TABLE IF NOT EXISTS firm_ai_memory (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
+
+    -- Category for organizing firm memory entries
+    -- firm_identity: firm name, practice areas, jurisdictions
+    -- firm_policy: policies, procedures, standards the AI should follow
+    -- firm_style: firm-wide writing style, formatting, terminology
+    -- firm_context: current firm-wide priorities, active projects
+    -- firm_correction: firm-wide corrections (e.g., "never use this term")
+    category VARCHAR(50) NOT NULL DEFAULT 'firm_policy'
+        CHECK (category IN (
+            'firm_identity', 'firm_policy', 'firm_style',
+            'firm_context', 'firm_correction'
+        )),
+
+    -- The actual memory content (human-readable text)
+    content TEXT NOT NULL,
+
+    -- Who created/managed this entry
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+
+    -- Whether this entry is active
+    active BOOLEAN NOT NULL DEFAULT true,
+
+    -- Timestamps
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    -- Content hash for deduplication
+    content_hash VARCHAR(64) GENERATED ALWAYS AS (encode(sha256(content::text::bytea), 'hex')) STORED
+);
+
+-- Indexes for firm memory
+CREATE INDEX IF NOT EXISTS idx_firm_ai_memory_firm
+    ON firm_ai_memory(firm_id) WHERE active = true;
+
+-- Prevent duplicate firm memories
+CREATE UNIQUE INDEX IF NOT EXISTS idx_firm_ai_memory_dedup
+    ON firm_ai_memory(firm_id, category, content_hash)
+    WHERE active = true;
+
 -- Comments for documentation
 COMMENT ON TABLE user_ai_memory IS 'Per-user AI memory file - persistent context that grows as the attorney uses the platform';
+COMMENT ON TABLE firm_ai_memory IS 'Firm-level AI memory - admin-managed context shared across all users in the firm';
 COMMENT ON COLUMN user_ai_memory.category IS 'Category: core_identity, working_style, active_context, learned_preference, correction, insight';
 COMMENT ON COLUMN user_ai_memory.source IS 'How this memory was created: user_explicit, ai_inferred, system_observed, task_feedback, document_analysis, chat_interaction';
 COMMENT ON COLUMN user_ai_memory.confidence IS 'Confidence score 0.0-1.0 - higher means more likely to be included in AI prompt';
 COMMENT ON COLUMN user_ai_memory.pinned IS 'User-pinned entries are always included in the AI prompt';
 COMMENT ON COLUMN user_ai_memory.dismissed IS 'User-dismissed entries are hidden and excluded from prompts';
+COMMENT ON COLUMN firm_ai_memory.category IS 'Category: firm_identity, firm_policy, firm_style, firm_context, firm_correction';

@@ -904,6 +904,31 @@ export const userSettingsApi = {
       method: 'POST',
     });
   },
+
+  // Firm AI Memory (admin only)
+  async getFirmAIMemory() {
+    return fetchWithAuth('/user-settings/ai/firm-memory');
+  },
+
+  async addFirmAIMemory(data: { category: string; content: string }) {
+    return fetchWithAuth('/user-settings/ai/firm-memory', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateFirmAIMemory(id: string, data: { content?: string; category?: string }) {
+    return fetchWithAuth(`/user-settings/ai/firm-memory/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteFirmAIMemory(id: string) {
+    return fetchWithAuth(`/user-settings/ai/firm-memory/${id}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // ============================================

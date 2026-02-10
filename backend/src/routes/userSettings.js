@@ -10,6 +10,11 @@ import {
   togglePinMemory,
   getMemoryStats,
   consolidateMemory,
+  getFirmMemoryFile,
+  addFirmMemoryEntry,
+  updateFirmMemoryEntry,
+  deactivateFirmMemoryEntry,
+  getFirmMemoryStats,
 } from '../services/userAIMemory.js';
 
 const router = Router();
@@ -335,6 +340,122 @@ router.post('/ai/memory/consolidate', authenticate, async (req, res) => {
   } catch (error) {
     console.error('Consolidate memory error:', error);
     res.status(500).json({ error: 'Failed to consolidate memory' });
+  }
+});
+
+// ============================================
+// FIRM AI MEMORY ROUTES (admin only)
+// ============================================
+
+/**
+ * GET /user-settings/ai/firm-memory
+ * Get the firm's AI memory file (admin-managed, shared across all users)
+ */
+router.get('/ai/firm-memory', authenticate, async (req, res) => {
+  try {
+    const entries = await getFirmMemoryFile(req.user.firmId);
+    const stats = await getFirmMemoryStats(req.user.firmId);
+    
+    res.json({ entries, stats });
+  } catch (error) {
+    console.error('Get firm memory error:', error);
+    res.status(500).json({ error: 'Failed to get firm memory' });
+  }
+});
+
+/**
+ * POST /user-settings/ai/firm-memory
+ * Add a firm memory entry (admin only)
+ */
+router.post('/ai/firm-memory', authenticate, async (req, res) => {
+  try {
+    // Only admins can manage firm memory
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return res.status(403).json({ error: 'Only admins can manage firm memory' });
+    }
+    
+    const { category, content } = req.body;
+    
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+    
+    if (content.length > 1000) {
+      return res.status(400).json({ error: 'Content must be 1000 characters or less' });
+    }
+    
+    const validCategories = ['firm_identity', 'firm_policy', 'firm_style', 'firm_context', 'firm_correction'];
+    if (category && !validCategories.includes(category)) {
+      return res.status(400).json({ error: `Invalid category. Must be one of: ${validCategories.join(', ')}` });
+    }
+    
+    const entry = await addFirmMemoryEntry(req.user.firmId, req.user.id, {
+      category: category || 'firm_policy',
+      content: content.trim(),
+    });
+    
+    if (!entry) {
+      return res.status(500).json({ error: 'Failed to add firm memory entry' });
+    }
+    
+    const entries = await getFirmMemoryFile(req.user.firmId);
+    const stats = await getFirmMemoryStats(req.user.firmId);
+    
+    res.json({ message: 'Firm memory entry added', entry, entries, stats });
+  } catch (error) {
+    console.error('Add firm memory error:', error);
+    res.status(500).json({ error: 'Failed to add firm memory' });
+  }
+});
+
+/**
+ * PUT /user-settings/ai/firm-memory/:id
+ * Update a firm memory entry (admin only)
+ */
+router.put('/ai/firm-memory/:id', authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return res.status(403).json({ error: 'Only admins can manage firm memory' });
+    }
+    
+    const { content, category } = req.body;
+    const updates = {};
+    if (content !== undefined) updates.content = content;
+    if (category !== undefined) updates.category = category;
+    
+    const updated = await updateFirmMemoryEntry(req.user.firmId, req.params.id, req.user.id, updates);
+    
+    if (!updated) {
+      return res.status(404).json({ error: 'Firm memory entry not found' });
+    }
+    
+    res.json({ message: 'Firm memory entry updated', entry: updated });
+  } catch (error) {
+    console.error('Update firm memory error:', error);
+    res.status(500).json({ error: 'Failed to update firm memory' });
+  }
+});
+
+/**
+ * DELETE /user-settings/ai/firm-memory/:id
+ * Deactivate a firm memory entry (admin only)
+ */
+router.delete('/ai/firm-memory/:id', authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin' && req.user.role !== 'owner') {
+      return res.status(403).json({ error: 'Only admins can manage firm memory' });
+    }
+    
+    const deactivated = await deactivateFirmMemoryEntry(req.user.firmId, req.params.id, req.user.id);
+    
+    if (!deactivated) {
+      return res.status(404).json({ error: 'Firm memory entry not found' });
+    }
+    
+    res.json({ message: 'Firm memory entry removed' });
+  } catch (error) {
+    console.error('Delete firm memory error:', error);
+    res.status(500).json({ error: 'Failed to remove firm memory' });
   }
 });
 
