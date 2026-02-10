@@ -349,33 +349,6 @@ export async function togglePinMemory(userId, firmId, entryId) {
  */
 export async function getMemoryStats(userId, firmId) {
   try {
-    const result = await query(
-      `SELECT 
-         COUNT(*) FILTER (WHERE dismissed = false) as total_active,
-         COUNT(*) FILTER (WHERE dismissed = true) as total_dismissed,
-         COUNT(*) FILTER (WHERE pinned = true AND dismissed = false) as total_pinned,
-         COUNT(*) FILTER (WHERE source = 'user_explicit' AND dismissed = false) as user_created,
-         COUNT(*) FILTER (WHERE source != 'user_explicit' AND dismissed = false) as ai_learned,
-         AVG(confidence) FILTER (WHERE dismissed = false) as avg_confidence,
-         MAX(updated_at) as last_updated,
-         json_object_agg(
-           COALESCE(category, 'unknown'),
-           cat_count
-         ) FILTER (WHERE cat_count > 0) as categories
-       FROM user_ai_memory
-       LEFT JOIN LATERAL (
-         SELECT category as cat, COUNT(*) as cat_count
-         FROM user_ai_memory sub
-         WHERE sub.user_id = user_ai_memory.user_id 
-           AND sub.firm_id = user_ai_memory.firm_id
-           AND sub.dismissed = false
-         GROUP BY category
-       ) cats ON true
-       WHERE user_id = $1 AND firm_id = $2`,
-      [userId, firmId]
-    );
-
-    // Simpler stats query
     const statsResult = await query(
       `SELECT 
          COUNT(*) FILTER (WHERE dismissed = false) as total_active,
