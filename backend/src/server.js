@@ -86,9 +86,13 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Refresh-Token', 'X-Admin-Auth'],
 }));
 
-// Body parsing - large limit for full firm migration imports (can be 100s of MBs)
-app.use(express.json({ limit: '500mb' }));
-app.use(express.urlencoded({ extended: true, limit: '500mb' }));
+// Body parsing -- route-specific larger limits before the global default
+app.use('/api/migration', express.json({ limit: '500mb' }));    // Full firm data imports
+app.use('/api/ai', express.json({ limit: '10mb' }));            // Conversation history + doc context
+app.use('/api/v1/agent', express.json({ limit: '10mb' }));      // AI agent with function calling
+app.use('/api/v1/background-agent', express.json({ limit: '10mb' })); // Background agent tasks
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(cookieParser());
 
 // Rate limiting

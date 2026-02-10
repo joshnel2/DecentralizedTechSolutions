@@ -262,50 +262,6 @@ export const useAuthStore = create<AuthState>()(
           
           return { requires2FA: false }
         } catch (error) {
-          // Demo mode fallback - allows login when backend is unavailable
-          if (email === 'demo@apex.law' || email === 'admin@apex.law') {
-            const demoUser: User = {
-              id: 'demo-user-1',
-              email: email,
-              firstName: 'Demo',
-              lastName: 'User',
-              role: 'owner',
-              groupIds: [],
-              permissions: [],
-              isActive: true,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            }
-
-            const demoFirm: Firm = {
-              id: 'demo-firm-1',
-              name: 'Demo Law Firm',
-              address: '123 Legal Way',
-              city: 'San Francisco',
-              state: 'CA',
-              billingDefaults: {
-                hourlyRate: 350,
-                incrementMinutes: 6,
-                paymentTerms: 30,
-                currency: 'USD'
-              },
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            }
-
-            set({
-              user: demoUser,
-              firm: demoFirm,
-              isAuthenticated: true,
-              isLoading: false,
-              twoFactorRequired: false,
-              twoFactorVerified: true,
-              userPermissions: rolePermissions['owner'],
-            })
-
-            return { requires2FA: false }
-          }
-          
           set({ isLoading: false })
           throw error
         }
