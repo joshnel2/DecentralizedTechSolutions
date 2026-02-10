@@ -126,8 +126,8 @@ export function BackgroundAgentPage() {
   
   // Scheduled tasks
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
-  const [_showScheduleModal, _setShowScheduleModal] = useState(false)
-  const [_scheduleForm, _setScheduleForm] = useState({ name: '', schedule: 'weekly', day: 'friday', time: '16:00' })
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleForm, setScheduleForm] = useState({ name: '', goal: '', schedule: 'weekly', day: 'friday', time: '16:00' })
   
   // Proactive suggestions
   const [suggestions, setSuggestions] = useState<ProactiveSuggestion[]>([])
@@ -2035,7 +2035,7 @@ Take 20-25 minutes. Identify all compliance issues.`,
               <Timer size={18} />
               <span>Scheduled Tasks</span>
             </div>
-            <button className={styles.addScheduleBtn} onClick={() => _setShowScheduleModal(true)}>
+            <button className={styles.addScheduleBtn} onClick={() => setShowScheduleModal(true)}>
               <Plus size={14} />
               Add
             </button>
@@ -3204,6 +3204,136 @@ Take 20-25 minutes. Identify all compliance issues.`,
           onSelect={handleTemplateSelect}
           onClose={() => setShowTemplatesLibrary(false)}
         />
+      )}
+
+      {/* Add Scheduled Task Modal */}
+      {showScheduleModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowScheduleModal(false)}>
+          <div className={styles.feedbackModal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h3>Add Scheduled Task</h3>
+              <button className={styles.modalClose} onClick={() => setShowScheduleModal(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Task Name</label>
+                <input
+                  type="text"
+                  className={styles.formInput}
+                  placeholder="e.g. Weekly Matter Audit"
+                  value={scheduleForm.name}
+                  onChange={e => setScheduleForm(prev => ({ ...prev, name: e.target.value }))}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Goal / Instructions</label>
+                <textarea
+                  className={styles.formTextarea}
+                  placeholder="What should the agent do each time this runs?"
+                  rows={3}
+                  value={scheduleForm.goal}
+                  onChange={e => setScheduleForm(prev => ({ ...prev, goal: e.target.value }))}
+                />
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Frequency</label>
+                <select
+                  className={styles.formInput}
+                  value={scheduleForm.schedule}
+                  onChange={e => setScheduleForm(prev => ({ ...prev, schedule: e.target.value }))}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 Weeks</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              {(scheduleForm.schedule === 'weekly' || scheduleForm.schedule === 'biweekly') && (
+                <div className={styles.formGroup}>
+                  <label className={styles.formLabel}>Day of Week</label>
+                  <select
+                    className={styles.formInput}
+                    value={scheduleForm.day}
+                    onChange={e => setScheduleForm(prev => ({ ...prev, day: e.target.value }))}
+                  >
+                    <option value="monday">Monday</option>
+                    <option value="tuesday">Tuesday</option>
+                    <option value="wednesday">Wednesday</option>
+                    <option value="thursday">Thursday</option>
+                    <option value="friday">Friday</option>
+                    <option value="saturday">Saturday</option>
+                    <option value="sunday">Sunday</option>
+                  </select>
+                </div>
+              )}
+              <div className={styles.formGroup}>
+                <label className={styles.formLabel}>Time</label>
+                <input
+                  type="time"
+                  className={styles.formInput}
+                  value={scheduleForm.time}
+                  onChange={e => setScheduleForm(prev => ({ ...prev, time: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className={styles.modalActions}>
+              <button className={styles.modalCancelBtn} onClick={() => setShowScheduleModal(false)}>
+                Cancel
+              </button>
+              <button
+                className={styles.modalSubmitBtn}
+                disabled={!scheduleForm.name.trim() || !scheduleForm.goal.trim()}
+                onClick={() => {
+                  const dayNames: Record<string, string> = {
+                    monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+                    thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday'
+                  }
+                  const freqLabels: Record<string, string> = {
+                    daily: 'Daily', weekly: 'Every week', biweekly: 'Every 2 weeks', monthly: 'Monthly'
+                  }
+                  const scheduleLabel = scheduleForm.schedule === 'daily'
+                    ? `Daily at ${scheduleForm.time}`
+                    : scheduleForm.schedule === 'monthly'
+                      ? `Monthly at ${scheduleForm.time}`
+                      : `${freqLabels[scheduleForm.schedule]} on ${dayNames[scheduleForm.day]} at ${scheduleForm.time}`
+
+                  // Calculate next run
+                  const now = new Date()
+                  const [hours, minutes] = scheduleForm.time.split(':').map(Number)
+                  const targetDayIndex = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'].indexOf(scheduleForm.day)
+                  const nextRun = new Date(now)
+                  nextRun.setHours(hours, minutes, 0, 0)
+                  if (scheduleForm.schedule !== 'daily' && scheduleForm.schedule !== 'monthly') {
+                    const currentDay = now.getDay()
+                    let daysUntil = targetDayIndex - currentDay
+                    if (daysUntil <= 0) daysUntil += 7
+                    nextRun.setDate(now.getDate() + daysUntil)
+                  } else if (nextRun <= now) {
+                    nextRun.setDate(nextRun.getDate() + 1)
+                  }
+
+                  const newTask: ScheduledTask = {
+                    id: `sched-${Date.now()}`,
+                    name: scheduleForm.name.trim(),
+                    goal: scheduleForm.goal.trim(),
+                    schedule: scheduleLabel,
+                    nextRun: nextRun.toISOString(),
+                    enabled: true,
+                    extended: false,
+                  }
+                  setScheduledTasks(prev => [...prev, newTask])
+                  setScheduleForm({ name: '', goal: '', schedule: 'weekly', day: 'friday', time: '16:00' })
+                  setShowScheduleModal(false)
+                }}
+              >
+                <Plus size={14} />
+                Add Scheduled Task
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
