@@ -134,8 +134,8 @@ export class AgentMemory {
     const elapsed = Math.round((Date.now() - this.longTerm.startedAt) / 60000);
     
     let header = `## LONG-TERM MISSION MEMORY\n`;
-    header += `**Mission Goal:** ${this.longTerm.missionGoal}\n`;
-    header += `**Elapsed:** ${elapsed} minutes\n`;
+    header += `**⭐ YOUR ASSIGNED TASK:** ${this.longTerm.missionGoal}\n`;
+    header += `**Elapsed:** ${elapsed} minutes | Stay focused on the task above.\n`;
     
     if (this.longTerm.keyFacts.length > 0) {
       header += `\n**Key Facts (persistent):**\n`;

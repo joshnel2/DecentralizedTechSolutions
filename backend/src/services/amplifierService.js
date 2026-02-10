@@ -69,6 +69,9 @@ import { getEditLearnedPreferences, trackAgentCreatedDocument } from './amplifie
 import { extractAssociations, getRelevantAssociations, reinforceAssociations, weakenAssociations } from './amplifier/associativeMemory.js';
 // Resonance Memory: the living cognitive graph that connects all memory systems
 import { loadResonanceGraph, renderGraphForPrompt, invalidateGraphCache } from './amplifier/resonanceMemory.js';
+// Focus Guard: goal drift detection, re-anchoring, budget awareness
+// The supervising partner that keeps the agent laser-focused on the assigned task
+import { createFocusGuard } from './amplifier/focusGuard.js';
 
 // ===== SINGLETON INSTANCES for cross-task learning =====
 // These persist across tasks so learnings accumulate over the service lifetime
@@ -625,6 +628,12 @@ class BackgroundTask extends EventEmitter {
     // Short-Term Memory: recent messages only (current sub-task)
     this.agentMemory = createAgentMemory(goal);
     
+    // ===== FOCUS GUARD (Goal Drift Detection & Re-Anchoring) =====
+    // The supervising partner that checks "are you still working on the assigned task?"
+    // Tracks goal-relevance of tool calls, detects tangent patterns, injects focus
+    // interventions when the agent drifts, and provides budget awareness signals.
+    this.focusGuard = createFocusGuard(goal, this.maxIterations, this.maxRuntimeMs);
+    
     // Tools that are safe to cache (read-only, no side effects)
     this.CACHEABLE_TOOLS = new Set([
       'get_matter', 'list_my_matters', 'search_matters', 'list_clients', 'get_client',
@@ -861,8 +870,9 @@ class BackgroundTask extends EventEmitter {
    * Forces the model to evaluate its own work before proceeding.
    */
   buildReflectionPrompt(completedPhase) {
-    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
-    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
+    const elapsedMs = Date.now() - this.startTime.getTime();
+    const elapsedMin = Math.round(elapsedMs / 60000);
+    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - elapsedMs) / 60000));
     
     // Build a summary of what was done in the completed phase
     const recentActions = this.actionsHistory.slice(-10).map(a => 
@@ -879,9 +889,21 @@ class BackgroundTask extends EventEmitter {
       ? `\n**From your brief, expected deliverables:**\n${briefDeliverables}\n`
       : '';
     
+    // Budget awareness from FocusGuard
+    let budgetLine = `${elapsedMin}min elapsed, ${remainingMin}min left`;
+    if (this.focusGuard) {
+      try {
+        budgetLine = this.focusGuard.buildBudgetStatus(this.progress.iterations, elapsedMs);
+      } catch (_) {}
+    }
+    
+    // Goal alignment reminder (added to every reflection)
+    const goalAnchor = `\n**ASSIGNED TASK (stay focused):** "${this.goal}"`;
+    
     const reflectionPrompts = {
       [ExecutionPhase.DISCOVERY]: `
-== SELF-CRITIQUE: DISCOVERY phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
+== SELF-CRITIQUE: DISCOVERY phase complete (${budgetLine}) ==
+${goalAnchor}
 
 **What you did:**
 ${recentActions}
@@ -891,34 +913,39 @@ ${findings || '(none recorded)'}
 ${briefReminder}
 **REFLECT before moving to ANALYSIS:**
 - Did I gather enough information to analyze this matter thoroughly?
+- Is everything I read RELEVANT to the assigned task, or did I go on tangents?
 - What key documents or data did I NOT read that I should have?
 - Are there any gaps in my understanding?
 - Did I follow the approach order from my brief?
 
-If critical info is missing, call one more tool to get it. Then proceed to ANALYSIS: use add_matter_note to document your findings and analysis using IRAC methodology.`,
+If critical info is missing, call one more tool to get it. Then proceed to ANALYSIS: use add_matter_note to document your findings and analysis using IRAC methodology. Do NOT go back to reading more documents unless absolutely necessary.`,
 
       [ExecutionPhase.ANALYSIS]: `
-== SELF-CRITIQUE: ANALYSIS phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
+== SELF-CRITIQUE: ANALYSIS phase complete (${budgetLine}) ==
+${goalAnchor}
 
 **What you documented:**
 Notes: ${this.substantiveActions.notes} | Research actions: ${this.substantiveActions.research}
 ${briefReminder}
 **REFLECT before moving to ACTION:**
 - Is my analysis specific to THIS matter (not generic)?
+- Is my analysis focused on the assigned task, or did I analyze tangential issues?
 - Did I identify all key legal issues?
 - Did I note risks and deadlines?
 - Is my analysis thorough enough for a supervising partner to rely on?
 - Am I on track to produce all the deliverables from my brief?
 
-If your analysis is thin, add one more note with deeper analysis. Then proceed to ACTION: create formal deliverables (documents, tasks, calendar events).`,
+If your analysis is thin, add one more note with deeper analysis. Then proceed to ACTION: create formal deliverables (documents, tasks, calendar events). Stay focused on the assigned task.`,
 
       [ExecutionPhase.ACTION]: `
-== SELF-CRITIQUE: ACTION phase complete (${elapsedMin}min elapsed, ${remainingMin}min left) ==
+== SELF-CRITIQUE: ACTION phase complete (${budgetLine}) ==
+${goalAnchor}
 
 **What you created:**
 Documents: ${this.substantiveActions.documents} | Tasks: ${this.substantiveActions.tasks} | Events: ${this.substantiveActions.events}
 
 **QUALITY CHECK before REVIEW:**
+- Do my deliverables directly address the assigned task?
 - Do my documents contain REAL content (no [INSERT] or [TODO] placeholders)?
 - Are my documents specific to this matter with actual facts?
 - Did I create actionable follow-up tasks?
@@ -937,12 +964,24 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
   buildPlanMessage() {
     if (!this.structuredPlan) return null;
     
-    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
-    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000));
+    const elapsedMs = Date.now() - this.startTime.getTime();
+    const elapsedMin = Math.round(elapsedMs / 60000);
+    const remainingMin = Math.max(1, Math.round((this.maxRuntimeMs - elapsedMs) / 60000));
     
     let planText = `${PLAN_MESSAGE_PREFIX}\n`;
-    planText += `Goal: ${this.structuredPlan.goal}\n`;
-    planText += `Phase: ${this.executionPhase.toUpperCase()} | Time: ${elapsedMin}min elapsed, ~${remainingMin}min remaining\n\n`;
+    planText += `**GOAL: ${this.structuredPlan.goal}**\n`;
+    
+    // Budget status line from FocusGuard (adds urgency signals)
+    if (this.focusGuard) {
+      try {
+        planText += `${this.focusGuard.buildBudgetStatus(this.progress.iterations, elapsedMs)}\n`;
+      } catch (_) {
+        planText += `Phase: ${this.executionPhase.toUpperCase()} | Time: ${elapsedMin}min elapsed, ~${remainingMin}min remaining\n`;
+      }
+    } else {
+      planText += `Phase: ${this.executionPhase.toUpperCase()} | Time: ${elapsedMin}min elapsed, ~${remainingMin}min remaining\n`;
+    }
+    planText += '\n';
     
     // Show plan steps with completion status
     if (this.structuredPlan.steps && this.structuredPlan.steps.length > 0) {
@@ -975,6 +1014,9 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
     if (this.substantiveActions.tasks === 0) needed.push('at least 1 task (create_task)');
     if (this.actionsHistory.length < 5) needed.push(`${5 - this.actionsHistory.length} more tool calls`);
     if (needed.length > 0) planText += `Still required: ${needed.join(', ')}\n`;
+    
+    // Goal re-anchor: always end with the goal so it's the last thing the model reads
+    planText += `\n**STAY FOCUSED ON: ${this.goal}**\n`;
     
     return { role: 'system', content: planText };
   }
@@ -2602,10 +2644,12 @@ ${matterContextStr}
 
 ## RULES
 - FULLY AUTONOMOUS. Call tools immediately. NEVER respond with text only.
+- STAY FOCUSED on the assigned task. Do NOT investigate tangential issues or go down rabbit holes. If you find something unrelated but concerning, note it briefly and move on.
 - NEVER use log_time or log_billable_work.
 - NO placeholders [INSERT], [TODO] in documents. Write REAL content only.
 - Before task_complete: ≥8 tool calls, ≥1 note, ≥1 task, ≥120s elapsed.
 - IRAC for legal analysis. Be thorough. Push through failures.
+- Budget your time: spend ~25% reading, ~25% analyzing, ~35% creating deliverables, ~15% reviewing. Do NOT over-read.
 ${hasMatterPreloaded && matterIsVerified
   ? `- Matter "${this.preloadedMatterName}" is pre-loaded with ${matterConfidence.toUpperCase()} confidence (ID: ${this.preloadedMatterId}). Use this ID directly - no need to search.`
   : hasMatterPreloaded && !matterIsVerified
@@ -3080,6 +3124,41 @@ ${hasMatterPreloaded && matterIsVerified
         this.transitionPhase();
       }
       
+      // ===== FOCUS GUARD: Periodic goal-drift check =====
+      // The supervising partner walks by and asks: "Still working on the assignment?"
+      // This catches the agent when it's spending too many iterations on tangential
+      // reading or when it's burning through its budget without producing deliverables.
+      if (this.focusGuard) {
+        try {
+          const elapsedMs = Date.now() - this.startTime.getTime();
+          const focusCheck = this.focusGuard.checkFocus(
+            this.progress.iterations, elapsedMs, this.executionPhase
+          );
+          if (focusCheck?.needed) {
+            this.messages.push({ role: 'user', content: focusCheck.message });
+            if (focusCheck.severity === 'critical') {
+              console.warn(`[Amplifier] FOCUS INTERVENTION (${focusCheck.severity}): task ${this.id} at iteration ${this.progress.iterations}`);
+              this.streamEvent('focus_intervention', `🎯 Focus intervention: agent may be drifting from task`, {
+                severity: focusCheck.severity,
+                focusScore: this.focusGuard.getFocusScore(),
+                tangentStreak: this.focusGuard.tangentStreak,
+                icon: 'target',
+                color: 'orange'
+              });
+            } else if (focusCheck.severity === 'budget_urgent') {
+              console.log(`[Amplifier] Budget urgent: task ${this.id} at ${Math.round(elapsedMs / 60000)}min`);
+              this.streamEvent('budget_alert', `⏰ Budget alert: running low on time`, {
+                severity: focusCheck.severity,
+                icon: 'clock',
+                color: 'red'
+              });
+            }
+          }
+        } catch (focusErr) {
+          // Focus guard is best-effort — never crash the agent loop
+        }
+      }
+      
       // ===== PERIODIC PLAN RE-INJECTION =====
       // Every N iterations, re-inject the plan so the agent never loses the thread
       if (this.structuredPlan && 
@@ -3219,6 +3298,13 @@ ${hasMatterPreloaded && matterIsVerified
               
               // ===== REWIND SYSTEM: Record tool call for loop detection (parallel path) =====
               this.rewindManager.recordToolCall(tn, ta, success);
+              
+              // ===== FOCUS GUARD: Record tool call for goal-drift tracking (parallel path) =====
+              try {
+                if (this.focusGuard) {
+                  this.focusGuard.recordToolCall(tn, ta, success, this.progress.iterations);
+                }
+              } catch (_) {} // Non-fatal
               
               // ===== DECISION REINFORCER: Real-time learning (parallel path) =====
               try {
@@ -3376,6 +3462,13 @@ ${hasMatterPreloaded && matterIsVerified
             
             // ===== REWIND SYSTEM: Record tool call for loop detection =====
             this.rewindManager.recordToolCall(toolName, toolArgs, toolSuccess);
+            
+            // ===== FOCUS GUARD: Record tool call for goal-drift tracking =====
+            try {
+              if (this.focusGuard) {
+                this.focusGuard.recordToolCall(toolName, toolArgs, toolSuccess, this.progress.iterations);
+              }
+            } catch (_) {} // Non-fatal: focus guard is best-effort
             
             // ===== DECISION REINFORCER: Real-time learning from tool outcome =====
             try {
@@ -3802,6 +3895,7 @@ Keep working on: "${this.goal}"`
               this.endTime = new Date();
               
               // Calculate efficiency metrics for the completed task
+              const focusStatus = this.focusGuard ? this.focusGuard.getStatus() : null;
               const efficiencyMetrics = {
                 duration_seconds: elapsedSeconds,
                 total_actions: actionCount,
@@ -3813,6 +3907,8 @@ Keep working on: "${this.goal}"`
                 cache_entries: this.toolCache.size,
                 rate_limits_hit: this.rateLimitCount,
                 phases_completed: Object.entries(this.phaseIterationCounts).filter(([_, c]) => c > 0).map(([p]) => p),
+                focus_score: focusStatus?.overallFocusScore ?? null,
+                focus_interventions: focusStatus?.interventionCount ?? 0,
               };
               
               console.log(`[Amplifier] Task ${this.id} EFFICIENCY REPORT:`,
@@ -3823,7 +3919,9 @@ Keep working on: "${this.goal}"`
                 `Actions/min: ${efficiencyMetrics.actions_per_minute} |`,
                 `Cache entries: ${this.toolCache.size} |`,
                 `Matter pre-loaded: ${!!this.preloadedMatterId} |`,
-                `Rate limits: ${this.rateLimitCount}`
+                `Rate limits: ${this.rateLimitCount} |`,
+                `Focus score: ${focusStatus?.overallFocusScore ?? 'N/A'} |`,
+                `Focus interventions: ${focusStatus?.interventionCount ?? 0}`
               );
               
               this.result = {
@@ -4023,16 +4121,13 @@ Keep working on: "${this.goal}"`
           // The key insight: every text-only response wastes an iteration and produces nothing.
           // Rewind EARLIER (at streak 5 instead of 9+) and fail SOONER (at streak 8 instead of 12+).
           if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK) {
-            // Mild re-prompt (streaks 1-3)
-            const phaseHint = {
-              [ExecutionPhase.DISCOVERY]: 'Call get_matter or search_matters to gather information.',
-              [ExecutionPhase.ANALYSIS]: 'Call add_matter_note to document your analysis.',
-              [ExecutionPhase.ACTION]: 'Call create_document or create_task to create deliverables.',
-              [ExecutionPhase.REVIEW]: 'Call review_created_documents to verify your work, then task_complete.',
-            };
+            // Mild re-prompt (streaks 1-2) — goal-anchored via FocusGuard
+            const reprompt = this.focusGuard
+              ? this.focusGuard.buildFocusedReprompt(this.executionPhase, this.textOnlyStreak)
+              : `STOP writing text. You MUST call a tool NOW. Your goal: "${this.goal}"`;
             this.messages.push({
               role: 'user',
-              content: `STOP writing text. You MUST call a tool NOW. ${phaseHint[this.executionPhase] || 'Call a tool immediately.'} Your goal: "${this.goal}"`
+              content: reprompt
             });
           } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 2) {
             // Strong intervention at streak 4-5 - re-inject plan and force tool use
@@ -4043,7 +4138,7 @@ Keep working on: "${this.goal}"`
             }
             this.messages.push({
               role: 'user',
-              content: `⚠️ CRITICAL: You have responded ${this.textOnlyStreak} times without calling any tool. This is UNACCEPTABLE. You are a tool-calling agent. Call think_and_plan RIGHT NOW if you're unsure what to do, then call action tools. DO NOT RESPOND WITH TEXT.`
+              content: `⚠️ CRITICAL: You have responded ${this.textOnlyStreak} times without calling any tool. This is UNACCEPTABLE. You are a tool-calling agent. Your assigned task is: "${this.goal}". Call think_and_plan RIGHT NOW to refocus on this task, then call action tools immediately. DO NOT RESPOND WITH TEXT.`
             });
           } else if (this.textOnlyStreak <= MAX_TEXT_ONLY_STREAK + 4) {
             // Rewind attempt at streak 5-7 (earlier than before)
@@ -4686,6 +4781,8 @@ Please acknowledge this follow-up and adjust your approach accordingly. Continue
         rateLimitsHit: this.rateLimitCount,
         textOnlyResponses: this.textOnlyStreak,
         messageCompactions: this.agentMemory?.midTerm?.totalMessagesSummarized || 0,
+        focusScore: this.focusGuard?.getFocusScore() ?? null,
+        focusInterventions: this.focusGuard?.focusInterventionCount ?? 0,
       }
     };
   }
