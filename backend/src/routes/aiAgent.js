@@ -5635,12 +5635,12 @@ async function saveUploadedDocument(args, user, req) {
   const filename = `${timestamp}-${safeName}`;
   
   try {
-    // Insert document record - use only base schema columns
+    // Insert document record with proper ownership
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, status, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
+        tags, status, uploaded_by, owner_id, privacy_level, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $10, $11, $12)
       RETURNING id, name`,
       [
         user.firmId,
@@ -5653,6 +5653,7 @@ async function saveUploadedDocument(args, user, req) {
         `chat-upload/${filename}`, // Virtual path for chat uploads
         tags || [],
         user.id,
+        matter_id ? 'team' : 'private',
         JSON.stringify({ ai_generated: true, content_text: doc.content })
       ]
     );
@@ -5849,12 +5850,12 @@ async function createDocument(args, user) {
     // Calculate content hash for versioning
     const contentHash = crypto.createHash('sha256').update(content).digest('hex');
     
-    // Insert document record - use only columns that exist in base schema
+    // Insert document record with proper ownership (matches regular upload)
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, status, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
+        tags, status, uploaded_by, owner_id, privacy_level, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $10, $11, $12)
       RETURNING id, name`,
       [
         user.firmId,
@@ -5867,6 +5868,7 @@ async function createDocument(args, user) {
         azureResult ? azureResult.path : relativePath,
         tags || ['ai-generated'],
         user.id,
+        privacyLevel,
         JSON.stringify({ 
           ai_generated: true, 
           content_text: content,
@@ -6114,12 +6116,12 @@ async function createNote(args, user) {
     
     const docName = `${title} (Note).docx`;
     
-    // Insert as a document - use only base schema columns
+    // Insert as a document with proper ownership
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, status, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
+        tags, status, uploaded_by, owner_id, privacy_level, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $10, $11, $12)
       RETURNING id, name`,
       [
         user.firmId,
@@ -6132,6 +6134,7 @@ async function createNote(args, user) {
         uploadedPath,
         [note_type, 'note', 'ai-generated'],
         user.id,
+        matter_id ? 'team' : 'private',
         JSON.stringify({ ai_generated: true, content_text: fullContent, azure_path: uploadedPath })
       ]
     );
@@ -6227,12 +6230,12 @@ async function updateDocument(args, user) {
     const safeFileName = clonedName.replace(/[^a-z0-9.\-_ ]/gi, '_');
     const newPath = `ai-documents/${Date.now()}-${safeFileName}`;
     
-    // Insert the cloned document with the new content - use only base schema columns
+    // Insert the cloned document with proper ownership
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, 
-        size, path, status, tags, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        size, path, status, tags, uploaded_by, owner_id, privacy_level, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13)
       RETURNING id, name`,
       [
         user.firmId,
@@ -6246,6 +6249,7 @@ async function updateDocument(args, user) {
         'draft',
         originalDoc.tags || [],
         user.id,
+        originalDoc.matter_id ? 'team' : 'private',
         JSON.stringify({ ai_generated: true, content_text: new_content })
       ]
     );
@@ -11565,8 +11569,8 @@ async function draftEmailForMatter(args, user) {
     await query(
       `INSERT INTO documents (
         firm_id, matter_id, name, original_name, type, size, path,
-        tags, status, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, 'text/plain', $5, $6, $7, 'final', $8, $9)`,
+        tags, status, uploaded_by, owner_id, privacy_level, metadata
+      ) VALUES ($1, $2, $3, $4, 'text/plain', $5, $6, $7, 'final', $8, $8, 'team', $9)`,
       [
         user.firmId,
         matter_id,

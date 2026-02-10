@@ -1565,12 +1565,12 @@ async function createDocument(params, userId, firmId) {
         ? tags.split(',').map(tag => tag.trim()).filter(Boolean)
         : ['ai-generated'];
     
-    // Use base schema columns only to avoid migration issues
+    // Insert with proper ownership to match regular upload behavior
     const result = await query(
       `INSERT INTO documents (
         firm_id, matter_id, client_id, name, original_name, type, size, path,
-        tags, status, uploaded_by, metadata
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $11)
+        tags, status, uploaded_by, owner_id, privacy_level, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'final', $10, $10, $11, $12)
       RETURNING id, name`,
       [
         firmId,
@@ -1583,6 +1583,7 @@ async function createDocument(params, userId, firmId) {
         azureResult ? azureResult.path : relativePath,
         tagList,
         userId,
+        privacyLevel,
         JSON.stringify({ 
           ai_generated: true, 
           content_text: content,

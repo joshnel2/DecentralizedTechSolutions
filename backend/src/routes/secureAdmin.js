@@ -247,6 +247,8 @@ router.get('/firms/:id/users', requireSecureAdmin, async (req, res) => {
         first_name ASC
     `, [firmId]);
 
+    console.log(`[ADMIN] Firm ${firmId} users: found ${result.rows.length}`);
+
     res.json({
       users: result.rows.map(u => ({
         id: u.id,
