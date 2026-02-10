@@ -6151,10 +6151,10 @@ bob@example.com, Bob, Wilson, partner"
                 }}>
                   <div style={{ maxWidth: '450px' }}>
                     <h2 style={{ margin: '0 0 12px 0', fontSize: '28px', fontWeight: 700 }}>
-                      Scan Documents
+                      Scan &amp; Sync Documents
                     </h2>
                     <p style={{ margin: 0, opacity: 0.9, fontSize: '16px', lineHeight: 1.6 }}>
-                      After copying files from Clio Drive to Azure, scan to import them. Use Rescan to re-match documents after adding new matters/users.
+                      Safe to re-run anytime — existing documents are never deleted or duplicated. Full Scan picks up new Azure files and matches them to matters. Rescan re-matches unmatched docs after adding new users or matters.
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: '16px' }}>
