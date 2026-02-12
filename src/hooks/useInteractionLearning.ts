@@ -156,26 +156,37 @@ export function useInteractionLearning(authenticated: boolean = false) {
   useEffect(() => {
     const handleUnload = () => {
       if (eventBuffer.length > 0 && isAuthenticated) {
-        // Use sendBeacon for reliable delivery on page close
-        const url = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/ai/interactions`;
+        // Use sendBeacon for reliable delivery on page close.
+        // sendBeacon doesn't support custom headers, so we embed the JWT
+        // as a query parameter. The backend endpoint accepts ?token= for
+        // beacon requests specifically (validated server-side, same as header).
         const token = localStorage.getItem('apex-access-token');
+        const baseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3001/api'}/ai/interactions`;
+        const url = token ? `${baseUrl}?beacon_token=${encodeURIComponent(token)}` : baseUrl;
         const body = JSON.stringify({ events: eventBuffer });
 
         try {
           const blob = new Blob([body], { type: 'application/json' });
-          // sendBeacon doesn't support auth headers, so we'll just skip this
-          // and rely on the periodic flush instead
           navigator.sendBeacon(url, blob);
         } catch {
-          // Best effort
+          // Best effort — periodic flush is the primary mechanism
         }
       }
     };
 
+    // Also use visibilitychange for mobile (beforeunload is unreliable on mobile)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && eventBuffer.length >= MIN_FLUSH_SIZE && isAuthenticated) {
+        flushEvents();
+      }
+    };
+
     window.addEventListener('beforeunload', handleUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('beforeunload', handleUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       // Flush on cleanup
       flushEvents();
     };
