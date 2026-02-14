@@ -144,11 +144,11 @@ async function buildContext(page, firmId, userId, userRole = 'staff', additional
     switch (page) {
       case 'dashboard': {
         // Get summary stats - filtered by user permissions for non-admins
-        const matterAccessFilter = isAdmin ? '' : `AND (m.visibility = 'firm_wide' OR m.responsible_attorney = '${userId}' OR m.originating_attorney = '${userId}' OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = '${userId}'))`;
+        // SECURITY: Use parameterized queries — never interpolate userId into SQL strings.
         const [mattersRes, clientsRes, timeRes, invoicesRes, eventsRes] = await Promise.all([
           isAdmin
             ? query(`SELECT status, COUNT(*) as count FROM matters WHERE firm_id = $1 GROUP BY status`, [firmId])
-            : query(`SELECT status, COUNT(*) as count FROM matters m WHERE m.firm_id = $1 ${matterAccessFilter} GROUP BY status`, [firmId]),
+            : query(`SELECT status, COUNT(*) as count FROM matters m WHERE m.firm_id = $1 AND (m.visibility = 'firm_wide' OR m.responsible_attorney = $2 OR m.originating_attorney = $2 OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)) GROUP BY status`, [firmId, userId]),
           query(`SELECT COUNT(*) as count FROM clients WHERE firm_id = $1 AND is_active = true`, [firmId]),
           isAdmin
             ? query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount FROM time_entries WHERE firm_id = $1 AND date >= DATE_TRUNC('month', CURRENT_DATE)`, [firmId])
@@ -241,6 +241,15 @@ ${matters.rows.map(m => `- ${m.name} (${m.number})
       case 'matter-detail': {
         if (!additionalContext.matterId) break;
         
+        // SECURITY: Verify user has access to this matter before building context.
+        // Import is at module level; canAccessMatter checks firm_id + visibility + assignments.
+        const { canAccessMatter } = await import('../middleware/matterPermissions.js');
+        const matterAccess = await canAccessMatter(userId, userRole, additionalContext.matterId, firmId);
+        if (!matterAccess.hasAccess) {
+          context = `[CURRENT PAGE: Matter Detail]\nAccess denied to this matter.`;
+          break;
+        }
+        
         const [matterRes, timeRes, docsRes, eventsRes] = await Promise.all([
           query(`
             SELECT m.*, c.display_name as client_name, c.email as client_email,
@@ -331,6 +340,14 @@ ${clients.rows.map(c => `- ${c.display_name} (${c.type})
       case 'client-detail': {
         if (!additionalContext.clientId) break;
         
+        // SECURITY: Verify user has access to this client before building context.
+        const { canAccessClient } = await import('../middleware/clientPermissions.js');
+        const clientAccess = await canAccessClient(userId, userRole, additionalContext.clientId, firmId);
+        if (!clientAccess.hasAccess) {
+          context = `[CURRENT PAGE: Client Detail]\nAccess denied to this client.`;
+          break;
+        }
+        
         const [clientRes, mattersRes, invoicesRes] = await Promise.all([
           query(`SELECT * FROM clients WHERE id = $1 AND firm_id = $2`, [additionalContext.clientId, firmId]),
           query(`SELECT name, number, status, type FROM matters WHERE client_id = $1 ORDER BY created_at DESC LIMIT 10`, [additionalContext.clientId]),
@@ -360,7 +377,7 @@ ${invoicesRes.rows.map(i => `- ${i.number}: $${parseFloat(i.total).toLocaleStrin
 
       case 'billing': {
         // Security: filter billing data by user access for non-admins
-        const userInvoiceFilter = isAdmin ? '' : `AND (i.created_by = '${userId}' OR EXISTS (SELECT 1 FROM matters m2 WHERE m2.id = i.matter_id AND (m2.responsible_attorney = '${userId}' OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = '${userId}'))))`;
+        // SECURITY: Use parameterized queries — never interpolate userId into SQL strings.
         const [invoicesRes, unbilledRes, arRes] = await Promise.all([
           isAdmin
             ? query(`SELECT i.*, c.display_name as client_name FROM invoices i LEFT JOIN clients c ON i.client_id = c.id WHERE i.firm_id = $1 ORDER BY i.created_at DESC LIMIT 20`, [firmId])
@@ -495,16 +512,19 @@ ${docs.rows.map(d => `- ${d.original_name || d.name} (${d.type || 'unknown type'
       }
 
       case 'team': {
-        const team = await query(`
-          SELECT u.*, 
-                 (SELECT COUNT(*) FROM matters WHERE responsible_attorney = u.id) as matter_count,
-                 (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE user_id = u.id AND date >= DATE_TRUNC('month', CURRENT_DATE)) as monthly_hours
-          FROM users u
-          WHERE u.firm_id = $1 AND u.is_active = true
-          ORDER BY u.role, u.first_name
-        `, [firmId]);
+        // SECURITY: Non-admin users see only names and roles (no billing rates, hours, or emails of others).
+        // Admins see full team data.
+        if (isAdmin) {
+          const team = await query(`
+            SELECT u.first_name, u.last_name, u.role, u.email, u.hourly_rate,
+                   (SELECT COUNT(*) FROM matters WHERE responsible_attorney = u.id) as matter_count,
+                   (SELECT COALESCE(SUM(hours), 0) FROM time_entries WHERE user_id = u.id AND date >= DATE_TRUNC('month', CURRENT_DATE)) as monthly_hours
+            FROM users u
+            WHERE u.firm_id = $1 AND u.is_active = true
+            ORDER BY u.role, u.first_name
+          `, [firmId]);
 
-        context = `
+          context = `
 [CURRENT PAGE: Team]
 
 TEAM MEMBERS:
@@ -513,6 +533,22 @@ ${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})
   Matters: ${u.matter_count} | This Month: ${parseFloat(u.monthly_hours || 0).toFixed(1)} hrs
   Rate: ${u.hourly_rate ? `$${u.hourly_rate}/hr` : 'Not set'}`).join('\n\n')}
 `;
+        } else {
+          // Non-admins: only see names and roles (no emails, rates, or hours of others)
+          const team = await query(`
+            SELECT u.first_name, u.last_name, u.role
+            FROM users u
+            WHERE u.firm_id = $1 AND u.is_active = true
+            ORDER BY u.role, u.first_name
+          `, [firmId]);
+
+          context = `
+[CURRENT PAGE: Team]
+
+TEAM MEMBERS:
+${team.rows.map(u => `- ${u.first_name} ${u.last_name} (${u.role})`).join('\n')}
+`;
+        }
         break;
       }
 
@@ -557,7 +593,7 @@ ${clientsRes.rows.map(c => `- ${c.display_name}: ${c.matter_count} matters / $${
       case 'ai-assistant':
       case 'general': {
         // Security: filter data by user permissions for non-admins
-        const matterFilter = isAdmin ? '' : `AND (m.visibility = 'firm_wide' OR m.responsible_attorney = '${userId}' OR m.originating_attorney = '${userId}' OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = '${userId}'))`;
+        // SECURITY: Use parameterized queries — never interpolate userId into SQL strings.
         const [userRes, mattersRes, clientsRes, urgentRes, upcomingRes, unbilledRes] = await Promise.all([
           query(`SELECT first_name, last_name, role FROM users WHERE id = $1`, [userId]),
           isAdmin
@@ -945,11 +981,12 @@ router.get('/suggestions', authenticate, async (req, res) => {
  */
 router.get('/learning-patterns', authenticate, async (req, res) => {
   try {
-    const { firmId, userId, patternType, category, minConfidence = 0.3, level = 'user' } = req.query;
+    const { patternType, category, minConfidence = 0.3, level = 'user' } = req.query;
     
-    // Use authenticated user's firm if not specified
-    const targetFirmId = firmId || req.user.firmId;
-    const targetUserId = userId || req.user.id;
+    // SECURITY: Always use the authenticated user's firm and ID.
+    // Never allow client-supplied firmId/userId — prevents cross-firm/cross-user data leaks.
+    const targetFirmId = req.user.firmId;
+    const targetUserId = req.user.id;
     
     let sql;
     let params;
@@ -1050,16 +1087,17 @@ router.get('/learning-patterns', authenticate, async (req, res) => {
  */
 router.post('/learning-patterns', authenticate, async (req, res) => {
   try {
-    const { firmId, userId, patternType, category, patternData, level = 'user' } = req.body;
+    const { patternType, category, patternData, level = 'user' } = req.body;
     
     if (!patternType || !patternData) {
       return res.status(400).json({ error: 'patternType and patternData are required' });
     }
     
-    // For global patterns, ensure no identifying information
+    // SECURITY: Always use the authenticated user's firm and ID.
+    // Never allow client-supplied firmId/userId — prevents cross-firm data writes.
     let safePatternData = patternData;
-    let targetFirmId = firmId || req.user.firmId;
-    let targetUserId = userId || req.user.id;
+    let targetFirmId = req.user.firmId;
+    let targetUserId = req.user.id;
     
     if (level === 'global') {
       // Strip identifying information for global patterns
@@ -1198,8 +1236,9 @@ function mergePatternData(existing, newData) {
  */
 router.get('/user-learning-summary', authenticate, async (req, res) => {
   try {
-    const { userId } = req.query;
-    const targetUserId = userId || req.user.id;
+    // SECURITY: Always use the authenticated user's own ID.
+    // Users should only see their own learning summary.
+    const targetUserId = req.user.id;
     
     // Get pattern counts by category
     const categoryCounts = await query(`
