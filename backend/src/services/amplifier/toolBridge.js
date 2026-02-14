@@ -598,6 +598,21 @@ export const AMPLIFIER_TOOLS = { ...BASE_AMPLIFIER_TOOLS, ...buildToolMapFromAge
 console.log(`[ToolBridge] AMPLIFIER_OPENAI_TOOLS: ${AMPLIFIER_OPENAI_TOOLS.length} tools available (${BACKGROUND_AGENT_ONLY_TOOLS.length} background-agent-only)`);
 console.log(`[ToolBridge] AMPLIFIER_TOOLS: ${Object.keys(AMPLIFIER_TOOLS).length} tool definitions`);
 
+/**
+ * Check if user has admin/owner role (for permission bypass in queries)
+ */
+async function _isUserAdmin(userId, firmId) {
+  try {
+    const result = await query(
+      `SELECT role FROM users WHERE id = $1 AND firm_id = $2`,
+      [userId, firmId]
+    );
+    return result.rows.length > 0 && ['owner', 'admin'].includes(result.rows[0].role);
+  } catch {
+    return false;
+  }
+}
+
 async function loadUserContext(userId, firmId) {
   if (!userId || !firmId) return null;
   
@@ -891,9 +906,17 @@ async function getMatter(params, userId, firmId) {
   
   const matter = matterQuery.rows[0];
   
-  // Get related data
+  // Get related data — SECURITY: filter documents by user permissions
+  const isAdmin = await _isUserAdmin(userId, firmId);
   const [docs, tasks, events, timeEntries] = await Promise.all([
-    query(`SELECT id, original_name, type, uploaded_at FROM documents WHERE matter_id = $1 LIMIT 10`, [matter.id]),
+    isAdmin
+      ? query(`SELECT id, original_name, type, uploaded_at FROM documents WHERE matter_id = $1 AND firm_id = $2 LIMIT 10`, [matter.id, firmId])
+      : query(`SELECT DISTINCT d.id, d.original_name, d.type, d.uploaded_at FROM documents d
+          LEFT JOIN document_permissions dp ON dp.document_id = d.id
+          WHERE d.matter_id = $1 AND d.firm_id = $2
+            AND (d.uploaded_by = $3 OR d.owner_id = $3 OR d.privacy_level = 'firm'
+                 OR EXISTS (SELECT 1 FROM document_permissions dp2 WHERE dp2.document_id = d.id AND dp2.user_id = $3 AND dp2.can_view = true AND (dp2.expires_at IS NULL OR dp2.expires_at > NOW())))
+          LIMIT 10`, [matter.id, firmId, userId]),
     query(`SELECT id, name, status, due_date FROM matter_tasks WHERE matter_id = $1 LIMIT 10`, [matter.id]),
     query(`SELECT id, title, start_time, type FROM calendar_events WHERE matter_id = $1 AND start_time >= NOW() LIMIT 5`, [matter.id]),
     query(`SELECT SUM(hours) as total_hours, SUM(amount) as total_amount FROM time_entries WHERE matter_id = $1`, [matter.id])
@@ -1685,21 +1708,49 @@ async function createDocument(params, userId, firmId) {
 async function searchDocumentContent(params, userId, firmId) {
   const { search_term, matter_id, client_id } = params;
   
-  let sql = `
-    SELECT id, name, original_name, matter_id,
-      SUBSTRING(COALESCE(content_text, '') FROM POSITION(LOWER($2) IN LOWER(COALESCE(content_text, ''))) FOR 200) as excerpt
-    FROM documents
-    WHERE firm_id = $1 AND LOWER(COALESCE(content_text, '')) LIKE $3
-  `;
-  const values = [firmId, search_term, `%${search_term.toLowerCase()}%`];
-  let idx = 4;
+  // SECURITY: Filter documents by user permissions — user can only search docs they have access to
+  const isAdmin = await _isUserAdmin(userId, firmId);
+  
+  let sql;
+  let values;
+  let idx;
+  
+  if (isAdmin) {
+    sql = `
+      SELECT id, name, original_name, matter_id,
+        SUBSTRING(COALESCE(content_text, '') FROM POSITION(LOWER($2) IN LOWER(COALESCE(content_text, ''))) FOR 200) as excerpt
+      FROM documents
+      WHERE firm_id = $1 AND LOWER(COALESCE(content_text, '')) LIKE $3
+    `;
+    values = [firmId, search_term, `%${search_term.toLowerCase()}%`];
+    idx = 4;
+  } else {
+    sql = `
+      SELECT DISTINCT d.id, d.name, d.original_name, d.matter_id,
+        SUBSTRING(COALESCE(d.content_text, '') FROM POSITION(LOWER($2) IN LOWER(COALESCE(d.content_text, ''))) FOR 200) as excerpt
+      FROM documents d
+      LEFT JOIN matters m ON d.matter_id = m.id
+      WHERE d.firm_id = $1 AND LOWER(COALESCE(d.content_text, '')) LIKE $3
+        AND (
+          d.uploaded_by = $4 OR d.owner_id = $4
+          OR d.privacy_level = 'firm'
+          OR m.responsible_attorney = $4
+          OR m.originating_attorney = $4
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $4)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = d.matter_id AND mp.user_id = $4)
+          OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $4 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW()))
+        )
+    `;
+    values = [firmId, search_term, `%${search_term.toLowerCase()}%`, userId];
+    idx = 5;
+  }
   
   if (matter_id) {
-    sql += ` AND matter_id = $${idx++}`;
+    sql += isAdmin ? ` AND matter_id = $${idx++}` : ` AND d.matter_id = $${idx++}`;
     values.push(matter_id);
   }
   if (client_id) {
-    sql += ` AND client_id = $${idx++}`;
+    sql += isAdmin ? ` AND client_id = $${idx++}` : ` AND d.client_id = $${idx++}`;
     values.push(client_id);
   }
   
@@ -2019,13 +2070,23 @@ async function checkConflicts(params, userId, firmId) {
     }
     
     // Search document contents for party name
+    // SECURITY: Only search documents the user has access to
     const docMatches = await query(`
-      SELECT d.id, d.original_name, d.matter_id, m.name as matter_name
+      SELECT DISTINCT d.id, d.original_name, d.matter_id, m.name as matter_name
       FROM documents d
       LEFT JOIN matters m ON d.matter_id = m.id
       WHERE d.firm_id = $1 AND LOWER(d.content_text) LIKE $2
+        AND (
+          d.uploaded_by = $3 OR d.owner_id = $3
+          OR d.privacy_level = 'firm'
+          OR m.responsible_attorney = $3
+          OR m.originating_attorney = $3
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = d.matter_id AND ma.user_id = $3)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = d.matter_id AND mp.user_id = $3)
+          OR EXISTS (SELECT 1 FROM users u WHERE u.id = $3 AND u.firm_id = $1 AND u.role IN ('owner', 'admin'))
+        )
       LIMIT 5
-    `, [firmId, `%${nameLower}%`]);
+    `, [firmId, `%${nameLower}%`, userId]);
     
     if (docMatches.rows.length > 0) {
       for (const doc of docMatches.rows) {

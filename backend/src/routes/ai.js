@@ -250,6 +250,9 @@ ${matters.rows.map(m => `- ${m.name} (${m.number})
           break;
         }
         
+        // SECURITY: Filter documents and time entries by user permissions.
+        // Documents: non-admins only see docs they uploaded, own, or have explicit permission to.
+        // Time entries: non-admins only see their own time entries on the matter.
         const [matterRes, timeRes, docsRes, eventsRes] = await Promise.all([
           query(`
             SELECT m.*, c.display_name as client_name, c.email as client_email,
@@ -259,14 +262,30 @@ ${matters.rows.map(m => `- ${m.name} (${m.number})
             LEFT JOIN users u ON m.responsible_attorney = u.id
             WHERE m.id = $1 AND m.firm_id = $2
           `, [additionalContext.matterId, firmId]),
-          query(`
-            SELECT te.*, u.first_name || ' ' || u.last_name as user_name
-            FROM time_entries te
-            LEFT JOIN users u ON te.user_id = u.id
-            WHERE te.matter_id = $1
-            ORDER BY te.date DESC LIMIT 10
-          `, [additionalContext.matterId]),
-          query(`SELECT name, type, uploaded_at FROM documents WHERE matter_id = $1 LIMIT 10`, [additionalContext.matterId]),
+          isAdmin
+            ? query(`
+                SELECT te.*, u.first_name || ' ' || u.last_name as user_name
+                FROM time_entries te
+                LEFT JOIN users u ON te.user_id = u.id
+                WHERE te.matter_id = $1
+                ORDER BY te.date DESC LIMIT 10
+              `, [additionalContext.matterId])
+            : query(`
+                SELECT te.*, u.first_name || ' ' || u.last_name as user_name
+                FROM time_entries te
+                LEFT JOIN users u ON te.user_id = u.id
+                WHERE te.matter_id = $1 AND te.user_id = $2
+                ORDER BY te.date DESC LIMIT 10
+              `, [additionalContext.matterId, userId]),
+          isAdmin
+            ? query(`SELECT name, original_name, type, uploaded_at FROM documents WHERE matter_id = $1 AND firm_id = $2 LIMIT 10`, [additionalContext.matterId, firmId])
+            : query(`
+                SELECT DISTINCT d.name, d.original_name, d.type, d.uploaded_at FROM documents d
+                WHERE d.matter_id = $1 AND d.firm_id = $2
+                  AND (d.uploaded_by = $3 OR d.owner_id = $3 OR d.privacy_level = 'firm'
+                       OR EXISTS (SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $3 AND dp.can_view = true AND (dp.expires_at IS NULL OR dp.expires_at > NOW())))
+                LIMIT 10
+              `, [additionalContext.matterId, firmId, userId]),
           query(`SELECT title, start_time, type FROM calendar_events WHERE matter_id = $1 AND start_time >= NOW() ORDER BY start_time LIMIT 5`, [additionalContext.matterId]),
         ]);
 
