@@ -2795,6 +2795,14 @@ ${hasMatterPreloaded && matterIsVerified
       }
     }
 
+    // ===== USER AI MEMORY FILE =====
+    // The persistent per-user memory that grows as the attorney uses the platform.
+    // Includes things like practice areas, style preferences, corrections, and active context.
+    // Placed BEFORE "BEGIN NOW" so the model reads who this attorney is before starting work.
+    if (this.userMemoryContext && this.userMemoryContext.trim().length > 20) {
+      prompt += this.userMemoryContext + '\n';
+    }
+
     // Confidence-aware start instructions
     let startInstruction;
     if (hasMatterPreloaded && matterIsVerified) {
@@ -2805,13 +2813,6 @@ ${hasMatterPreloaded && matterIsVerified
       startInstruction = `Call think_and_plan first, then use search_matters or list_my_matters to identify the correct matter before doing any work.`;
     }
     prompt += `\nBEGIN NOW. ${startInstruction}\n`;
-
-    // ===== USER AI MEMORY FILE =====
-    // The persistent per-user memory that grows as the attorney uses the platform.
-    // Includes things like practice areas, style preferences, corrections, and active context.
-    if (this.userMemoryContext && this.userMemoryContext.trim().length > 20) {
-      prompt += this.userMemoryContext + '\n';
-    }
 
     // ===== UNIFIED LEARNING CONTEXT =====
     // All learning sources are combined into a single, selective, budgeted section.

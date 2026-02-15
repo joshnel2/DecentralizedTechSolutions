@@ -11,6 +11,8 @@ import {
   formatMonthYear
 } from '../utils/dateUtils.js';
 import { getMemoryForPrompt, addMemoryEntry } from '../services/userAIMemory.js';
+import { getUserDocumentProfile, formatProfileForPrompt as formatDocProfile } from '../services/amplifier/documentLearning.js';
+import { getLawyerProfile, formatProfileForPrompt as formatLawyerProfile } from '../services/amplifier/lawyerProfile.js';
 
 const router = Router();
 
