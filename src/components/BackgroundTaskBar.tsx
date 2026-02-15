@@ -43,6 +43,10 @@ export function BackgroundTaskBar() {
   // Track last progress update to detect activity
   const lastProgressRef = useRef<{ step: string; percent: number; timestamp: number }>({ step: '', percent: 0, timestamp: Date.now() })
   const [isThinking, setIsThinking] = useState(false)
+  
+  // Track progress stalls - when the agent hasn't made meaningful progress for an extended period
+  const [isStalled, setIsStalled] = useState(false)
+  const STALL_THRESHOLD_MS = 120000 // 2 minutes without progress change = stall
 
   // Keep activeTaskRef in sync with state (for use in polling callback)
   useEffect(() => {
@@ -83,13 +87,19 @@ export function BackgroundTaskBar() {
           // Detect if we're in a "thinking" state (same step for a while but still running)
           if (lastProgressRef.current.step === currentStep && lastProgressRef.current.percent === progressPercent) {
             // Same state for a while - agent might be thinking
-            if (now - lastProgressRef.current.timestamp > 5000) {
+            const staleDuration = now - lastProgressRef.current.timestamp
+            if (staleDuration > 5000) {
               setIsThinking(true)
             }
+            // Detect a real stall: no progress change for 2+ minutes
+            if (staleDuration > STALL_THRESHOLD_MS) {
+              setIsStalled(true)
+            }
           } else {
-            // Progress changed - update tracker and reset thinking state
+            // Progress changed - update tracker and reset thinking/stall state
             lastProgressRef.current = { step: currentStep, percent: progressPercent, timestamp: now }
             setIsThinking(false)
+            setIsStalled(false)
           }
           
           setActiveTask({
@@ -412,7 +422,9 @@ export function BackgroundTaskBar() {
             <div className={styles.info}>
               <div className={styles.header}>
                 <div className={styles.title}>
-                  {isThinking 
+                  {isStalled
+                    ? (activeTask?.isAmplifier ? 'Background Agent May Be Stalled' : 'AI Agent May Be Stalled')
+                    : isThinking 
                     ? (activeTask?.isAmplifier ? 'Background Agent Thinking...' : 'AI Agent Thinking...') 
                     : (activeTask?.isAmplifier ? 'Background Agent Working' : 'AI Agent Working')
                   }
@@ -425,7 +437,11 @@ export function BackgroundTaskBar() {
               </div>
               <div className={styles.goal}>{activeTask.goal}</div>
               <div className={styles.step}>
-                {isThinking ? `🧠 ${activeTask.currentStep}` : activeTask.currentStep}
+                {isStalled 
+                  ? `⚠️ No progress for 2+ min — ${activeTask.currentStep}` 
+                  : isThinking 
+                  ? `🧠 ${activeTask.currentStep}` 
+                  : activeTask.currentStep}
               </div>
             </div>
           </div>

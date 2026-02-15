@@ -26,6 +26,7 @@ const EVAL_DIMENSIONS = {
   THOROUGHNESS: 'thoroughness',     // Did the agent do enough work?
   WORK_TYPE_FIT: 'work_type_fit',  // Did the agent meet work-type-specific requirements?
   CITATION_INTEGRITY: 'citation_integrity', // Are legal citations verifiable?
+  GOAL_RELEVANCE: 'goal_relevance', // Is the work actually related to the original goal?
 };
 
 // ===== WORK-TYPE-SPECIFIC QUALITY REQUIREMENTS =====
@@ -321,15 +322,26 @@ export async function evaluateTask(task) {
       evaluation.strengths.push(...citationResult.strengths);
     }
     
+    // ===== GOAL RELEVANCE =====
+    // Check whether the actions and deliverables actually relate to the original goal.
+    // This catches the dangerous case where the agent did good work, but on the wrong thing.
+    const goalRelevanceResult = evaluateGoalRelevance(task, actions, noteActions, docActions);
+    evaluation.dimensions[EVAL_DIMENSIONS.GOAL_RELEVANCE] = goalRelevanceResult.score;
+    evaluation.issues.push(...goalRelevanceResult.issues);
+    if (goalRelevanceResult.strengths.length > 0) {
+      evaluation.strengths.push(...goalRelevanceResult.strengths);
+    }
+    
     // ===== OVERALL SCORE =====
     const weights = {
-      [EVAL_DIMENSIONS.COMPLETENESS]: 0.20,
-      [EVAL_DIMENSIONS.SPECIFICITY]: 0.20,
-      [EVAL_DIMENSIONS.ACTIONABILITY]: 0.10,
-      [EVAL_DIMENSIONS.THOROUGHNESS]: 0.15,
-      [EVAL_DIMENSIONS.PROFESSIONALISM]: 0.10,
-      [EVAL_DIMENSIONS.WORK_TYPE_FIT]: 0.15,
+      [EVAL_DIMENSIONS.COMPLETENESS]: 0.18,
+      [EVAL_DIMENSIONS.SPECIFICITY]: 0.18,
+      [EVAL_DIMENSIONS.ACTIONABILITY]: 0.08,
+      [EVAL_DIMENSIONS.THOROUGHNESS]: 0.13,
+      [EVAL_DIMENSIONS.PROFESSIONALISM]: 0.08,
+      [EVAL_DIMENSIONS.WORK_TYPE_FIT]: 0.13,
       [EVAL_DIMENSIONS.CITATION_INTEGRITY]: 0.10,
+      [EVAL_DIMENSIONS.GOAL_RELEVANCE]: 0.12,
     };
     
     evaluation.overallScore = Math.round(
@@ -339,11 +351,13 @@ export async function evaluateTask(task) {
     );
     
     // Determine if revision is needed
-    // Revision triggers: low overall score, too many issues, or critical citation problems
+    // Revision triggers: low overall score, too many issues, critical citation problems,
+    // or very low goal relevance (agent worked on the wrong thing)
     evaluation.revisionNeeded = 
       evaluation.overallScore < 50 || 
       evaluation.issues.length > 2 ||
-      (citationResult.flags.length > 0 && citationResult.score < 30);
+      (citationResult.flags.length > 0 && citationResult.score < 30) ||
+      goalRelevanceResult.score < 30;
     
     console.log(`[TaskEvaluator] Task ${task.id} scored ${evaluation.overallScore}/100 ` +
       `(workType: ${workTypeFitResult.workType}, ` +
@@ -647,6 +661,149 @@ function evaluateCitationIntegrity(task, actions, docActions, noteActions, saved
   } catch (error) {
     console.error('[TaskEvaluator] Citation evaluation error:', error.message);
     // Non-fatal: return default
+  }
+  
+  return result;
+}
+
+/**
+ * Evaluate whether the agent's work is actually relevant to the original goal.
+ * This checks tool arguments and note/document content against goal keywords
+ * to catch cases where the agent drifted onto the wrong topic.
+ */
+function evaluateGoalRelevance(task, actions, noteActions, docActions) {
+  const result = {
+    score: 70, // Default: assume reasonably on-topic
+    issues: [],
+    strengths: [],
+  };
+  
+  try {
+    const goal = task.goal || '';
+    if (!goal || goal.length < 10) {
+      result.score = 70; // Can't evaluate without a meaningful goal
+      return result;
+    }
+    
+    // Extract meaningful keywords from the goal
+    const stopWords = new Set([
+      'this', 'that', 'with', 'from', 'have', 'will', 'been', 'they', 'them',
+      'then', 'than', 'when', 'what', 'which', 'where', 'your', 'their',
+      'about', 'into', 'more', 'some', 'could', 'would', 'should', 'each',
+      'make', 'like', 'just', 'also', 'only', 'over', 'such', 'after', 'before',
+      'please', 'need', 'want', 'task', 'work', 'help', 'look', 'check',
+    ]);
+    
+    const goalKeywords = goal.toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter(w => w.length >= 4 && !stopWords.has(w));
+    
+    if (goalKeywords.length < 2) {
+      return result; // Not enough keywords to evaluate
+    }
+    
+    const goalKeywordSet = new Set(goalKeywords);
+    
+    // Check how many substantive actions reference goal keywords
+    const substantiveActions = actions.filter(a => 
+      !['think_and_plan', 'evaluate_progress', 'task_complete', 'log_work'].includes(a.tool) &&
+      a.success !== false
+    );
+    
+    if (substantiveActions.length === 0) {
+      result.score = 30;
+      result.issues.push('No substantive actions completed - cannot assess goal relevance');
+      return result;
+    }
+    
+    let relevantActions = 0;
+    for (const action of substantiveActions) {
+      const argsText = JSON.stringify(action.args || {}).toLowerCase();
+      const toolText = action.tool.replace(/_/g, ' ').toLowerCase();
+      
+      let isRelevant = false;
+      for (const keyword of goalKeywordSet) {
+        if (argsText.includes(keyword) || toolText.includes(keyword)) {
+          isRelevant = true;
+          break;
+        }
+      }
+      
+      // Read tools (get_matter, list_documents, etc.) are always considered relevant
+      // since they gather context needed for the goal
+      if (['get_matter', 'list_my_matters', 'search_matters', 'read_document_content',
+           'search_document_content', 'list_documents', 'list_clients', 'get_client',
+           'get_calendar_events', 'list_tasks', 'list_invoices', 'get_firm_analytics',
+           'get_upcoming_deadlines', 'lookup_cplr', 'check_conflicts',
+           'get_matter_documents_content', 'find_and_read_document',
+           'review_created_documents'].includes(action.tool)) {
+        isRelevant = true;
+      }
+      
+      if (isRelevant) relevantActions++;
+    }
+    
+    const relevanceRatio = relevantActions / substantiveActions.length;
+    
+    // Score based on what percentage of actions appear on-topic
+    if (relevanceRatio >= 0.7) {
+      result.score = 90 + Math.round(relevanceRatio * 10);
+      result.strengths.push('Work product is closely aligned with the stated goal');
+    } else if (relevanceRatio >= 0.4) {
+      result.score = 60 + Math.round(relevanceRatio * 30);
+      // This is borderline - note it but don't flag as an issue
+    } else {
+      result.score = Math.max(10, Math.round(relevanceRatio * 100));
+      result.issues.push(
+        `Only ${Math.round(relevanceRatio * 100)}% of substantive actions appear related to the goal: "${goal.substring(0, 80)}". ` +
+        `The agent may have drifted off-topic.`
+      );
+    }
+    
+    // Also check note and document content for goal keywords
+    let deliverableRelevanceHits = 0;
+    let deliverableCount = 0;
+    
+    for (const note of noteActions) {
+      const content = (note.args?.content || note.args?.note || '').toLowerCase();
+      if (content.length > 0) {
+        deliverableCount++;
+        for (const keyword of goalKeywordSet) {
+          if (content.includes(keyword)) {
+            deliverableRelevanceHits++;
+            break;
+          }
+        }
+      }
+    }
+    
+    for (const doc of docActions) {
+      const content = (doc.args?.content || doc.args?.body || '').toLowerCase();
+      const name = (doc.args?.name || '').toLowerCase();
+      if (content.length > 0 || name.length > 0) {
+        deliverableCount++;
+        for (const keyword of goalKeywordSet) {
+          if (content.includes(keyword) || name.includes(keyword)) {
+            deliverableRelevanceHits++;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (deliverableCount > 0 && deliverableRelevanceHits === 0) {
+      result.score = Math.max(20, result.score - 25);
+      result.issues.push('None of the created deliverables (notes/documents) contain keywords from the original goal');
+    } else if (deliverableCount > 0 && deliverableRelevanceHits === deliverableCount) {
+      result.score = Math.min(100, result.score + 5);
+      result.strengths.push('All deliverables reference the stated goal');
+    }
+    
+    result.score = Math.min(100, Math.max(0, result.score));
+    
+  } catch (error) {
+    console.error('[TaskEvaluator] Goal relevance evaluation error:', error.message);
   }
   
   return result;
