@@ -280,7 +280,6 @@ async function extractDocText(arrayBuffer: ArrayBuffer, fileName: string): Promi
       const utf16Text = utf16Decoder.decode(arrayBuffer)
       // Filter to printable characters and clean up
       const cleanUtf16 = utf16Text
-        // eslint-disable-next-line no-control-regex
         .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()

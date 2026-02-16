@@ -13,7 +13,7 @@ module.exports = {
     es2022: true,
     node: true,
   },
-  plugins: ["@typescript-eslint"],
+  plugins: ["@typescript-eslint", "react-hooks"],
   ignorePatterns: ["dist/", "node_modules/"],
   rules: {},
 };
