@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { copyFileSync, existsSync } from 'node:fs'
 
 // Plugin to copy required assets to dist folder
 const copyAssets = () => ({
