@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { query, withTransaction } from '../db/connection.js';
 import { authenticate } from '../middleware/auth.js';
 import { 
@@ -720,7 +721,6 @@ router.post('/documents/:documentId/save', authenticate, async (req, res) => {
     }
 
     const fileBuffer = Buffer.from(await contentResponse.arrayBuffer());
-    const crypto = require('crypto');
     const contentHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
     // Check if content actually changed
@@ -1052,7 +1052,6 @@ async function syncDocumentFromOneDrive(documentId, user, firmId) {
   }
 
   const fileBuffer = Buffer.from(await contentResponse.arrayBuffer());
-  const crypto = require('crypto');
   const contentHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
   // Check if content changed
@@ -1778,7 +1777,7 @@ router.post('/documents/:documentId/sync-from-online', authenticate, async (req,
     // For DOCX files, we'd need to extract text
     // For simplicity, we'll store the raw content and mark for extraction
     const fileBuffer = await fileContentResponse.arrayBuffer();
-    const contentHash = require('crypto').createHash('sha256').update(Buffer.from(fileBuffer)).digest('hex');
+    const contentHash = crypto.createHash('sha256').update(Buffer.from(fileBuffer)).digest('hex');
 
     // Check if content changed
     if (doc.content_hash === contentHash) {
