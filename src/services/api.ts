@@ -2176,9 +2176,8 @@ export const wordOnlineApi = {
   // Download specific version
   async downloadVersion(documentId: string, versionNumber: number): Promise<{ blob: Blob; filename: string }> {
     const headers: HeadersInit = {};
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
     
     const response = await fetch(`${API_URL}/word-online/documents/${documentId}/versions/${versionNumber}/download`, {
