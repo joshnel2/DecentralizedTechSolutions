@@ -114,7 +114,6 @@ export function AuditLogViewer({
   useEffect(() => {
     fetchLogs()
     fetchTeamMembers()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange, matterId, clientId, documentId])
   
   // Filter logs

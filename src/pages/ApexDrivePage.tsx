@@ -35,7 +35,6 @@ export function ApexDrivePage() {
 
   useEffect(() => {
     checkStatus()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const checkStatus = async () => {

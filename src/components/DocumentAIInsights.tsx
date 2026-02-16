@@ -72,7 +72,6 @@ export function DocumentAIInsights({ matterId, documentId, showActivity = false 
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matterId, documentId]);
 
   async function loadData() {

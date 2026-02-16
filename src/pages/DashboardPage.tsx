@@ -80,7 +80,6 @@ export function DashboardPage() {
         }
       })
       .catch(err => console.error('Failed to fetch attorney production:', err))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const stats = useMemo(() => {

@@ -80,7 +80,6 @@ export function DocumentEditor({
         clearTimeout(autoSaveTimerRef.current)
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasChanges, isOwnLock, content])
   
   // Handle save
@@ -142,7 +141,6 @@ export function DocumentEditor({
     
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, hasChanges, saving])
   
   const wordCount = content.trim().split(/\s+/).filter(w => w.length > 0).length

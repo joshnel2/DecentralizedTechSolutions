@@ -1521,7 +1521,6 @@ Take 20-25 minutes. Identify all compliance issues.`,
   // Only run once on mount - not when refreshAll changes
   useEffect(() => {
     refreshAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Handle navigation state (when coming from BackgroundTaskBar)
@@ -1753,7 +1752,6 @@ Take 20-25 minutes. Identify all compliance issues.`,
       setIsStreaming(false)
       setConnectionStatus('disconnected')
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only reconnect when task ID changes, not on every state update
   }, [activeTask?.id])
 
   // Auto-scroll live events

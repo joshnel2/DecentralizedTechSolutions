@@ -85,7 +85,6 @@ export function ShareDocumentModal({
     if (isOpen) {
       loadData()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, documentId])
 
   const loadData = async () => {

@@ -60,7 +60,6 @@ export function ShareMatterModal({
     if (isOpen) {
       loadData()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, matterId])
 
   // Filter users by search query

@@ -89,7 +89,6 @@ export function MatterPermissions({
   // Load permissions data
   useEffect(() => {
     loadPermissions()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matterId])
 
   async function loadPermissions() {
@@ -114,7 +113,6 @@ export function MatterPermissions({
     if (showPicker) {
       loadAvailableUsersAndGroups()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPicker, searchQuery])
 
   async function loadAvailableUsersAndGroups() {

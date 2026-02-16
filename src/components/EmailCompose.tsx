@@ -80,7 +80,6 @@ export function EmailCompose() {
     if (showAttachMenu && documents.length === 0) {
       loadDocuments()
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAttachMenu])
 
   // Auto-focus body when opened
