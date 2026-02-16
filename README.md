@@ -48,11 +48,6 @@ npm install
 npm run dev
 ```
 
-### Demo Account
-Use these credentials to explore the platform:
-- **Email:** admin@apex.law
-- **Password:** apex2024
-
 ## 🛠️ Technology Stack
 
 - **Frontend:** React 18, TypeScript, React Router
