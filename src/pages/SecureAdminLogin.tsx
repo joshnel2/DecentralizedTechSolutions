@@ -89,55 +89,48 @@ export default function SecureAdminLogin() {
 
     setIsLoading(true)
 
-    // Simulate network delay for security (prevents timing attacks)
-    await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 500))
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/api'
+      const response = await fetch(`${apiUrl}/secure-admin/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
 
-    // SECURE CREDENTIAL VALIDATION
-    // These are checked client-side with additional server verification
-    const validUsername = 'strappedadmin7969'
-    const validPassword = 'dawg79697969'
+      const data = await response.json()
 
-    // Use constant-time comparison to prevent timing attacks
-    const usernameMatch = username.length === validUsername.length && 
-      username.split('').every((char, i) => char === validUsername[i])
-    const passwordMatch = password.length === validPassword.length && 
-      password.split('').every((char, i) => char === validPassword[i])
+      if (response.ok && data.success) {
+        const sessionData = {
+          auth: true,
+          user: 'platform_admin',
+          iat: Date.now(),
+          exp: Date.now() + (30 * 60 * 1000),
+          fp: clientId.substring(0, 16)
+        }
 
-    if (usernameMatch && passwordMatch) {
-      // Create secure session token
-      const sessionData = {
-        auth: true,
-        user: 'platform_admin',
-        iat: Date.now(),
-        exp: Date.now() + (30 * 60 * 1000), // 30 minute session
-        fp: clientId.substring(0, 16)
-      }
-      
-      sessionStorage.setItem('_sap_auth', btoa(JSON.stringify(sessionData)))
-      
-      // Log successful login (HIPAA audit trail)
-      console.log(`[AUDIT] Admin login successful at ${new Date().toISOString()}`)
-      
-      // Reset attempts on success
-      loginAttempts[clientId] = { count: 0, lastAttempt: now }
-      
-      navigate('/rx760819/dashboard')
-    } else {
-      // Increment failed attempts
-      loginAttempts[clientId].count++
-      loginAttempts[clientId].lastAttempt = now
-      
-      // Log failed attempt (HIPAA audit trail)
-      console.log(`[AUDIT] Failed admin login attempt at ${new Date().toISOString()}`)
-      
-      const remaining = 5 - loginAttempts[clientId].count
-      if (remaining > 0) {
-        setError(`Invalid credentials. ${remaining} attempts remaining.`)
-      } else {
+        sessionStorage.setItem('_sap_auth', btoa(JSON.stringify(sessionData)))
+        loginAttempts[clientId] = { count: 0, lastAttempt: now }
+        navigate('/rx760819/dashboard')
+      } else if (response.status === 429) {
+        const lockoutRemaining = data.lockoutSeconds || 300
         setIsLocked(true)
-        setLockoutTime(5 * 60)
-        setError('Account locked for 5 minutes due to failed attempts.')
+        setLockoutTime(lockoutRemaining)
+        setError(`Too many failed attempts. Locked for ${Math.ceil(lockoutRemaining / 60)} minutes.`)
+      } else {
+        loginAttempts[clientId].count++
+        loginAttempts[clientId].lastAttempt = now
+
+        const remaining = data.remainingAttempts ?? (5 - loginAttempts[clientId].count)
+        if (remaining > 0) {
+          setError(`Invalid credentials. ${remaining} attempts remaining.`)
+        } else {
+          setIsLocked(true)
+          setLockoutTime(5 * 60)
+          setError('Account locked for 5 minutes due to failed attempts.')
+        }
       }
+    } catch {
+      setError('Unable to reach authentication server. Please try again.')
     }
 
     setIsLoading(false)
