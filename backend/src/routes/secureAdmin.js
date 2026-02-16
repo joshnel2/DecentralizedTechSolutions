@@ -7,11 +7,12 @@ import { clearAzureConfigCache } from '../utils/azureStorage.js';
 
 const router = Router();
 
-// Secure admin credentials (hashed for security)
-// Username: strappedadmin7969
-// Password: dawg79697969
-const ADMIN_USERNAME_HASH = crypto.createHash('sha256').update('strappedadmin7969').digest('hex');
-const ADMIN_PASSWORD_HASH = crypto.createHash('sha256').update('dawg79697969').digest('hex');
+// Secure admin credentials — read from environment variables
+// Set SECURE_ADMIN_USERNAME and SECURE_ADMIN_PASSWORD in your .env file
+const ADMIN_USERNAME = process.env.SECURE_ADMIN_USERNAME || 'strappedadmin7969';
+const ADMIN_PASSWORD = process.env.SECURE_ADMIN_PASSWORD || 'dawg79697969';
+const ADMIN_USERNAME_HASH = crypto.createHash('sha256').update(ADMIN_USERNAME).digest('hex');
+const ADMIN_PASSWORD_HASH = crypto.createHash('sha256').update(ADMIN_PASSWORD).digest('hex');
 
 // Rate limiting for security
 const loginAttempts = new Map();
