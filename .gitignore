@@ -1,8 +1,31 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
-*.log
+
+# Environment files
 .env
 .env.local
-node_modules/
+.env.*.local
+
+# Logs
 *.log
-dist/
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Large binary artifacts
+*.zip
