@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import styles from './SettingsPage.module.css'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 interface NotificationPreferences {
   // In-App
@@ -82,7 +82,7 @@ export function NotificationsSettingsPage() {
 
   const fetchPreferences = async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/notifications/preferences`, {
+      const response = await fetch(`${API_BASE}/notifications/preferences`, {
         headers: {
           'Content-Type': 'application/json',
           'x-firm-id': localStorage.getItem('firmId') || '',
@@ -113,7 +113,7 @@ export function NotificationsSettingsPage() {
     setError('')
     
     try {
-      const response = await fetch(`${API_BASE}/api/notifications/preferences`, {
+      const response = await fetch(`${API_BASE}/notifications/preferences`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -147,7 +147,7 @@ export function NotificationsSettingsPage() {
     setError('')
     
     try {
-      const response = await fetch(`${API_BASE}/api/notifications/test-sms`, {
+      const response = await fetch(`${API_BASE}/notifications/test-sms`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
