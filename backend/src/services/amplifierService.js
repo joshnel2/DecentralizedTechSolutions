@@ -140,6 +140,15 @@ const MESSAGE_COMPACT_MAX_CHARS = 20000;  // Tightened from 24000: reduce per-ca
 const MESSAGE_COMPACT_MAX_MESSAGES = 28;  // Tightened from 36: compact sooner to stay lean
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
 const PLAN_MESSAGE_PREFIX = '## EXECUTION PLAN';
+const GOAL_ANCHOR_PREFIX = '## GOAL ANCHOR';
+
+// ===== GOAL RE-ANCHORING & DRIFT DETECTION =====
+// How often (in iterations) to re-inject the original goal into the message stream.
+// This prevents the model from drifting away from the task during long execution loops.
+const GOAL_REANCHOR_INTERVAL = 12;        // Re-anchor goal every 12 iterations
+// How many consecutive actions can be "off-topic" before triggering drift correction
+const DRIFT_DETECTION_WINDOW = 6;         // Look at last 6 actions for drift
+const DRIFT_CORRECTION_THRESHOLD = 4;     // 4 of 6 actions unrelated = drift
 
 // Execution phases for structured 30-minute task management
 const ExecutionPhase = {
@@ -674,6 +683,12 @@ class BackgroundTask extends EventEmitter {
     // Track whether we've run mid-task quality checks at phase transitions
     this.phaseEvaluationsDone = new Set();
     
+    // ===== GOAL RE-ANCHORING & DRIFT DETECTION =====
+    // Track when we last re-anchored the goal to prevent drift
+    this.lastGoalAnchorIteration = 0;
+    // Track the count of potentially off-topic actions for drift detection
+    this.driftWarningCount = 0;
+    
     // ===== HARNESS INTELLIGENCE =====
     // Loaded at initializeContext time - stores rejection-learned quality overrides,
     // proven tool chains, and per-matter memory
@@ -866,6 +881,148 @@ class BackgroundTask extends EventEmitter {
     }
     
     return { phase: completedPhase, issues, suggestions, timestamp: new Date() };
+  }
+
+  // ===== GOAL RE-ANCHORING & DRIFT DETECTION =====
+  
+  /**
+   * Check if the agent appears to be drifting away from the original goal.
+   * 
+   * Drift is detected by analyzing recent tool calls against the goal keywords.
+   * If the agent is spending most of its recent iterations on tools/topics
+   * unrelated to the goal, we flag it as drifting.
+   * 
+   * Returns: { drifting: boolean, confidence: number, details: string }
+   */
+  detectDrift() {
+    const recentActions = this.actionsHistory.slice(-DRIFT_DETECTION_WINDOW);
+    if (recentActions.length < DRIFT_DETECTION_WINDOW) {
+      return { drifting: false, confidence: 0, details: 'Not enough actions to detect drift' };
+    }
+    
+    // Extract keywords from the original goal
+    const goalWords = new Set(
+      this.goal.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 3) // Only meaningful words
+    );
+    
+    // Common stop words that don't indicate relevance
+    const stopWords = new Set([
+      'this', 'that', 'with', 'from', 'have', 'will', 'been', 'they', 'them',
+      'then', 'than', 'when', 'what', 'which', 'where', 'your', 'their',
+      'about', 'into', 'more', 'some', 'could', 'would', 'should', 'each',
+      'make', 'like', 'just', 'also', 'only', 'over', 'such', 'after', 'before',
+    ]);
+    const relevantGoalWords = new Set([...goalWords].filter(w => !stopWords.has(w)));
+    
+    if (relevantGoalWords.size === 0) {
+      return { drifting: false, confidence: 0, details: 'Could not extract goal keywords' };
+    }
+    
+    // Count how many recent actions are relevant to the goal
+    let relevantActions = 0;
+    for (const action of recentActions) {
+      // Meta tools (think_and_plan, evaluate_progress, task_complete) are always "on topic"
+      if (['think_and_plan', 'evaluate_progress', 'task_complete', 'log_work', 'review_created_documents'].includes(action.tool)) {
+        relevantActions++;
+        continue;
+      }
+      
+      // Check if tool args reference any goal keywords
+      const argsText = JSON.stringify(action.args || {}).toLowerCase();
+      const goalText = this.goal.toLowerCase();
+      
+      // Check if the action is working with a known matter (always relevant)
+      if (this.preloadedMatterId && argsText.includes(this.preloadedMatterId)) {
+        relevantActions++;
+        continue;
+      }
+      
+      // Check keyword overlap between action args and goal
+      let keywordHits = 0;
+      for (const word of relevantGoalWords) {
+        if (argsText.includes(word) || goalText.includes(action.tool.replace(/_/g, ' '))) {
+          keywordHits++;
+        }
+      }
+      
+      if (keywordHits > 0) {
+        relevantActions++;
+      }
+    }
+    
+    const irrelevantActions = recentActions.length - relevantActions;
+    const drifting = irrelevantActions >= DRIFT_CORRECTION_THRESHOLD;
+    const confidence = Math.round((irrelevantActions / recentActions.length) * 100);
+    
+    return {
+      drifting,
+      confidence,
+      details: drifting 
+        ? `${irrelevantActions} of last ${recentActions.length} actions appear unrelated to goal: "${this.goal.substring(0, 80)}"`
+        : `${relevantActions} of ${recentActions.length} recent actions are on-topic`
+    };
+  }
+  
+  /**
+   * Build a goal re-anchor message to inject into the conversation.
+   * This reminds the model what the original task is and what progress has been made.
+   * Different from plan re-injection: this focuses on the GOAL, not the plan steps.
+   */
+  buildGoalAnchorMessage() {
+    const elapsedMin = Math.round((Date.now() - this.startTime.getTime()) / 60000);
+    const remainingMin = Math.round((this.maxRuntimeMs - (Date.now() - this.startTime.getTime())) / 60000);
+    
+    const deliverables = [];
+    if (this.substantiveActions.notes > 0) deliverables.push(`${this.substantiveActions.notes} note(s)`);
+    if (this.substantiveActions.documents > 0) deliverables.push(`${this.substantiveActions.documents} document(s)`);
+    if (this.substantiveActions.tasks > 0) deliverables.push(`${this.substantiveActions.tasks} task(s)`);
+    if (this.substantiveActions.events > 0) deliverables.push(`${this.substantiveActions.events} event(s)`);
+    
+    const followUpReminders = (this.followUps || []).slice(-2).map(f => f.message).join('; ');
+    
+    let content = `${GOAL_ANCHOR_PREFIX}
+🎯 YOUR ORIGINAL GOAL: "${this.goal}"
+⏱️ Time: ${elapsedMin}min elapsed, ~${remainingMin}min remaining
+📊 Phase: ${this.executionPhase.toUpperCase()} | Iteration: ${this.progress.iterations}
+📦 Deliverables so far: ${deliverables.length > 0 ? deliverables.join(', ') : 'None yet'}`;
+    
+    if (followUpReminders) {
+      content += `\n📝 User follow-up instructions: ${followUpReminders}`;
+    }
+    
+    content += `\n\nStay focused on this goal. Every tool call should directly advance this objective. If you are stuck, call think_and_plan to re-assess your approach.`;
+    
+    return {
+      role: 'user',
+      content
+    };
+  }
+  
+  /**
+   * Check if a message is a goal anchor message (for filtering during compaction)
+   */
+  isGoalAnchorMessage(message) {
+    return message?.role === 'user' && message?.content?.startsWith(GOAL_ANCHOR_PREFIX);
+  }
+  
+  /**
+   * Inject a drift correction message that is stronger than a goal re-anchor.
+   * Used when drift detection has confirmed the agent is off-topic.
+   */
+  buildDriftCorrectionMessage(driftDetails) {
+    return {
+      role: 'user',
+      content: `⚠️ DRIFT DETECTED: ${driftDetails}
+
+You are going OFF-TOPIC. Your assigned goal is:
+"${this.goal}"
+
+STOP what you are doing and IMMEDIATELY refocus. Your next tool call MUST directly advance the goal above.
+If you are confused about what to do next, call think_and_plan to re-create a focused plan for: "${this.goal}"`
+    };
   }
 
   /**
@@ -2242,10 +2399,11 @@ ${candidateList}
       !this.isMemoryMessage(message) && !this.isPlanMessage(message)
     );
     
-    // Rescue follow-up messages from older messages that would be dropped
+    // Rescue follow-up messages and goal anchors from older messages that would be dropped
     const olderMessages = this.messages.slice(0, -12);
     const rescuedFollowUps = olderMessages.filter(message =>
-      message?.role === 'user' && message?.content?.includes('FOLLOW-UP INSTRUCTION FROM USER')
+      (message?.role === 'user' && message?.content?.includes('FOLLOW-UP INSTRUCTION FROM USER')) ||
+      this.isGoalAnchorMessage(message)
     );
     
     // Build fresh memory summary
@@ -3153,6 +3311,64 @@ ${hasMatterPreloaded && matterIsVerified
       // model sees them in the correct chronological position.
       this._drainFollowUpQueue();
       
+      // ===== GOAL RE-ANCHORING =====
+      // Periodically re-inject the original goal to prevent the model from
+      // drifting away from the task during long execution loops.
+      if ((this.progress.iterations - this.lastGoalAnchorIteration) >= GOAL_REANCHOR_INTERVAL) {
+        // Remove old goal anchor messages first (keep context lean)
+        this.messages = this.messages.filter(m => !this.isGoalAnchorMessage(m));
+        
+        const goalAnchor = this.buildGoalAnchorMessage();
+        this.messages.push(goalAnchor);
+        this.lastGoalAnchorIteration = this.progress.iterations;
+        
+        console.log(`[Amplifier] Goal re-anchored at iteration ${this.progress.iterations}`);
+      }
+      
+      // ===== DRIFT DETECTION =====
+      // Check if the agent has been making progress on the wrong thing.
+      // Only check after enough actions to establish a pattern.
+      if (this.actionsHistory.length >= DRIFT_DETECTION_WINDOW && this.progress.iterations % 5 === 0) {
+        const driftResult = this.detectDrift();
+        if (driftResult.drifting) {
+          this.driftWarningCount++;
+          console.warn(`[Amplifier] Drift detected in task ${this.id} (warning #${this.driftWarningCount}): ${driftResult.details}`);
+          
+          this.streamEvent('drift_detected', `⚠️ Drift detected: agent may be going off-topic. Refocusing...`, {
+            confidence: driftResult.confidence,
+            icon: 'alert-triangle',
+            color: 'orange'
+          });
+          
+          // Inject drift correction message
+          const correction = this.buildDriftCorrectionMessage(driftResult.details);
+          this.messages.push(correction);
+          
+          // Also re-anchor the goal immediately
+          this.messages = this.messages.filter(m => !this.isGoalAnchorMessage(m));
+          this.messages.push(this.buildGoalAnchorMessage());
+          this.lastGoalAnchorIteration = this.progress.iterations;
+          
+          // If drift has been detected 3+ times, attempt rewind
+          if (this.driftWarningCount >= 3 && this.rewindManager.getStatus().canRewind) {
+            console.warn(`[Amplifier] Persistent drift (${this.driftWarningCount} warnings) - attempting rewind`);
+            const rewindResult = this.rewindManager.rewind(this, `Persistent goal drift: ${driftResult.details}`);
+            if (rewindResult.success) {
+              this.driftWarningCount = 0;
+              this.agentMemory?.addFailedPath(`Went off-topic: ${driftResult.details}`);
+              this.agentMemory?.addConstraint(`Stay focused on original goal: "${this.goal.substring(0, 100)}"`);
+              this.streamEvent('rewind_success', `⏪ Rewound to refocus on original goal`, {
+                icon: 'rotate-ccw', color: 'blue'
+              });
+              continue; // Restart from rewound state
+            }
+          }
+        } else if (driftResult.confidence < 30) {
+          // Agent is on track - reset drift counter
+          this.driftWarningCount = Math.max(0, this.driftWarningCount - 1);
+        }
+      }
+      
       // ===== PHASE TRANSITION CHECK =====
       if (this.shouldTransitionPhase()) {
         this.transitionPhase();
@@ -3724,6 +3940,51 @@ ${hasMatterPreloaded && matterIsVerified
               
               if (WT_REQS[workTypeId]) {
                 WT_REQS[workTypeId]();
+              }
+              
+              // ===== MODULE QUALITY GATE ENFORCEMENT =====
+              // If a module was detected for this task, enforce its specific quality gates.
+              // This makes the module's qualityGates actually block premature completion
+              // instead of being purely advisory prompt text.
+              if (this.detectedModule?.qualityGates) {
+                for (const gate of this.detectedModule.qualityGates) {
+                  const metricMap = {
+                    'documents_read': this.substantiveActions.research || 0,
+                    'notes_created': this.substantiveActions.notes || 0,
+                    'documents_created': this.substantiveActions.documents || 0,
+                    'tasks_created': this.substantiveActions.tasks || 0,
+                    'calendar_events': this.substantiveActions.events || 0,
+                    'events_created': this.substantiveActions.events || 0,
+                  };
+                  const actual = metricMap[gate.metric] ?? 0;
+                  if (actual < gate.minValue) {
+                    missing.push(`MODULE REQUIREMENT (${this.detectedModule.metadata?.name || 'active module'}): ${gate.description} — need ${gate.minValue}, have ${actual}.`);
+                  }
+                }
+              }
+              
+              // ===== GOAL-RELEVANCE CHECK =====
+              // Verify the agent's summary actually relates to the original goal.
+              // This catches cases where the agent completed work but on the wrong topic.
+              if (toolArgs.summary) {
+                const summaryLower = (toolArgs.summary || '').toLowerCase();
+                const goalLower = this.goal.toLowerCase();
+                
+                // Extract meaningful keywords from goal (4+ chars, not stop words)
+                const goalKeywords = goalLower
+                  .replace(/[^a-z0-9\s]/g, '')
+                  .split(/\s+/)
+                  .filter(w => w.length >= 4 && !['this','that','with','from','have','will','been','they','them','then','than','when','what','which','where','your','their','about','into','more','some','could','would','should','each','make','like','just','also','only'].includes(w));
+                
+                if (goalKeywords.length >= 2) {
+                  const matchedKeywords = goalKeywords.filter(kw => summaryLower.includes(kw));
+                  const matchRatio = matchedKeywords.length / goalKeywords.length;
+                  
+                  if (matchRatio < 0.15 && goalKeywords.length > 3) {
+                    // Summary doesn't mention ANY goal keywords - likely off-topic
+                    missing.push(`GOAL RELEVANCE: Your completion summary doesn't appear to relate to the original goal. Goal: "${this.goal.substring(0, 100)}". Make sure your work addresses the stated goal before completing.`);
+                  }
+                }
               }
               
               // ===== HARNESS INTELLIGENCE: Rejection-learned required tools =====

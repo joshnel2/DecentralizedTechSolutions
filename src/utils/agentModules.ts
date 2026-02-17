@@ -414,6 +414,60 @@ export const AGENT_MODULES: AgentModule[] = [
       'Conflict analysis',
       'Waiver recommendation'
     ]
+  },
+
+  // =========================================
+  // NDA TRIAGE
+  // =========================================
+  {
+    id: 'nda-triage',
+    name: 'NDA Triage & Pre-Screening',
+    description: 'Rapid NDA evaluation with GREEN/YELLOW/RED classification and routing',
+    category: 'documents',
+    estimatedMinutes: 6,
+    complexity: 'medium',
+    requiredContext: ['documentId'],
+    prompt: `Screen incoming NDA against standard criteria:
+1. Identify NDA type (mutual, unilateral) and structure
+2. Evaluate 10-point screening checklist (structure, definitions, carveouts, term, etc.)
+3. Classify GREEN (standard approval), YELLOW (counsel review), or RED (significant issues)
+4. Flag specific problematic provisions (non-solicitation, non-compete, broad residuals)
+5. Generate redlines for YELLOW/RED items
+6. Provide routing recommendation with timeline`,
+    expectedOutputs: [
+      'NDA type and structure identification',
+      'Screening checklist results',
+      'GREEN/YELLOW/RED classification',
+      'Issue flags with redline suggestions',
+      'Routing recommendation'
+    ]
+  },
+
+  // =========================================
+  // LEGAL RISK ASSESSMENT
+  // =========================================
+  {
+    id: 'legal-risk-assessment',
+    name: 'Legal Risk Assessment',
+    description: 'Structured risk evaluation with severity-by-likelihood matrix and escalation criteria',
+    category: 'compliance',
+    estimatedMinutes: 8,
+    complexity: 'high',
+    prompt: `Perform structured legal risk assessment:
+1. Identify and catalog all legal risks
+2. Score each on severity (1-5) and likelihood (1-5) with rationale
+3. Calculate risk scores and classify (GREEN/YELLOW/ORANGE/RED)
+4. Identify mitigation options with effectiveness and cost
+5. Determine if outside counsel engagement is needed
+6. Create formal risk assessment memo and risk register entries`,
+    expectedOutputs: [
+      'Risk inventory with categories',
+      'Severity-by-likelihood scores',
+      'Risk matrix classification',
+      'Mitigation options analysis',
+      'Outside counsel recommendation',
+      'Formal risk assessment memo'
+    ]
   }
 ]
 

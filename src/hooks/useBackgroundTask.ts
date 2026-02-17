@@ -34,12 +34,14 @@ interface UseBackgroundTaskReturn {
   activeTask: BackgroundTask | null
   isStarting: boolean
   error: string | null
+  isStalled: boolean
   
   // Actions
   startTask: (goal: string, options?: { extended?: boolean }) => Promise<BackgroundTask | null>
   cancelTask: () => Promise<void>
   retryTask: () => Promise<BackgroundTask | null>
   clearError: () => void
+  sendFollowUp: (message: string) => Promise<void>
   
   // Info
   canRetry: boolean
@@ -64,10 +66,12 @@ export function useBackgroundTask(options: UseBackgroundTaskOptions = {}): UseBa
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [retryCount, setRetryCount] = useState(0)
+  const [isStalled, setIsStalled] = useState(false)
   
   const lastGoalRef = useRef<string>('')
   const lastOptionsRef = useRef<{ extended?: boolean }>({})
   const abortControllerRef = useRef<AbortController | null>(null)
+  const lastProgressRef = useRef<{ step: string; percent: number; checkedAt: number }>({ step: '', percent: 0, checkedAt: Date.now() })
   
   // Start a background task
   const startTask = useCallback(async (
@@ -171,6 +175,26 @@ export function useBackgroundTask(options: UseBackgroundTaskOptions = {}): UseBa
     }
   }, [activeTask?.id])
   
+  // Send a follow-up instruction to the running task
+  const sendFollowUp = useCallback(async (message: string) => {
+    if (!activeTask?.id) {
+      setError('No active task to send follow-up to')
+      return
+    }
+    
+    if (!message.trim()) {
+      setError('Follow-up message cannot be empty')
+      return
+    }
+    
+    try {
+      await (aiApi as any).sendBackgroundTaskFollowUp(activeTask.id, message.trim())
+    } catch (err: any) {
+      console.error('Failed to send follow-up:', err)
+      setError(err?.response?.data?.error || 'Failed to send follow-up instruction')
+    }
+  }, [activeTask?.id])
+  
   // Retry the last failed task
   const retryTask = useCallback(async () => {
     if (!lastGoalRef.current) {
@@ -181,6 +205,35 @@ export function useBackgroundTask(options: UseBackgroundTaskOptions = {}): UseBa
     setRetryCount(0)
     return startTask(lastGoalRef.current, lastOptionsRef.current)
   }, [startTask])
+  
+  // Monitor for progress stalls when there's an active task
+  useEffect(() => {
+    if (!activeTask || activeTask.status !== 'running') {
+      setIsStalled(false)
+      return
+    }
+    
+    const checkStall = () => {
+      const current = activeTask.progress
+      const currentStep = current?.currentStep || ''
+      const currentPercent = current?.progressPercent || 0
+      
+      if (lastProgressRef.current.step === currentStep && lastProgressRef.current.percent === currentPercent) {
+        // No change since last check
+        const stallDuration = Date.now() - lastProgressRef.current.checkedAt
+        if (stallDuration > 120000) { // 2 minutes
+          setIsStalled(true)
+        }
+      } else {
+        // Progress changed
+        lastProgressRef.current = { step: currentStep, percent: currentPercent, checkedAt: Date.now() }
+        setIsStalled(false)
+      }
+    }
+    
+    const interval = setInterval(checkStall, 10000) // Check every 10 seconds
+    return () => clearInterval(interval)
+  }, [activeTask])
   
   // Clear error
   const clearError = useCallback(() => {
@@ -198,10 +251,12 @@ export function useBackgroundTask(options: UseBackgroundTaskOptions = {}): UseBa
     activeTask,
     isStarting,
     error,
+    isStalled,
     startTask,
     cancelTask,
     retryTask,
     clearError,
+    sendFollowUp,
     canRetry: retryCount < maxRetries && !!lastGoalRef.current,
     retryCount
   }
