@@ -1,8 +1,8 @@
 /**
  * Legal Research Service
  * 
- * COMPLETELY ISOLATED from the Background Agent (amplifierService.js)
- * and the normal AI chat (ai.js / aiAgent.js).
+ * Primarily used by /api/legal-research routes and can also be invoked
+ * by the background agent via a dedicated bridge tool.
  * 
  * This service:
  * - Uses OpenRouter (NOT Azure OpenAI)

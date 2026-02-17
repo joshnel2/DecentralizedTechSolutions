@@ -30,6 +30,10 @@ import {
   getCPLRGuidanceForMatter,
   formatCPLRCitation
 } from './legalKnowledge/nyCPLR.js';
+import {
+  runLegalPlugin,
+  isConfigured as isLegalResearchConfigured,
+} from '../legalResearch/legalResearchService.js';
 
 // Import tools from aiAgent.js - these are the EXACT same tools used by the normal AI chat
 // This ensures the background agent has identical capabilities
@@ -479,6 +483,20 @@ const BASE_AMPLIFIER_TOOLS = {
     },
     required: ["start_date", "days"]
   },
+
+  run_legal_research_plugin: {
+    description: "Call the Legal Research Plugin (OpenRouter Claude Opus 4.6) for deep legal authority analysis. Use this for broad case law/statutory synthesis beyond NY CPLR lookups.",
+    parameters: {
+      query: "string - The legal question to research",
+      context: "string - Optional factual context from the matter",
+      jurisdiction: "string - Optional jurisdiction focus (e.g., New York, Federal 2d Cir)",
+      practice_area: "string - Optional practice area (e.g., employment, commercial litigation)",
+      model: "string - Optional OpenRouter model override",
+      temperature: "number - Optional temperature (0.0-1.0)",
+      max_tokens: "number - Optional token cap (1000-16000)"
+    },
+    required: ["query"]
+  },
   
   // ============== PLANNING & PROGRESS ==============
   think_and_plan: {
@@ -567,6 +585,26 @@ export const AMPLIFIER_OPENAI_TOOLS = AGENT_TOOLS.filter(
 // They support quality assurance, self-review, and long-running task management.
 
 const BACKGROUND_AGENT_ONLY_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'run_legal_research_plugin',
+      description: 'Run the isolated legal research plugin (OpenRouter Claude) as a task step. Use this for deep legal authority analysis and then capture findings in matter notes/documents.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'The legal question to research' },
+          context: { type: 'string', description: 'Optional factual context for the research request' },
+          jurisdiction: { type: 'string', description: 'Optional jurisdiction focus (e.g., New York, Federal)' },
+          practice_area: { type: 'string', description: 'Optional practice area (e.g., employment, contracts)' },
+          model: { type: 'string', description: 'Optional OpenRouter model override' },
+          temperature: { type: 'number', description: 'Optional temperature from 0 to 1' },
+          max_tokens: { type: 'integer', description: 'Optional max tokens (1000-16000)' },
+        },
+        required: ['query']
+      }
+    }
+  },
   {
     type: 'function',
     function: {
@@ -719,6 +757,9 @@ export async function executeTool(toolName, params, context) {
       
       case 'calculate_cplr_deadline':
         return await calculateCPLRDeadline(params);
+
+      case 'run_legal_research_plugin':
+        return await runLegalResearchPluginTool(params);
       
       // Quality assurance: let the agent review what it created
       case 'review_created_documents':
@@ -760,6 +801,85 @@ export async function executeTool(toolName, params, context) {
 }
 
 // ============== TOOL IMPLEMENTATIONS ==============
+
+async function runLegalResearchPluginTool(params = {}) {
+  const {
+    query: rawQuery,
+    context: rawContext,
+    jurisdiction: rawJurisdiction,
+    practice_area: rawPracticeArea,
+    model: rawModel,
+    temperature: rawTemperature,
+    max_tokens: rawMaxTokens,
+  } = params;
+
+  if (typeof rawQuery !== 'string' || rawQuery.trim().length < 8) {
+    return {
+      error: 'run_legal_research_plugin requires a detailed "query" string (minimum 8 characters).'
+    };
+  }
+
+  if (!isLegalResearchConfigured()) {
+    return {
+      error: 'Legal Research plugin unavailable: OPENROUTER_API_KEY is not configured.'
+    };
+  }
+
+  const queryText = rawQuery.trim().slice(0, 5000);
+  const contextText = typeof rawContext === 'string' ? rawContext.trim().slice(0, 6000) : '';
+  const jurisdiction = typeof rawJurisdiction === 'string' ? rawJurisdiction.trim().slice(0, 120) : '';
+  const practiceArea = typeof rawPracticeArea === 'string' ? rawPracticeArea.trim().slice(0, 120) : '';
+
+  const promptSections = [`Research task:\n${queryText}`];
+  if (jurisdiction) promptSections.push(`Jurisdiction: ${jurisdiction}`);
+  if (practiceArea) promptSections.push(`Practice area: ${practiceArea}`);
+  if (contextText) promptSections.push(`Matter context:\n${contextText}`);
+  promptSections.push('Output requirements: cite controlling authorities where possible, clearly mark uncertainty, and separate holdings from analysis.');
+  const userInput = promptSections.join('\n\n');
+
+  const options = {};
+  if (typeof rawModel === 'string' && rawModel.trim()) {
+    options.model = rawModel.trim();
+  }
+  if (typeof rawTemperature === 'number' && Number.isFinite(rawTemperature)) {
+    options.temperature = Math.min(Math.max(rawTemperature, 0), 1);
+  }
+  if (typeof rawMaxTokens === 'number' && Number.isFinite(rawMaxTokens)) {
+    options.max_tokens = Math.min(Math.max(Math.floor(rawMaxTokens), 1000), 16000);
+  }
+
+  try {
+    const result = await runLegalPlugin(userInput, [], options);
+    const rawResponse = typeof result?.content === 'string'
+      ? result.content
+      : JSON.stringify(result?.content || '');
+
+    const MAX_RESPONSE_CHARS = 12000;
+    const truncated = rawResponse.length > MAX_RESPONSE_CHARS;
+    const response = truncated
+      ? `${rawResponse.substring(0, MAX_RESPONSE_CHARS)}\n\n[TRUNCATED FOR CONTEXT SAFETY: full response length ${rawResponse.length} chars]`
+      : rawResponse;
+
+    return {
+      success: true,
+      source: 'openrouter-legal-research-plugin',
+      query: queryText,
+      jurisdiction: jurisdiction || null,
+      practice_area: practiceArea || null,
+      response,
+      truncated,
+      model: result?.model || null,
+      usage: result?.usage || null,
+      finish_reason: result?.finishReason || null,
+      tool_calls_count: Array.isArray(result?.toolCalls) ? result.toolCalls.length : 0,
+    };
+  } catch (error) {
+    console.error('[Amplifier Tool] run_legal_research_plugin failed:', error.message);
+    return {
+      error: `Legal Research plugin request failed: ${error.message}`
+    };
+  }
+}
 
 async function logTime(params, userId, firmId) {
   const { matter_id, hours, description, date, billable = true } = params;

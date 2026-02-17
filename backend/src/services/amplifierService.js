@@ -1392,6 +1392,15 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
     }
     
     // Tool-specific validation
+    if (toolName === 'run_legal_research_plugin') {
+      if (!args.query || typeof args.query !== 'string') {
+        return 'run_legal_research_plugin requires a "query" string.';
+      }
+      if (args.query.trim().length < 8) {
+        return 'run_legal_research_plugin query is too short. Provide a specific legal question.';
+      }
+    }
+
     if (toolName === 'create_document') {
       if (!args.name && !args.title) return 'create_document requires a "name" parameter.';
       if (!args.content && !args.body) return 'create_document requires "content" parameter with the actual document text. Do NOT use placeholders.';
@@ -2676,6 +2685,7 @@ ${matterNeedsVerification ? `- **MATTER SAFETY GATE**: Write tools (add_matter_n
 
 ## TOOLS
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
+**Research:** lookup_cplr (NY procedure), run_legal_research_plugin (deep external authority analysis)
 **Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
 

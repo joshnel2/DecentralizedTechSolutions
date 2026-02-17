@@ -17,8 +17,8 @@ export const legalResearchModule = {
   
   executionPlan: [
     { name: 'Define Issue', description: 'Clarify the legal question', tools: ['think_and_plan'], required: true },
-    { name: 'Statutory Research', description: 'Identify governing statutes', tools: ['add_matter_note'], required: true },
-    { name: 'Case Law Research', description: 'Find controlling cases', tools: ['add_matter_note'], required: true },
+    { name: 'Statutory Research', description: 'Identify governing statutes', tools: ['run_legal_research_plugin', 'add_matter_note'], required: true },
+    { name: 'Case Law Research', description: 'Find controlling cases', tools: ['run_legal_research_plugin', 'add_matter_note'], required: true },
     { name: 'Analysis', description: 'Apply law to facts', tools: ['add_matter_note'], required: true },
     { name: 'Research Memo', description: 'Create formal memo', tools: ['create_document'], required: true },
     { name: 'Follow-up', description: 'Tasks for further research', tools: ['create_task'], required: true },
@@ -38,6 +38,11 @@ export const legalResearchModule = {
   
   instructions: `
 ## LEGAL RESEARCH WORKFLOW
+
+### TOOL STRATEGY
+- Use \`run_legal_research_plugin\` to gather broad statutory/case authority.
+- Use \`lookup_cplr\` for New York procedural rule specifics.
+- Capture findings incrementally with \`add_matter_note\` before drafting the memo.
 
 ### RESEARCH MEMO FORMAT
 
