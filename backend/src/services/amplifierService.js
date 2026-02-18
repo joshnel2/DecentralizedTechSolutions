@@ -189,6 +189,20 @@ const TASK_COMPLEXITY = {
   major: { estimatedSteps: 120, estimatedMinutes: 80 }
 };
 
+const normalizeTimeoutMs = (value, fallbackMs) => {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackMs;
+  return parsed;
+};
+
+// Tool timeout budgets (ms). Most tools should fail fast, but deep legal research
+// runs against an external model and regularly needs a longer window.
+const BASE_TOOL_TIMEOUT_MS = normalizeTimeoutMs(process.env.AMPLIFIER_TOOL_TIMEOUT_MS, 60000);
+const LEGAL_RESEARCH_TOOL_TIMEOUT_MS = Math.max(
+  BASE_TOOL_TIMEOUT_MS,
+  normalizeTimeoutMs(process.env.AMPLIFIER_LEGAL_RESEARCH_TIMEOUT_MS, 240000)
+);
+
 /**
  * Estimate task complexity based on goal keywords
  */
@@ -716,6 +730,16 @@ class BackgroundTask extends EventEmitter {
     } catch (e) {
       // Streaming is best-effort
     }
+  }
+
+  /**
+   * Tool-specific timeout budget in milliseconds.
+   */
+  getToolTimeoutMs(toolName) {
+    if (toolName === 'run_legal_research_plugin') {
+      return LEGAL_RESEARCH_TOOL_TIMEOUT_MS;
+    }
+    return BASE_TOOL_TIMEOUT_MS;
   }
 
   // ===== PHASE MANAGEMENT METHODS =====
@@ -3285,7 +3309,6 @@ ${hasMatterPreloaded && matterIsVerified
           // ===== PARALLEL EXECUTION for read-only tools =====
           // If ALL tool calls are cacheable (read-only), execute them in parallel
           const allReadOnly = parsedCalls.every(c => !c.validationError && this.CACHEABLE_TOOLS.has(c.toolName));
-          const TOOL_TIMEOUT_MS = 60000;
           
           if (allReadOnly && parsedCalls.length > 1) {
             console.log(`[Amplifier] Executing ${parsedCalls.length} read-only tools in PARALLEL`);
@@ -3298,12 +3321,13 @@ ${hasMatterPreloaded && matterIsVerified
               let result = this.getCachedResult(pc.toolName, pc.toolArgs);
               if (!result) {
                 try {
+                  const toolTimeoutMs = this.getToolTimeoutMs(pc.toolName);
                   const toolPromise = executeTool(pc.toolName, pc.toolArgs, {
                     userId: this.userId, firmId: this.firmId, user: this.userRecord
                   });
                   result = await Promise.race([
                     toolPromise,
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), TOOL_TIMEOUT_MS))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${pc.toolName} timed out after ${Math.round(toolTimeoutMs / 1000)}s`)), toolTimeoutMs))
                   ]);
                   this.cacheToolResult(pc.toolName, pc.toolArgs, result);
                 } catch (err) {
@@ -3439,12 +3463,13 @@ ${hasMatterPreloaded && matterIsVerified
               });
             } else {
               try {
+                const toolTimeoutMs = this.getToolTimeoutMs(toolName);
                 const toolPromise = executeTool(toolName, toolArgs, {
                   userId: this.userId, firmId: this.firmId, user: this.userRecord
                 });
                 result = await Promise.race([
                   toolPromise,
-                  new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS/1000}s`)), TOOL_TIMEOUT_MS))
+                  new Promise((_, reject) => setTimeout(() => reject(new Error(`Tool ${toolName} timed out after ${Math.round(toolTimeoutMs / 1000)}s`)), toolTimeoutMs))
                 ]);
                 this.cacheToolResult(toolName, toolArgs, result);
               } catch (toolError) {
