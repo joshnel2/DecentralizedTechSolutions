@@ -2792,7 +2792,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               filterClioUserId = matchingUser.id;
               console.log(`[CLIO IMPORT] Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
               addLog(`✅ Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
-              addLog(`📋 Will import matters where this user is responsible attorney, originating attorney, or team member`);
+              addLog(`📋 Will import matters where this user is responsible/originating attorney + matters with their time entries`);
             } else {
               console.log(`[CLIO IMPORT] WARNING: No Clio user found with email: ${filterUserEmail}`);
               addLog(`⚠️ No Clio user found with email: ${filterUserEmail}`);
@@ -3379,29 +3379,28 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/10: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
-            // Fetch matters - include all Clio fields for full parity
+            // Fetch matters from Clio with all supported fields
+            // Note: Clio's relationships are a separate endpoint (/relationships.json),
+            // not a nested field on the matter. Team members are derived from time entries.
             const matters = await clioGetMattersByStatus(
               accessToken, '/matters.json',
-              { fields: 'id,display_number,description,status,open_date,close_date,pending_date,billing_method,billable,location,client_reference,maildrop_address,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name},statute_of_limitations,relationships{id,description,contact{id,name,type},user{id,name}}' },
+              { fields: 'id,display_number,description,status,open_date,close_date,pending_date,billing_method,billable,location,client_reference,maildrop_address,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name},statute_of_limitations' },
               (count) => updateProgress('matters', 'running', count)
             );
             
-            // If user-specific filter is active, filter matters
-            // Include matters where user is responsible attorney, originating attorney,
-            // or has a relationship (e.g., assigned team member)
+            // If user-specific filter is active, filter matters where the user is
+            // responsible attorney or originating attorney. Additional matters where
+            // the user has time entries will be captured via the time entry import
+            // and matter_assignments derivation step.
             let filteredMatters = matters;
             if (filterClioUserId) {
-              filteredMatters = matters.filter(m => {
-                if (m.responsible_attorney?.id === filterClioUserId) return true;
-                if (m.originating_attorney?.id === filterClioUserId) return true;
-                // Check relationships for this user
-                if (m.relationships && Array.isArray(m.relationships)) {
-                  return m.relationships.some(r => r.user?.id === filterClioUserId);
-                }
-                return false;
-              });
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible attorney, originating attorney, or has a relationship`);
-              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user has any role`);
+              filteredMatters = matters.filter(m => 
+                m.responsible_attorney?.id === filterClioUserId
+                || m.originating_attorney?.id === filterClioUserId
+              );
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible or originating attorney`);
+              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user is responsible/originating attorney`);
+              addLog(`📋 Matters where user only has time entries will also appear via activity import`);
             }
             
             for (const m of filteredMatters) {
@@ -3513,26 +3512,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   }
                 }
                 
-                // Create matter_assignments from Clio relationships (team members working on this matter)
-                if (m.relationships && Array.isArray(m.relationships)) {
-                  for (const rel of m.relationships) {
-                    if (rel.user?.id) {
-                      const relUserId = userIdMap.get(`clio:${rel.user.id}`);
-                      if (relUserId && relUserId !== responsibleId && relUserId !== originatingId) {
-                        try {
-                          await query(
-                            `INSERT INTO matter_assignments (matter_id, user_id, role, billing_rate)
-                             VALUES ($1, $2, $3, $4)
-                             ON CONFLICT (matter_id, user_id) DO NOTHING`,
-                            [matterId, relUserId, rel.description || 'team_member', null]
-                          );
-                        } catch (relAssignErr) {
-                          // Ignore - already assigned or FK issue
-                        }
-                      }
-                    }
-                  }
-                }
+                // Additional team members are derived from time entries after activity import
+                // (see "Derive matter_assignments from time entries" step below)
                 
                 counts.matters++;
                 
@@ -3549,6 +3530,74 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             const actualMatterCount = parseInt(matterVerify.rows[0].count);
             console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}, verified in DB: ${actualMatterCount}`);
             updateProgress('matters', 'done', actualMatterCount);
+            
+            // Fetch Clio relationships to link contacts/users to matters
+            // In Clio, /relationships.json connects contacts to matters.
+            // Firm members who are contacts get assigned as team members.
+            try {
+              console.log('[CLIO IMPORT] Fetching Clio relationships (contact-to-matter links)...');
+              addLog('👥 Fetching matter relationships from Clio...');
+              const relationships = await clioGetPaginated(
+                accessToken, '/relationships.json',
+                { fields: 'id,description,contact{id,name,type},matter{id}' },
+                null
+              );
+              
+              let relAssignCount = 0;
+              for (const rel of relationships) {
+                if (!rel.matter?.id || !rel.contact?.id) continue;
+                const matterId = matterIdMap.get(`clio:${rel.matter.id}`);
+                if (!matterId) continue;
+                
+                // Try to find a user that matches this contact by looking up the contact
+                // in our contactIdMap and then checking if there's a user with the same email
+                const contactClioId = rel.contact.id;
+                // Check if this contact is actually a firm user by looking in the userIdMap
+                // Clio user IDs and contact IDs are different namespaces, so we try name matching
+                const contactName = rel.contact.name?.trim().toLowerCase();
+                if (!contactName) continue;
+                
+                // Find matching user by name
+                let matchedUserId = null;
+                for (const [clioKey, apexUserId] of userIdMap.entries()) {
+                  if (clioKey.startsWith('clio:')) {
+                    // We need to check against user names - look up in DB
+                    try {
+                      const userCheck = await query(
+                        `SELECT id FROM users WHERE id = $1 AND LOWER(first_name || ' ' || last_name) = $2 AND firm_id = $3`,
+                        [apexUserId, contactName, firmId]
+                      );
+                      if (userCheck.rows.length > 0) {
+                        matchedUserId = apexUserId;
+                        break;
+                      }
+                    } catch (e) { /* skip */ }
+                  }
+                }
+                
+                if (matchedUserId) {
+                  try {
+                    await query(
+                      `INSERT INTO matter_assignments (matter_id, user_id, role)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                      [matterId, matchedUserId, rel.description || 'team_member']
+                    );
+                    relAssignCount++;
+                  } catch (e) { /* ignore dupes */ }
+                }
+              }
+              
+              if (relAssignCount > 0) {
+                console.log(`[CLIO IMPORT] Created ${relAssignCount} matter_assignments from Clio relationships`);
+                addLog(`👥 Added ${relAssignCount} team member assignments from Clio relationships`);
+              } else {
+                console.log(`[CLIO IMPORT] No additional team assignments from relationships (${relationships.length} relationships checked)`);
+              }
+            } catch (relErr) {
+              console.log(`[CLIO IMPORT] Could not fetch relationships: ${relErr.message}`);
+              addLog(`⚠️ Skipped relationship import: ${relErr.message}`);
+            }
           } catch (err) {
             console.error('[CLIO IMPORT] Matters error:', err.message);
             updateProgress('matters', 'error', counts.matters, err.message);
