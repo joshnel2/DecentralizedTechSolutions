@@ -158,7 +158,7 @@ export function buildVisibilityFilter(userId, userRole, firmId, startParamIndex 
     };
   }
 
-  // Others see: firm_wide OR (restricted AND has access)
+  // Others see: firm_wide OR (restricted AND has access), excluding blocked users
   const clause = `
     m.firm_id = $${startParamIndex} AND (
       m.visibility = 'firm_wide'
@@ -172,6 +172,7 @@ export function buildVisibilityFilter(userId, userRole, firmId, startParamIndex 
         WHERE mp.matter_id = m.id AND ug.user_id = $${startParamIndex + 1}
       )
     )
+    AND NOT ($${startParamIndex + 1} = ANY(COALESCE(m.blocked_user_ids, '{}')))
   `;
 
   return {

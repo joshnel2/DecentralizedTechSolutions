@@ -8,20 +8,28 @@ import { emitEvent } from '../services/eventBus.js';
 
 const router = Router();
 
-// Helper to check if originating_attorney column exists
-let hasOriginatingAttorney = null;
-async function checkOriginatingAttorneyColumn() {
-  if (hasOriginatingAttorney !== null) return hasOriginatingAttorney;
+// Helper to check which optional columns exist on the matters table
+let columnCheckCache = null;
+async function checkMatterColumns() {
+  if (columnCheckCache !== null) return columnCheckCache;
   try {
     const result = await query(`
       SELECT column_name FROM information_schema.columns 
-      WHERE table_name = 'matters' AND column_name = 'originating_attorney'
+      WHERE table_name = 'matters' AND column_name IN (
+        'originating_attorney', 'practice_area', 'matter_stage', 'pending_date',
+        'location', 'client_reference_number', 'responsible_staff', 'maildrop_address',
+        'billable', 'notification_user_ids', 'blocked_user_ids', 'permission_group_ids'
+      )
     `);
-    hasOriginatingAttorney = result.rows.length > 0;
+    const cols = new Set(result.rows.map(r => r.column_name));
+    columnCheckCache = {
+      hasOriginatingAttorney: cols.has('originating_attorney'),
+      hasClioFields: cols.has('practice_area'),
+    };
   } catch (e) {
-    hasOriginatingAttorney = false;
+    columnCheckCache = { hasOriginatingAttorney: false, hasClioFields: false };
   }
-  return hasOriginatingAttorney;
+  return columnCheckCache;
 }
 
 // Get all matters
@@ -37,27 +45,19 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     const isAdmin = req.user.role === 'owner' || req.user.role === 'admin';
     const view = (requestedView === 'all' && !isAdmin) ? 'my' : requestedView;
     
-    // Check if originating_attorney column exists
-    const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    const { hasOriginatingAttorney: hasOrigAtty, hasClioFields } = await checkMatterColumns();
     
     // Build visibility filter based on user role
     const visibilityFilter = buildVisibilityFilter(req.user.id, req.user.role, req.user.firmId, 1);
     
-    // OPTIMIZED: Removed slow array_agg JOIN - assigned_to not needed in list view
-    // Use subqueries for attorney names to avoid GROUP BY overhead
-    let sql = hasOrigAtty ? `
+    // Use subqueries for attorney/staff names to avoid GROUP BY overhead
+    let sql = `
       SELECT m.*,
              c.display_name as client_name,
              (SELECT first_name || ' ' || last_name FROM users WHERE id = m.responsible_attorney) as responsible_attorney_name,
-             (SELECT first_name || ' ' || last_name FROM users WHERE id = m.originating_attorney) as originating_attorney_name
-      FROM matters m
-      LEFT JOIN clients c ON m.client_id = c.id
-      WHERE ${visibilityFilter.clause}
-    ` : `
-      SELECT m.*,
-             c.display_name as client_name,
-             (SELECT first_name || ' ' || last_name FROM users WHERE id = m.responsible_attorney) as responsible_attorney_name,
-             NULL as originating_attorney_name
+             ${hasOrigAtty ? `(SELECT first_name || ' ' || last_name FROM users WHERE id = m.originating_attorney) as originating_attorney_name,` : `NULL as originating_attorney_name,`}
+             ${hasClioFields ? `(SELECT first_name || ' ' || last_name FROM users WHERE id = m.responsible_staff) as responsible_staff_name,` : `NULL as responsible_staff_name,`}
+             1 as _placeholder
       FROM matters m
       LEFT JOIN clients c ON m.client_id = c.id
       WHERE ${visibilityFilter.clause}
@@ -143,14 +143,26 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
         status: m.status,
         priority: m.priority,
         visibility: m.visibility || 'firm_wide',
-        assignedTo: [], // Not fetched in list view for performance - get from detail view
+        assignedTo: [],
         responsibleAttorney: m.responsible_attorney,
         responsibleAttorneyName: m.responsible_attorney_name,
         originatingAttorney: m.originating_attorney,
         originatingAttorneyName: m.originating_attorney_name,
+        responsibleStaff: m.responsible_staff,
+        responsibleStaffName: m.responsible_staff_name,
+        practiceArea: m.practice_area,
+        matterStage: m.matter_stage,
         openDate: m.open_date || m.created_at,
+        pendingDate: m.pending_date,
         closeDate: m.close_date,
         statuteOfLimitations: m.statute_of_limitations,
+        clientReferenceNumber: m.client_reference_number,
+        location: m.location,
+        billable: m.billable !== false,
+        maildropAddress: m.maildrop_address,
+        notificationUserIds: m.notification_user_ids || [],
+        blockedUserIds: m.blocked_user_ids || [],
+        permissionGroupIds: m.permission_group_ids || [],
         courtInfo: m.court_name ? {
           courtName: m.court_name,
           caseNumber: m.case_number,
@@ -195,32 +207,24 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       return res.status(403).json({ error: 'Access denied to this matter' });
     }
 
-    const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    const { hasOriginatingAttorney: hasOrigAtty2, hasClioFields: hasClio } = await checkMatterColumns();
     
-    const sql = hasOrigAtty 
-      ? `SELECT m.*,
+    const sql = `SELECT m.*,
               c.display_name as client_name,
               u.first_name || ' ' || u.last_name as responsible_attorney_name,
-              ou.first_name || ' ' || ou.last_name as originating_attorney_name,
+              ${hasOrigAtty2 ? `ou.first_name || ' ' || ou.last_name as originating_attorney_name,` : `NULL as originating_attorney_name,`}
+              ${hasClio ? `su.first_name || ' ' || su.last_name as responsible_staff_name,` : `NULL as responsible_staff_name,`}
               array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
          FROM matters m
          LEFT JOIN clients c ON m.client_id = c.id
          LEFT JOIN users u ON m.responsible_attorney = u.id
-         LEFT JOIN users ou ON m.originating_attorney = ou.id
+         ${hasOrigAtty2 ? `LEFT JOIN users ou ON m.originating_attorney = ou.id` : ``}
+         ${hasClio ? `LEFT JOIN users su ON m.responsible_staff = su.id` : ``}
          LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
          WHERE m.id = $1 AND m.firm_id = $2
-         GROUP BY m.id, c.display_name, u.first_name, u.last_name, ou.first_name, ou.last_name`
-      : `SELECT m.*,
-              c.display_name as client_name,
-              u.first_name || ' ' || u.last_name as responsible_attorney_name,
-              NULL as originating_attorney_name,
-              array_agg(DISTINCT ma.user_id) FILTER (WHERE ma.user_id IS NOT NULL) as assigned_to
-         FROM matters m
-         LEFT JOIN clients c ON m.client_id = c.id
-         LEFT JOIN users u ON m.responsible_attorney = u.id
-         LEFT JOIN matter_assignments ma ON m.id = ma.matter_id
-         WHERE m.id = $1 AND m.firm_id = $2
-         GROUP BY m.id, c.display_name, u.first_name, u.last_name`;
+         GROUP BY m.id, c.display_name, u.first_name, u.last_name
+                  ${hasOrigAtty2 ? `, ou.first_name, ou.last_name` : ``}
+                  ${hasClio ? `, su.first_name, su.last_name` : ``}`;
     
     const result = await query(sql, [req.params.id, req.user.firmId]);
 
@@ -250,9 +254,21 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       responsibleAttorneyName: m.responsible_attorney_name,
       originatingAttorney: m.originating_attorney,
       originatingAttorneyName: m.originating_attorney_name,
+      responsibleStaff: m.responsible_staff,
+      responsibleStaffName: m.responsible_staff_name,
+      practiceArea: m.practice_area,
+      matterStage: m.matter_stage,
       openDate: m.open_date || m.created_at,
+      pendingDate: m.pending_date,
       closeDate: m.close_date,
       statuteOfLimitations: m.statute_of_limitations,
+      clientReferenceNumber: m.client_reference_number,
+      location: m.location,
+      billable: m.billable !== false,
+      maildropAddress: m.maildrop_address,
+      notificationUserIds: m.notification_user_ids || [],
+      blockedUserIds: m.blocked_user_ids || [],
+      permissionGroupIds: m.permission_group_ids || [],
       courtInfo: m.court_name ? {
         courtName: m.court_name,
         caseNumber: m.case_number,
@@ -273,7 +289,6 @@ router.get('/:id', authenticate, requirePermission('matters:view'), async (req, 
       createdBy: m.created_by,
       createdAt: m.created_at,
       updatedAt: m.updated_at,
-      // Permission info
       canManagePermissions,
       accessLevel: access.accessLevel,
     });
@@ -419,8 +434,19 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       assignedTo = [],
       responsibleAttorney,
       originatingAttorney,
+      responsibleStaff,
+      practiceArea,
+      matterStage,
       openDate,
+      pendingDate,
       statuteOfLimitations,
+      clientReferenceNumber,
+      location,
+      billable = true,
+      maildropAddress,
+      notificationUserIds = [],
+      blockedUserIds = [],
+      permissionGroupIds = [],
       courtInfo,
       billingType = 'hourly',
       billingRate,
@@ -436,12 +462,13 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       return res.status(400).json({ error: 'Matter name is required' });
     }
 
-    // Convert empty strings to null for UUID fields
-    const safeClientId = clientId && clientId.trim() !== '' ? clientId : null;
-    const safeResponsibleAttorney = responsibleAttorney && responsibleAttorney.trim() !== '' ? responsibleAttorney : req.user.id;
-    const safeOriginatingAttorney = originatingAttorney && originatingAttorney.trim() !== '' ? originatingAttorney : null;
+    const safeUuid = (val) => val && typeof val === 'string' && val.trim() !== '' ? val : null;
+    const safeClientId = safeUuid(clientId);
+    const safeResponsibleAttorney = safeUuid(responsibleAttorney) || req.user.id;
+    const safeOriginatingAttorney = safeUuid(originatingAttorney);
+    const safeResponsibleStaff = safeUuid(responsibleStaff);
 
-    const hasOrigAtty = await checkOriginatingAttorneyColumn();
+    const { hasOriginatingAttorney: hasOrigAtty, hasClioFields } = await checkMatterColumns();
     
     const result = await withTransaction(async (client) => {
       // Generate matter number - find max existing number for this year and increment
@@ -464,42 +491,41 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       }
       const number = `${prefix}${String(nextNum).padStart(3, '0')}`;
 
-      // Create matter - conditionally include originating_attorney
-      const matterResult = hasOrigAtty 
-        ? await client.query(
-          `INSERT INTO matters (
-            firm_id, number, name, description, client_id, type, status, priority,
-            responsible_attorney, originating_attorney, open_date, statute_of_limitations,
-            court_name, case_number, judge, jurisdiction,
-            billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
-            budget, tags, conflict_cleared, created_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
-          RETURNING *`,
-          [
-            req.user.firmId, number, name, description, safeClientId, type, status, priority,
-            safeResponsibleAttorney, safeOriginatingAttorney, openDate, statuteOfLimitations,
-            courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
-            billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-            budget, tags, conflictCleared, req.user.id
-          ]
-        )
-        : await client.query(
-          `INSERT INTO matters (
-            firm_id, number, name, description, client_id, type, status, priority,
-            responsible_attorney, open_date, statute_of_limitations,
-            court_name, case_number, judge, jurisdiction,
-            billing_type, billing_rate, flat_fee, contingency_percent, retainer_amount,
-            budget, tags, conflict_cleared, created_by
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
-          RETURNING *`,
-          [
-            req.user.firmId, number, name, description, safeClientId, type, status, priority,
-            safeResponsibleAttorney, openDate, statuteOfLimitations,
-            courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
-            billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-            budget, tags, conflictCleared, req.user.id
-          ]
-        );
+      // Build INSERT dynamically based on available columns
+      const cols = [
+        'firm_id', 'number', 'name', 'description', 'client_id', 'type', 'status', 'priority',
+        'responsible_attorney', 'open_date', 'statute_of_limitations',
+        'court_name', 'case_number', 'judge', 'jurisdiction',
+        'billing_type', 'billing_rate', 'flat_fee', 'contingency_percent', 'retainer_amount',
+        'budget', 'tags', 'conflict_cleared', 'created_by'
+      ];
+      const vals = [
+        req.user.firmId, number, name, description, safeClientId, type, status, priority,
+        safeResponsibleAttorney, openDate, statuteOfLimitations,
+        courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
+        billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
+        budget, tags, conflictCleared, req.user.id
+      ];
+
+      if (hasOrigAtty) {
+        cols.push('originating_attorney');
+        vals.push(safeOriginatingAttorney);
+      }
+
+      if (hasClioFields) {
+        cols.push('responsible_staff', 'practice_area', 'matter_stage', 'pending_date',
+                   'client_reference_number', 'location', 'billable', 'maildrop_address',
+                   'notification_user_ids', 'blocked_user_ids', 'permission_group_ids');
+        vals.push(safeResponsibleStaff, practiceArea || null, matterStage || null, pendingDate || null,
+                  clientReferenceNumber || null, location || null, billable, maildropAddress || null,
+                  notificationUserIds, blockedUserIds, permissionGroupIds);
+      }
+
+      const placeholders = cols.map((_, i) => `$${i + 1}`).join(', ');
+      const matterResult = await client.query(
+        `INSERT INTO matters (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+        vals
+      );
 
       const matter = matterResult.rows[0];
 
@@ -607,9 +633,20 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       assignedTo,
       responsibleAttorney,
       originatingAttorney,
+      responsibleStaff,
+      practiceArea,
+      matterStage,
       openDate,
+      pendingDate,
       closeDate,
       statuteOfLimitations,
+      clientReferenceNumber,
+      location: matterLocation,
+      billable,
+      maildropAddress,
+      notificationUserIds,
+      blockedUserIds,
+      permissionGroupIds,
       courtInfo,
       billingType,
       billingRate,
@@ -623,47 +660,97 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       notes,
     } = req.body;
 
-    // Convert empty strings to null for UUID fields (PostgreSQL can't cast "" to UUID)
-    const safeClientId = clientId && clientId.trim() !== '' ? clientId : null;
-    const safeResponsibleAttorney = responsibleAttorney && responsibleAttorney.trim() !== '' ? responsibleAttorney : null;
-    const safeOriginatingAttorney = originatingAttorney && originatingAttorney.trim() !== '' ? originatingAttorney : null;
+    const safeUuidUpdate = (val) => {
+      if (val === undefined) return undefined;
+      if (val === null || val === '') return null;
+      return typeof val === 'string' && val.trim() !== '' ? val : null;
+    };
+    const safeClientId = safeUuidUpdate(clientId);
+    const safeResponsibleAttorney = safeUuidUpdate(responsibleAttorney);
+    const safeOriginatingAttorney = safeUuidUpdate(originatingAttorney);
+    const safeResponsibleStaff = safeUuidUpdate(responsibleStaff);
+
+    const { hasClioFields: hasClioUpdate } = await checkMatterColumns();
 
     await withTransaction(async (client) => {
+      let setClauses = [
+        'name = COALESCE($1, name)',
+        'description = COALESCE($2, description)',
+        'client_id = COALESCE($3, client_id)',
+        'type = COALESCE($4, type)',
+        'status = COALESCE($5, status)',
+        'priority = COALESCE($6, priority)',
+        'responsible_attorney = COALESCE($7, responsible_attorney)',
+        'originating_attorney = COALESCE($8, originating_attorney)',
+        'open_date = COALESCE($9, open_date)',
+        'close_date = COALESCE($10, close_date)',
+        'statute_of_limitations = COALESCE($11, statute_of_limitations)',
+        'court_name = COALESCE($12, court_name)',
+        'case_number = COALESCE($13, case_number)',
+        'judge = COALESCE($14, judge)',
+        'jurisdiction = COALESCE($15, jurisdiction)',
+        'billing_type = COALESCE($16, billing_type)',
+        'billing_rate = COALESCE($17, billing_rate)',
+        'flat_fee = COALESCE($18, flat_fee)',
+        'contingency_percent = COALESCE($19, contingency_percent)',
+        'retainer_amount = COALESCE($20, retainer_amount)',
+        'budget = COALESCE($21, budget)',
+        'tags = COALESCE($22, tags)',
+        'ai_summary = COALESCE($23, ai_summary)',
+        'conflict_cleared = COALESCE($24, conflict_cleared)',
+        'notes = COALESCE($25, notes)',
+      ];
+      let updateParams = [
+        name, description, safeClientId, type, status, priority, safeResponsibleAttorney, safeOriginatingAttorney,
+        openDate, closeDate, statuteOfLimitations,
+        courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
+        billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
+        budget, tags, aiSummary, conflictCleared, notes
+      ];
+      let paramIdx = 26;
+
+      if (hasClioUpdate) {
+        setClauses.push(
+          `practice_area = COALESCE($${paramIdx}, practice_area)`,
+          `matter_stage = COALESCE($${paramIdx + 1}, matter_stage)`,
+          `pending_date = COALESCE($${paramIdx + 2}, pending_date)`,
+          `client_reference_number = COALESCE($${paramIdx + 3}, client_reference_number)`,
+          `location = COALESCE($${paramIdx + 4}, location)`,
+          `responsible_staff = COALESCE($${paramIdx + 5}, responsible_staff)`,
+          `maildrop_address = COALESCE($${paramIdx + 6}, maildrop_address)`,
+        );
+        updateParams.push(
+          practiceArea, matterStage, pendingDate,
+          clientReferenceNumber, matterLocation, safeResponsibleStaff, maildropAddress,
+        );
+        paramIdx += 7;
+
+        if (billable !== undefined) {
+          setClauses.push(`billable = $${paramIdx}`);
+          updateParams.push(billable);
+          paramIdx++;
+        }
+        if (notificationUserIds !== undefined) {
+          setClauses.push(`notification_user_ids = $${paramIdx}`);
+          updateParams.push(notificationUserIds);
+          paramIdx++;
+        }
+        if (blockedUserIds !== undefined) {
+          setClauses.push(`blocked_user_ids = $${paramIdx}`);
+          updateParams.push(blockedUserIds);
+          paramIdx++;
+        }
+        if (permissionGroupIds !== undefined) {
+          setClauses.push(`permission_group_ids = $${paramIdx}`);
+          updateParams.push(permissionGroupIds);
+          paramIdx++;
+        }
+      }
+
+      updateParams.push(req.params.id);
       await client.query(
-        `UPDATE matters SET
-          name = COALESCE($1, name),
-          description = COALESCE($2, description),
-          client_id = COALESCE($3, client_id),
-          type = COALESCE($4, type),
-          status = COALESCE($5, status),
-          priority = COALESCE($6, priority),
-          responsible_attorney = COALESCE($7, responsible_attorney),
-          originating_attorney = COALESCE($8, originating_attorney),
-          open_date = COALESCE($9, open_date),
-          close_date = COALESCE($10, close_date),
-          statute_of_limitations = COALESCE($11, statute_of_limitations),
-          court_name = COALESCE($12, court_name),
-          case_number = COALESCE($13, case_number),
-          judge = COALESCE($14, judge),
-          jurisdiction = COALESCE($15, jurisdiction),
-          billing_type = COALESCE($16, billing_type),
-          billing_rate = COALESCE($17, billing_rate),
-          flat_fee = COALESCE($18, flat_fee),
-          contingency_percent = COALESCE($19, contingency_percent),
-          retainer_amount = COALESCE($20, retainer_amount),
-          budget = COALESCE($21, budget),
-          tags = COALESCE($22, tags),
-          ai_summary = COALESCE($23, ai_summary),
-          conflict_cleared = COALESCE($24, conflict_cleared),
-          notes = COALESCE($25, notes)
-        WHERE id = $26`,
-        [
-          name, description, safeClientId, type, status, priority, safeResponsibleAttorney, safeOriginatingAttorney,
-          openDate, closeDate, statuteOfLimitations,
-          courtInfo?.courtName, courtInfo?.caseNumber, courtInfo?.judge, courtInfo?.jurisdiction,
-          billingType, billingRate, flatFee, contingencyPercent, retainerAmount,
-          budget, tags, aiSummary, conflictCleared, notes, req.params.id
-        ]
+        `UPDATE matters SET ${setClauses.join(', ')} WHERE id = $${paramIdx}`,
+        updateParams
       );
 
       // Update assignments if provided
@@ -700,10 +787,27 @@ router.put('/:id', authenticate, requirePermission('matters:edit'), async (req, 
       priority: m.priority,
       assignedTo: m.assigned_to || [],
       responsibleAttorney: m.responsible_attorney,
+      originatingAttorney: m.originating_attorney,
+      responsibleStaff: m.responsible_staff,
+      practiceArea: m.practice_area,
+      matterStage: m.matter_stage,
       openDate: m.open_date,
+      pendingDate: m.pending_date,
       closeDate: m.close_date,
+      statuteOfLimitations: m.statute_of_limitations,
+      clientReferenceNumber: m.client_reference_number,
+      location: m.location,
+      billable: m.billable !== false,
+      maildropAddress: m.maildrop_address,
+      notificationUserIds: m.notification_user_ids || [],
+      blockedUserIds: m.blocked_user_ids || [],
+      permissionGroupIds: m.permission_group_ids || [],
       billingType: m.billing_type,
       billingRate: m.billing_rate,
+      flatFee: m.flat_fee,
+      contingencyPercent: m.contingency_percent,
+      retainerAmount: m.retainer_amount,
+      budget: m.budget,
       tags: m.tags,
       conflictCleared: m.conflict_cleared,
       notes: m.notes,

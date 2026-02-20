@@ -205,6 +205,7 @@ async function runMigrations(client) {
     'add_identity_replays.sql',
     'add_custom_roles.sql',
     'add_user_ai_memory.sql',
+    'add_clio_matter_fields.sql',
   ];
 
   const migrationsDir = join(__dirname, 'migrations');

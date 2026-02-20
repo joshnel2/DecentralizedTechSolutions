@@ -369,38 +369,54 @@ export interface Matter {
   // Identification
   number: string // Auto-generated matter number
   clientMatterNumber?: string // Client's internal reference
+  clientReferenceNumber?: string // Clio: Client reference number
   name: string
   description?: string
   
   // Relationships
   clientId: string
+  clientName?: string
   
   // Classification
   type: MatterType
-  practiceArea?: string
+  practiceArea?: string // Clio: Practice area (e.g., "Real Estate")
   subPracticeArea?: string
   status: MatterStatus
-  stage?: string // Custom workflow stage
+  matterStage?: string // Clio: Matter stage (custom workflow stage)
+  stage?: string // Legacy alias
   priority: 'low' | 'medium' | 'high' | 'urgent'
   
   // Visibility & Permissions
   visibility?: 'firm_wide' | 'restricted'
   canManagePermissions?: boolean
   accessLevel?: string
+  permissionGroupIds?: string[] // Clio: Groups with access
+  blockedUserIds?: string[] // Clio: Blocked users
+  
+  // Location
+  location?: string // Clio: Office/branch location
   
   // Dates
   openDate: string
   closeDate?: string
-  pendingDate?: string // When it went to pending status
-  statuteOfLimitations?: string
+  pendingDate?: string // Clio: When it went to pending status
+  statuteOfLimitations?: string // Clio: Limitations date
   
   // Responsible Parties
   responsibleAttorney: string // Primary attorney user ID
   responsibleAttorneyName?: string // Joined from users table
-  originatingAttorney?: string // Who brought in the matter
+  originatingAttorney?: string // Clio: Who brought in the matter
   originatingAttorneyName?: string // Joined from users table
+  responsibleStaff?: string // Clio: Responsible staff member
+  responsibleStaffName?: string // Joined from users table
   assignedTo: string[] // All assigned user IDs
   supervisingAttorney?: string
+  
+  // Notifications
+  notificationUserIds?: string[] // Clio: Matter notifications recipients
+  
+  // Maildrop
+  maildropAddress?: string // Clio: Maildrop email address
   
   // Court/Litigation Info
   courtInfo?: CourtInfo
@@ -413,6 +429,7 @@ export interface Matter {
   retainerAmount?: number
   budget?: number
   budgetAlertThreshold?: number // Percentage to alert at
+  billable?: boolean // Clio: Whether matter is billable
   
   // Financial Tracking (computed/cached)
   totalBilled?: number
