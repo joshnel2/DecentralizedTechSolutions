@@ -3531,73 +3531,11 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Matters saved to DB: ${counts.matters}, verified in DB: ${actualMatterCount}`);
             updateProgress('matters', 'done', actualMatterCount);
             
-            // Fetch Clio relationships to link contacts/users to matters
-            // In Clio, /relationships.json connects contacts to matters.
-            // Firm members who are contacts get assigned as team members.
-            try {
-              console.log('[CLIO IMPORT] Fetching Clio relationships (contact-to-matter links)...');
-              addLog('👥 Fetching matter relationships from Clio...');
-              const relationships = await clioGetPaginated(
-                accessToken, '/relationships.json',
-                { fields: 'id,description,contact{id,name,type},matter{id}' },
-                null
-              );
-              
-              let relAssignCount = 0;
-              for (const rel of relationships) {
-                if (!rel.matter?.id || !rel.contact?.id) continue;
-                const matterId = matterIdMap.get(`clio:${rel.matter.id}`);
-                if (!matterId) continue;
-                
-                // Try to find a user that matches this contact by looking up the contact
-                // in our contactIdMap and then checking if there's a user with the same email
-                const contactClioId = rel.contact.id;
-                // Check if this contact is actually a firm user by looking in the userIdMap
-                // Clio user IDs and contact IDs are different namespaces, so we try name matching
-                const contactName = rel.contact.name?.trim().toLowerCase();
-                if (!contactName) continue;
-                
-                // Find matching user by name
-                let matchedUserId = null;
-                for (const [clioKey, apexUserId] of userIdMap.entries()) {
-                  if (clioKey.startsWith('clio:')) {
-                    // We need to check against user names - look up in DB
-                    try {
-                      const userCheck = await query(
-                        `SELECT id FROM users WHERE id = $1 AND LOWER(first_name || ' ' || last_name) = $2 AND firm_id = $3`,
-                        [apexUserId, contactName, firmId]
-                      );
-                      if (userCheck.rows.length > 0) {
-                        matchedUserId = apexUserId;
-                        break;
-                      }
-                    } catch (e) { /* skip */ }
-                  }
-                }
-                
-                if (matchedUserId) {
-                  try {
-                    await query(
-                      `INSERT INTO matter_assignments (matter_id, user_id, role)
-                       VALUES ($1, $2, $3)
-                       ON CONFLICT (matter_id, user_id) DO NOTHING`,
-                      [matterId, matchedUserId, rel.description || 'team_member']
-                    );
-                    relAssignCount++;
-                  } catch (e) { /* ignore dupes */ }
-                }
-              }
-              
-              if (relAssignCount > 0) {
-                console.log(`[CLIO IMPORT] Created ${relAssignCount} matter_assignments from Clio relationships`);
-                addLog(`👥 Added ${relAssignCount} team member assignments from Clio relationships`);
-              } else {
-                console.log(`[CLIO IMPORT] No additional team assignments from relationships (${relationships.length} relationships checked)`);
-              }
-            } catch (relErr) {
-              console.log(`[CLIO IMPORT] Could not fetch relationships: ${relErr.message}`);
-              addLog(`⚠️ Skipped relationship import: ${relErr.message}`);
-            }
+            // Note: Clio's /relationships.json connects external Contacts to Matters
+            // (opposing counsel, witnesses, etc.) - NOT firm team members.
+            // Team members are determined from: responsible_attorney, originating_attorney,
+            // time entries (activities), and task assignees. Those are handled in their
+            // respective import steps below.
           } catch (err) {
             console.error('[CLIO IMPORT] Matters error:', err.message);
             updateProgress('matters', 'error', counts.matters, err.message);
@@ -4512,6 +4450,36 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           addLog(`⚠️ Tasks import error: ${err.message}`);
         }
         } // end if includeMatters (tasks)
+        
+        // ============================================
+        // DERIVE TEAM ASSIGNMENTS FROM TASKS
+        // ============================================
+        // Any user assigned a task on a matter should also be a matter team member
+        try {
+          const taskAssignResult = await query(`
+            INSERT INTO matter_assignments (matter_id, user_id, role)
+            SELECT DISTINCT t.matter_id, t.assigned_to, 'team_member'
+            FROM tasks t
+            WHERE t.firm_id = $1
+              AND t.matter_id IS NOT NULL
+              AND t.assigned_to IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM matter_assignments ma
+                WHERE ma.matter_id = t.matter_id AND ma.user_id = t.assigned_to
+              )
+            ON CONFLICT (matter_id, user_id) DO NOTHING
+          `, [firmId]);
+          const taskDerivedCount = taskAssignResult.rowCount || 0;
+          if (taskDerivedCount > 0) {
+            console.log(`[CLIO IMPORT] Derived ${taskDerivedCount} matter_assignments from task assignees`);
+            addLog(`👥 Added ${taskDerivedCount} team member assignments from task assignees`);
+          }
+        } catch (taskDeriveErr) {
+          // tasks table may not exist - that's fine
+          if (!taskDeriveErr.message?.includes('does not exist')) {
+            console.log(`[CLIO IMPORT] Could not derive assignments from tasks: ${taskDeriveErr.message}`);
+          }
+        }
         
         // ============================================
         // STEP 7C: IMPORT ACTIVITY CODES (UTBMS/LEDES)
