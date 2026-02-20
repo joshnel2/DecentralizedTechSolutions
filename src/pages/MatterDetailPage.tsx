@@ -1244,12 +1244,10 @@ Only analyze documents actually associated with this matter.`
                 <h3>Matter Details</h3>
               </div>
               <div className={styles.detailGrid}>
-                {matter.description && (
-                  <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
-                    <span className={styles.detailLabel}>Matter Description</span>
-                    <span className={styles.detailValue}>{matter.description}</span>
-                  </div>
-                )}
+                <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+                  <span className={styles.detailLabel}>Matter Description</span>
+                  <span className={styles.detailValue}>{matter.description || '—'}</span>
+                </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Client</span>
                   <Link to={`/app/clients/${client?.id}`} className={styles.detailLink}>
@@ -1340,18 +1338,24 @@ Only analyze documents actually associated with this matter.`
                     ) : 'No'}
                   </span>
                 </div>
-                {matter.budget && (
-                  <div className={styles.detailItem}>
-                    <span className={styles.detailLabel}>Budget</span>
-                    <span className={styles.detailValue}>${matter.budget.toLocaleString()}</span>
-                  </div>
-                )}
-                {matter.maildropAddress && (
-                  <div className={styles.detailItem}>
-                    <span className={styles.detailLabel}>Maildrop Address</span>
-                    <span className={styles.detailValue}>{matter.maildropAddress}</span>
-                  </div>
-                )}
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Budget</span>
+                  <span className={styles.detailValue}>{matter.budget ? `$${matter.budget.toLocaleString()}` : '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Maildrop Address</span>
+                  <span className={styles.detailValue}>{matter.maildropAddress || '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Conflict Check</span>
+                  <span className={styles.detailValue}>
+                    {matter.conflictCleared ? (
+                      <span style={{ color: '#10B981' }}>Cleared</span>
+                    ) : (
+                      <span style={{ color: '#F59E0B' }}>Not Cleared</span>
+                    )}
+                  </span>
+                </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Permissions</span>
                   <span className={styles.detailValue}>
@@ -1361,6 +1365,14 @@ Only analyze documents actually associated with this matter.`
                         {matter.blockedUserIds.length} blocked user(s)
                       </span>
                     )}
+                  </span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Blocked Users</span>
+                  <span className={styles.detailValue}>
+                    {matter.blockedUserIds && matter.blockedUserIds.length > 0
+                      ? attorneys.filter(a => matter.blockedUserIds?.includes(a.id)).map(a => a.name).join(', ') || `${matter.blockedUserIds.length} user(s)`
+                      : '—'}
                   </span>
                 </div>
               </div>

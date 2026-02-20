@@ -34,6 +34,10 @@ ALTER TABLE matters ADD COLUMN IF NOT EXISTS blocked_user_ids UUID[] DEFAULT '{}
 -- Permission group IDs (groups that have access in Clio style)
 ALTER TABLE matters ADD COLUMN IF NOT EXISTS permission_group_ids UUID[] DEFAULT '{}';
 
+-- Fix status constraint to allow all Clio-compatible statuses
+ALTER TABLE matters DROP CONSTRAINT IF EXISTS valid_status;
+ALTER TABLE matters ADD CONSTRAINT valid_status CHECK (status IN ('intake', 'pending_conflict', 'active', 'pending', 'on_hold', 'closed', 'closed_won', 'closed_lost', 'closed_settled', 'closed_dismissed', 'closed_transferred', 'closed_abandoned', 'closed_other', 'archived'));
+
 -- Indexes for new lookup fields
 CREATE INDEX IF NOT EXISTS idx_matters_practice_area ON matters(practice_area);
 CREATE INDEX IF NOT EXISTS idx_matters_matter_stage ON matters(matter_stage);

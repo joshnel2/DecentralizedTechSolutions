@@ -157,7 +157,7 @@ CREATE TABLE matters (
     created_by UUID REFERENCES users(id),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    CONSTRAINT valid_status CHECK (status IN ('active', 'pending', 'closed', 'on_hold', 'archived')),
+    CONSTRAINT valid_status CHECK (status IN ('intake', 'pending_conflict', 'active', 'pending', 'on_hold', 'closed', 'closed_won', 'closed_lost', 'closed_settled', 'closed_dismissed', 'closed_transferred', 'closed_abandoned', 'closed_other', 'archived')),
     CONSTRAINT valid_priority CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
     CONSTRAINT valid_billing_type CHECK (billing_type IN ('hourly', 'flat', 'contingency', 'retainer', 'pro_bono'))
 );
