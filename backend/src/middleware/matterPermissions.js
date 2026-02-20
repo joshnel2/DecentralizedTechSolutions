@@ -24,7 +24,6 @@ export async function canAccessMatter(userId, userRole, matterId, firmId) {
   }
 
   try {
-    // Check matter visibility and user's relationship to it
     const result = await query(`
       SELECT 
         m.visibility,
@@ -36,7 +35,8 @@ export async function canAccessMatter(userId, userRole, matterId, firmId) {
           SELECT 1 FROM matter_permissions mp 
           JOIN user_groups ug ON mp.group_id = ug.group_id 
           WHERE mp.matter_id = m.id AND ug.user_id = $2
-        ) as has_group_permission
+        ) as has_group_permission,
+        COALESCE(m.blocked_user_ids, '{}') as blocked_user_ids
       FROM matters m
       WHERE m.id = $1 AND m.firm_id = $3
     `, [matterId, userId, firmId]);
@@ -46,6 +46,11 @@ export async function canAccessMatter(userId, userRole, matterId, firmId) {
     }
 
     const matter = result.rows[0];
+
+    // Blocked users are denied regardless of other permissions
+    if (Array.isArray(matter.blocked_user_ids) && matter.blocked_user_ids.includes(userId)) {
+      return { hasAccess: false, reason: 'User is blocked from this matter' };
+    }
 
     // Firm-wide matters are accessible to everyone
     if (matter.visibility === 'firm_wide') {
@@ -172,7 +177,6 @@ export function buildVisibilityFilter(userId, userRole, firmId, startParamIndex 
         WHERE mp.matter_id = m.id AND ug.user_id = $${startParamIndex + 1}
       )
     )
-    AND NOT ($${startParamIndex + 1} = ANY(COALESCE(m.blocked_user_ids, '{}')))
   `;
 
   return {

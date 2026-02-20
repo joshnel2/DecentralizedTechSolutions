@@ -479,6 +479,38 @@ export function MattersPage() {
                             {matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}
                           </td>
                         )
+                      case 'practiceArea':
+                        return (
+                          <td key={col.id}>
+                            <span className={styles.typeTag}>
+                              {(matter.practiceArea || '').replace(/_/g, ' ') || '—'}
+                            </span>
+                          </td>
+                        )
+                      case 'matterStage':
+                        return (
+                          <td key={col.id}>
+                            {matter.matterStage || '—'}
+                          </td>
+                        )
+                      case 'location':
+                        return (
+                          <td key={col.id}>
+                            {matter.location || '—'}
+                          </td>
+                        )
+                      case 'originatingAttorney':
+                        return (
+                          <td key={col.id}>
+                            {matter.originatingAttorney ? (
+                              <span className={styles.attorneyName}>
+                                {attorneys.find(a => a.id === matter.originatingAttorney)?.name || 'Assigned'}
+                              </span>
+                            ) : (
+                              <span className={styles.unassigned}>—</span>
+                            )}
+                          </td>
+                        )
                       default:
                         return null
                     }
@@ -656,9 +688,16 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
     priority: 'medium',
     billingType: 'hourly',
     billingRate: 450,
+    billable: true,
     openDate: new Date().toISOString(),
     responsibleAttorney: '',
     originatingAttorney: '',
+    responsibleStaff: '',
+    practiceArea: '',
+    matterStage: '',
+    clientReferenceNumber: '',
+    location: '',
+    maildropAddress: '',
     tags: []
   })
   
@@ -751,6 +790,12 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
         clientId: formData.clientId || undefined,
         responsibleAttorney: formData.responsibleAttorney || undefined,
         originatingAttorney: formData.originatingAttorney || undefined,
+        responsibleStaff: formData.responsibleStaff || undefined,
+        practiceArea: formData.practiceArea || undefined,
+        matterStage: formData.matterStage || undefined,
+        clientReferenceNumber: formData.clientReferenceNumber || undefined,
+        location: formData.location || undefined,
+        maildropAddress: formData.maildropAddress || undefined,
         teamAssignments: isAdmin ? teamAssignments : undefined,
         conflictCleared: conflictCheckResult ? !conflictCheckResult.hasConflicts || conflictAcknowledged : false
       })
@@ -836,6 +881,74 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
 
           <div className={styles.formRow}>
             <div className={styles.formGroup}>
+              <label>Responsible Staff</label>
+              <select
+                value={formData.responsibleStaff}
+                onChange={(e) => setFormData({...formData, responsibleStaff: e.target.value})}
+              >
+                <option value="">Select responsible staff...</option>
+                {attorneys.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} {a.role ? `(${a.role})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label>Practice Area</label>
+              <input
+                type="text"
+                value={formData.practiceArea}
+                onChange={(e) => setFormData({...formData, practiceArea: e.target.value})}
+                placeholder="e.g., Real Estate, Litigation"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Matter Stage</label>
+              <input
+                type="text"
+                value={formData.matterStage}
+                onChange={(e) => setFormData({...formData, matterStage: e.target.value})}
+                placeholder="e.g., Discovery, Trial Prep"
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Client Reference Number</label>
+              <input
+                type="text"
+                value={formData.clientReferenceNumber}
+                onChange={(e) => setFormData({...formData, clientReferenceNumber: e.target.value})}
+                placeholder="Client's internal reference"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label>Location</label>
+              <input
+                type="text"
+                value={formData.location}
+                onChange={(e) => setFormData({...formData, location: e.target.value})}
+                placeholder="Office or branch location"
+              />
+            </div>
+            <div className={styles.formGroup}>
+              <label>Maildrop Address</label>
+              <input
+                type="text"
+                value={formData.maildropAddress}
+                onChange={(e) => setFormData({...formData, maildropAddress: e.target.value})}
+                placeholder="Maildrop email address"
+              />
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
               <label>Billing Type</label>
               <select
                 value={formData.billingType}
@@ -854,6 +967,20 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
                 value={formData.billingRate}
                 onChange={(e) => setFormData({...formData, billingRate: Number(e.target.value)})}
               />
+            </div>
+          </div>
+
+          <div className={styles.formRow}>
+            <div className={styles.formGroup}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  checked={formData.billable}
+                  onChange={(e) => setFormData({...formData, billable: e.target.checked})}
+                  style={{ width: 'auto', accentColor: 'var(--apex-gold)' }}
+                />
+                Billable
+              </label>
             </div>
           </div>
 

@@ -1225,6 +1225,12 @@ Only analyze documents actually associated with this matter.`
                 <h3>Matter Details</h3>
               </div>
               <div className={styles.detailGrid}>
+                {matter.description && (
+                  <div className={styles.detailItem} style={{ gridColumn: '1 / -1' }}>
+                    <span className={styles.detailLabel}>Matter Description</span>
+                    <span className={styles.detailValue}>{matter.description}</span>
+                  </div>
+                )}
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Client</span>
                   <Link to={`/app/clients/${client?.id}`} className={styles.detailLink}>
@@ -1233,32 +1239,86 @@ Only analyze documents actually associated with this matter.`
                   </Link>
                 </div>
                 <div className={styles.detailItem}>
-                  <span className={styles.detailLabel}>Practice Area</span>
-                  <span className={styles.detailValue}>{(matter.type || 'other').replace(/_/g, ' ')}</span>
-                </div>
-                <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Responsible Attorney</span>
                   <span className={styles.detailValue}>
-                    {matter.responsibleAttorneyName || 'Unassigned'}
+                    {matter.responsibleAttorneyName || '—'}
+                  </span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Responsible Staff</span>
+                  <span className={styles.detailValue}>
+                    {matter.responsibleStaffName || '—'}
                   </span>
                 </div>
                 <div className={styles.detailItem}>
                   <span className={styles.detailLabel}>Originating Attorney</span>
                   <span className={styles.detailValue}>
-                    {matter.originatingAttorneyName || 'Unassigned'}
+                    {matter.originatingAttorneyName || '—'}
                   </span>
                 </div>
                 <div className={styles.detailItem}>
-                  <span className={styles.detailLabel}>Opened</span>
-                  <span className={styles.detailValue}>{matter.openDate ? format(parseISO(matter.openDate), 'MMM d, yyyy') : '—'}</span>
+                  <span className={styles.detailLabel}>Matter Notifications</span>
+                  <span className={styles.detailValue}>
+                    {matter.notificationUserIds && matter.notificationUserIds.length > 0
+                      ? attorneys.filter(a => matter.notificationUserIds?.includes(a.id)).map(a => a.name).join(', ') || `${matter.notificationUserIds.length} user(s)`
+                      : '—'}
+                  </span>
                 </div>
                 <div className={styles.detailItem}>
-                  <span className={styles.detailLabel}>Billing Type</span>
+                  <span className={styles.detailLabel}>Practice Area</span>
+                  <span className={styles.detailValue}>{matter.practiceArea || (matter.type || 'other').replace(/_/g, ' ')}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Matter Stage</span>
+                  <span className={styles.detailValue}>{matter.matterStage || '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Client Reference Number</span>
+                  <span className={styles.detailValue}>{matter.clientReferenceNumber || '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Location</span>
+                  <span className={styles.detailValue}>{matter.location || '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Status</span>
+                  <span className={styles.detailValue} style={{ textTransform: 'capitalize' }}>{(matter.status || 'active').replace(/_/g, ' ')}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Open Date</span>
+                  <span className={styles.detailValue}>{matter.openDate ? format(parseISO(matter.openDate), 'MM/dd/yyyy') : '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Pending Date</span>
+                  <span className={styles.detailValue}>{matter.pendingDate ? format(parseISO(matter.pendingDate), 'MM/dd/yyyy') : '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Closed Date</span>
+                  <span className={styles.detailValue}>{matter.closeDate ? format(parseISO(matter.closeDate), 'MM/dd/yyyy') : '—'}</span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Limitations Date</span>
                   <span className={styles.detailValue}>
-                    {matter.billingType === 'hourly' && `Hourly ($${matter.billingRate}/hr)`}
-                    {matter.billingType === 'flat' && `Flat Fee ($${matter.flatFee?.toLocaleString()})`}
-                    {matter.billingType === 'contingency' && `${matter.contingencyPercent}% Contingency`}
-                    {matter.billingType === 'retainer' && `Retainer ($${matter.retainerAmount?.toLocaleString()})`}
+                    {matter.statuteOfLimitations ? format(parseISO(matter.statuteOfLimitations), 'MM/dd/yyyy') : '—'}
+                  </span>
+                </div>
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Billable</span>
+                  <span className={styles.detailValue}>
+                    {matter.billable !== false ? (
+                      <>
+                        Yes, {matter.billingType || 'hourly'}
+                        {matter.billingType === 'hourly' && matter.billingRate && (
+                          <>
+                            <br />
+                            {matter.responsibleAttorneyName || 'Attorney'} (${matter.billingRate?.toLocaleString()}/hr)
+                          </>
+                        )}
+                        {matter.billingType === 'flat' && matter.flatFee && ` — $${matter.flatFee.toLocaleString()}`}
+                        {matter.billingType === 'contingency' && matter.contingencyPercent && ` — ${matter.contingencyPercent}%`}
+                        {matter.billingType === 'retainer' && matter.retainerAmount && ` — $${matter.retainerAmount.toLocaleString()}`}
+                      </>
+                    ) : 'No'}
                   </span>
                 </div>
                 {matter.budget && (
@@ -1267,14 +1327,23 @@ Only analyze documents actually associated with this matter.`
                     <span className={styles.detailValue}>${matter.budget.toLocaleString()}</span>
                   </div>
                 )}
-                {matter.statuteOfLimitations && (
+                {matter.maildropAddress && (
                   <div className={styles.detailItem}>
-                    <span className={styles.detailLabel}>Statute of Limitations</span>
-                    <span className={styles.detailValue}>
-                      {format(parseISO(matter.statuteOfLimitations), 'MMM d, yyyy')}
-                    </span>
+                    <span className={styles.detailLabel}>Maildrop Address</span>
+                    <span className={styles.detailValue}>{matter.maildropAddress}</span>
                   </div>
                 )}
+                <div className={styles.detailItem}>
+                  <span className={styles.detailLabel}>Permissions</span>
+                  <span className={styles.detailValue}>
+                    {matter.visibility === 'restricted' ? 'Restricted' : 'Firm Wide'}
+                    {matter.blockedUserIds && matter.blockedUserIds.length > 0 && (
+                      <span style={{ display: 'block', marginTop: '4px', fontSize: '0.8125rem', color: 'var(--apex-muted)' }}>
+                        {matter.blockedUserIds.length} blocked user(s)
+                      </span>
+                    )}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -3601,8 +3670,19 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
     priority: matter.priority || 'medium',
     billingType: matter.billingType || 'hourly',
     billingRate: matter.billingRate || 450,
+    billable: matter.billable !== false,
     responsibleAttorney: matter.responsibleAttorney || '',
-    originatingAttorney: matter.originatingAttorney || ''
+    originatingAttorney: matter.originatingAttorney || '',
+    responsibleStaff: matter.responsibleStaff || '',
+    practiceArea: matter.practiceArea || '',
+    matterStage: matter.matterStage || '',
+    openDate: matter.openDate || '',
+    pendingDate: matter.pendingDate || '',
+    closeDate: matter.closeDate || '',
+    statuteOfLimitations: matter.statuteOfLimitations || '',
+    clientReferenceNumber: matter.clientReferenceNumber || '',
+    location: matter.location || '',
+    maildropAddress: matter.maildropAddress || '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -3740,6 +3820,74 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
         </div>
       </div>
 
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Responsible Staff</label>
+          <select
+            value={formData.responsibleStaff}
+            onChange={(e) => setFormData({...formData, responsibleStaff: e.target.value})}
+          >
+            <option value="">Select responsible staff...</option>
+            {attorneys.map(a => (
+              <option key={a.id} value={a.id}>
+                {a.name} {a.role ? `(${a.role})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.formGroup}>
+          <label>Practice Area</label>
+          <input
+            type="text"
+            value={formData.practiceArea}
+            onChange={(e) => setFormData({...formData, practiceArea: e.target.value})}
+            placeholder="e.g., Real Estate, Litigation"
+          />
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Matter Stage</label>
+          <input
+            type="text"
+            value={formData.matterStage}
+            onChange={(e) => setFormData({...formData, matterStage: e.target.value})}
+            placeholder="e.g., Discovery, Trial Prep"
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Client Reference Number</label>
+          <input
+            type="text"
+            value={formData.clientReferenceNumber}
+            onChange={(e) => setFormData({...formData, clientReferenceNumber: e.target.value})}
+            placeholder="Client's internal reference"
+          />
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Location</label>
+          <input
+            type="text"
+            value={formData.location}
+            onChange={(e) => setFormData({...formData, location: e.target.value})}
+            placeholder="Office or branch location"
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Maildrop Address</label>
+          <input
+            type="text"
+            value={formData.maildropAddress}
+            onChange={(e) => setFormData({...formData, maildropAddress: e.target.value})}
+            placeholder="Maildrop email address"
+          />
+        </div>
+      </div>
+
       {formData.billingType === 'hourly' && (
         <div className={styles.formGroup}>
           <label>Default Rate ($/hr)</label>
@@ -3750,6 +3898,58 @@ function EditMatterForm({ matter, attorneys, typeOptions, onClose, onSave, onMan
           />
         </div>
       )}
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              checked={formData.billable}
+              onChange={(e) => setFormData({...formData, billable: e.target.checked})}
+              style={{ width: 'auto', accentColor: 'var(--apex-gold)' }}
+            />
+            Billable
+          </label>
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Open Date</label>
+          <input
+            type="date"
+            value={formData.openDate ? formData.openDate.substring(0, 10) : ''}
+            onChange={(e) => setFormData({...formData, openDate: e.target.value})}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Pending Date</label>
+          <input
+            type="date"
+            value={formData.pendingDate ? formData.pendingDate.substring(0, 10) : ''}
+            onChange={(e) => setFormData({...formData, pendingDate: e.target.value})}
+          />
+        </div>
+      </div>
+
+      <div className={styles.formRow}>
+        <div className={styles.formGroup}>
+          <label>Closed Date</label>
+          <input
+            type="date"
+            value={formData.closeDate ? formData.closeDate.substring(0, 10) : ''}
+            onChange={(e) => setFormData({...formData, closeDate: e.target.value})}
+          />
+        </div>
+        <div className={styles.formGroup}>
+          <label>Limitations Date</label>
+          <input
+            type="date"
+            value={formData.statuteOfLimitations ? formData.statuteOfLimitations.substring(0, 10) : ''}
+            onChange={(e) => setFormData({...formData, statuteOfLimitations: e.target.value})}
+          />
+        </div>
+      </div>
 
       <div className={styles.formGroup}>
         <label>Description</label>

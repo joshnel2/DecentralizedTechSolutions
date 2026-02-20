@@ -23,9 +23,13 @@ const DEFAULT_MATTER_COLUMNS: ColumnConfig[] = [
   { id: 'client', label: 'Client', visible: true, order: 1 },
   { id: 'responsibleAttorney', label: 'Responsible Attorney', visible: true, order: 2 },
   { id: 'type', label: 'Type', visible: true, order: 3 },
-  { id: 'status', label: 'Status', visible: true, order: 4 },
-  { id: 'billing', label: 'Billing', visible: true, order: 5 },
-  { id: 'opened', label: 'Opened', visible: true, order: 6 },
+  { id: 'practiceArea', label: 'Practice Area', visible: false, order: 4 },
+  { id: 'status', label: 'Status', visible: true, order: 5 },
+  { id: 'billing', label: 'Billing', visible: true, order: 6 },
+  { id: 'opened', label: 'Opened', visible: true, order: 7 },
+  { id: 'matterStage', label: 'Stage', visible: false, order: 8 },
+  { id: 'location', label: 'Location', visible: false, order: 9 },
+  { id: 'originatingAttorney', label: 'Originating Attorney', visible: false, order: 10 },
 ]
 
 export function getDefaultColumns(): ColumnConfig[] {
