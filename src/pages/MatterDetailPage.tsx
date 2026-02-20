@@ -102,6 +102,12 @@ export function MatterDetailPage() {
   const [attorneys, setAttorneys] = useState<any[]>([])
   const [showContactModal, setShowContactModal] = useState(false)
   const [matterContacts, setMatterContacts] = useState<any[]>([])
+  const [teamMembers, setTeamMembers] = useState<any[]>([])
+  const [loadingTeam, setLoadingTeam] = useState(true)
+  const [showAddTeamMember, setShowAddTeamMember] = useState(false)
+  const [addTeamUserId, setAddTeamUserId] = useState('')
+  const [addTeamRole, setAddTeamRole] = useState('team_member')
+  const [addTeamRate, setAddTeamRate] = useState<number | ''>('')
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [loadingUpdates, setLoadingUpdates] = useState(true)
   const [loadingContacts, setLoadingContacts] = useState(true)
@@ -109,6 +115,7 @@ export function MatterDetailPage() {
   const [showPermissionsPanel, setShowPermissionsPanel] = useState(false)
   const { user, hasPermission } = useAuthStore()
   const canDeleteMatters = hasPermission('matters:delete')
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   
@@ -208,6 +215,18 @@ export function MatterDetailPage() {
         .finally(() => setLoadingContacts(false))
     }
   }, [id])
+
+  // Load team members from API
+  const loadTeamMembers = useCallback(() => {
+    if (!id) return
+    setLoadingTeam(true)
+    mattersApi.getTeamMembers(id)
+      .then(data => setTeamMembers(data.teamMembers || []))
+      .catch(err => console.error('Failed to load team:', err))
+      .finally(() => setLoadingTeam(false))
+  }, [id])
+
+  useEffect(() => { loadTeamMembers() }, [loadTeamMembers])
   
   const addContact = async (contact: { name: string; role: string; firm?: string; email?: string; phone?: string }) => {
     if (!id) return
@@ -1344,6 +1363,170 @@ Only analyze documents actually associated with this matter.`
                     )}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Team Members */}
+            <div className={styles.card}>
+              <div className={styles.cardHeader}>
+                <h3>
+                  <Users size={18} />
+                  Team Members
+                </h3>
+                {(isAdmin || matter.canManagePermissions) && (
+                  <div className={styles.cardActions}>
+                    <button className={styles.addBtn} onClick={() => setShowAddTeamMember(!showAddTeamMember)}>
+                      <Plus size={14} />
+                      Add
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Add team member form */}
+              {showAddTeamMember && (
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 2, minWidth: '150px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--apex-muted)', display: 'block', marginBottom: '4px' }}>Person</label>
+                    <select
+                      value={addTeamUserId}
+                      onChange={(e) => setAddTeamUserId(e.target.value)}
+                      style={{ width: '100%', padding: '6px 8px', fontSize: '0.875rem' }}
+                    >
+                      <option value="">Select person...</option>
+                      {attorneys.filter(a => !teamMembers.some(t => t.userId === a.id)).map(a => (
+                        <option key={a.id} value={a.id}>{a.name} ({a.role})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1, minWidth: '120px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--apex-muted)', display: 'block', marginBottom: '4px' }}>Role</label>
+                    <select
+                      value={addTeamRole}
+                      onChange={(e) => setAddTeamRole(e.target.value)}
+                      style={{ width: '100%', padding: '6px 8px', fontSize: '0.875rem' }}
+                    >
+                      <option value="team_member">Team Member</option>
+                      <option value="responsible_attorney">Responsible Attorney</option>
+                      <option value="originating_attorney">Originating Attorney</option>
+                      <option value="supervising_attorney">Supervising Attorney</option>
+                      <option value="paralegal">Paralegal</option>
+                      <option value="associate">Associate</option>
+                    </select>
+                  </div>
+                  <div style={{ flex: 1, minWidth: '80px' }}>
+                    <label style={{ fontSize: '0.75rem', color: 'var(--apex-muted)', display: 'block', marginBottom: '4px' }}>Rate ($/hr)</label>
+                    <input
+                      type="number"
+                      value={addTeamRate}
+                      onChange={(e) => setAddTeamRate(e.target.value ? Number(e.target.value) : '')}
+                      placeholder="—"
+                      style={{ width: '100%', padding: '6px 8px', fontSize: '0.875rem' }}
+                    />
+                  </div>
+                  <button
+                    className={styles.saveBtn}
+                    style={{ padding: '6px 16px', fontSize: '0.875rem' }}
+                    disabled={!addTeamUserId}
+                    onClick={async () => {
+                      if (!id || !addTeamUserId) return
+                      try {
+                        await mattersApi.addTeamMember(id, {
+                          userId: addTeamUserId,
+                          role: addTeamRole,
+                          billingRate: addTeamRate ? Number(addTeamRate) : undefined,
+                        })
+                        loadTeamMembers()
+                        setAddTeamUserId('')
+                        setAddTeamRole('team_member')
+                        setAddTeamRate('')
+                        setShowAddTeamMember(false)
+                        toast.success('Team member added')
+                      } catch (err) {
+                        console.error('Failed to add team member:', err)
+                        toast.error('Failed to add team member')
+                      }
+                    }}
+                  >
+                    Add
+                  </button>
+                  <button
+                    className={styles.cancelBtn}
+                    style={{ padding: '6px 12px', fontSize: '0.875rem' }}
+                    onClick={() => setShowAddTeamMember(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              <div style={{ padding: '0' }}>
+                {loadingTeam ? (
+                  <p className={styles.noData}>Loading team...</p>
+                ) : teamMembers.length === 0 ? (
+                  <p className={styles.noData}>No team members assigned</p>
+                ) : (
+                  teamMembers.map((member, idx) => (
+                    <div
+                      key={member.userId}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '10px 16px',
+                        borderBottom: idx < teamMembers.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                      }}
+                    >
+                      <div style={{
+                        width: '32px', height: '32px', borderRadius: '50%',
+                        background: 'var(--apex-gold)', color: 'var(--apex-midnight)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '0.75rem', fontWeight: 700, flexShrink: 0,
+                      }}>
+                        {member.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>
+                          {member.name}
+                          {member.isResponsibleAttorney && (
+                            <span style={{ marginLeft: '8px', fontSize: '0.6875rem', padding: '2px 6px', background: 'rgba(var(--apex-gold-rgb, 212,175,55), 0.2)', borderRadius: '4px', color: 'var(--apex-gold)' }}>
+                              Responsible
+                            </span>
+                          )}
+                          {member.isOriginatingAttorney && (
+                            <span style={{ marginLeft: '8px', fontSize: '0.6875rem', padding: '2px 6px', background: 'rgba(100,200,255,0.15)', borderRadius: '4px', color: '#64C8FF' }}>
+                              Originating
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--apex-muted)' }}>
+                          {(member.matterRole || '').replace(/_/g, ' ')}
+                          {member.billingRate ? ` · $${member.billingRate}/hr` : ''}
+                        </div>
+                      </div>
+                      {(isAdmin || matter.canManagePermissions) && (
+                        <button
+                          className={styles.iconBtn}
+                          style={{ padding: '4px', opacity: 0.6 }}
+                          title="Remove from matter"
+                          onClick={async () => {
+                            if (!id) return
+                            try {
+                              await mattersApi.removeTeamMember(id, member.userId)
+                              loadTeamMembers()
+                              toast.success(`${member.name} removed from matter`)
+                            } catch (err) {
+                              console.error('Failed to remove team member:', err)
+                              toast.error('Failed to remove team member')
+                            }
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 

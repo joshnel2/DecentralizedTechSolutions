@@ -845,6 +845,127 @@ router.delete('/:id', authenticate, requirePermission('matters:delete'), async (
 });
 
 // ============================================
+// TEAM MEMBER ASSIGNMENTS
+// ============================================
+
+// Get all team members assigned to a matter
+router.get('/:id/team', authenticate, requirePermission('matters:view'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
+    const result = await query(`
+      SELECT ma.user_id, ma.role, ma.billing_rate, ma.assigned_at,
+             u.first_name, u.last_name, u.email, u.role as user_role
+      FROM matter_assignments ma
+      JOIN users u ON ma.user_id = u.id
+      WHERE ma.matter_id = $1
+      ORDER BY ma.assigned_at ASC
+    `, [req.params.id]);
+
+    // Also get responsible/originating attorney info from the matter itself
+    const matterResult = await query(`
+      SELECT responsible_attorney, originating_attorney, responsible_staff
+      FROM matters WHERE id = $1
+    `, [req.params.id]);
+    const matter = matterResult.rows[0] || {};
+
+    res.json({
+      teamMembers: result.rows.map(r => ({
+        userId: r.user_id,
+        name: `${r.first_name} ${r.last_name}`.trim(),
+        email: r.email,
+        userRole: r.user_role,
+        matterRole: r.role,
+        billingRate: r.billing_rate,
+        assignedAt: r.assigned_at,
+        isResponsibleAttorney: r.user_id === matter.responsible_attorney,
+        isOriginatingAttorney: r.user_id === matter.originating_attorney,
+        isResponsibleStaff: r.user_id === matter.responsible_staff,
+      })),
+      count: result.rows.length
+    });
+  } catch (error) {
+    console.error('Get matter team error:', error);
+    res.status(500).json({ error: 'Failed to get team members' });
+  }
+});
+
+// Add a team member to a matter
+router.post('/:id/team', authenticate, requirePermission('matters:edit'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
+    const { userId, role = 'team_member', billingRate } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    // Verify user exists and is in the same firm
+    const userCheck = await query(
+      'SELECT id, first_name, last_name, email, role as user_role FROM users WHERE id = $1 AND firm_id = $2',
+      [userId, req.user.firmId]
+    );
+    if (userCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found in this firm' });
+    }
+
+    await query(
+      `INSERT INTO matter_assignments (matter_id, user_id, role, billing_rate)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (matter_id, user_id) DO UPDATE SET role = $3, billing_rate = COALESCE($4, matter_assignments.billing_rate)`,
+      [req.params.id, userId, role, billingRate || null]
+    );
+
+    const u = userCheck.rows[0];
+    res.status(201).json({
+      success: true,
+      teamMember: {
+        userId: u.id,
+        name: `${u.first_name} ${u.last_name}`.trim(),
+        email: u.email,
+        userRole: u.user_role,
+        matterRole: role,
+        billingRate: billingRate || null,
+      }
+    });
+  } catch (error) {
+    console.error('Add team member error:', error);
+    res.status(500).json({ error: 'Failed to add team member' });
+  }
+});
+
+// Remove a team member from a matter
+router.delete('/:id/team/:userId', authenticate, requirePermission('matters:edit'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied to this matter' });
+    }
+
+    const result = await query(
+      'DELETE FROM matter_assignments WHERE matter_id = $1 AND user_id = $2',
+      [req.params.id, req.params.userId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Team member not found on this matter' });
+    }
+
+    res.json({ success: true, message: 'Team member removed' });
+  } catch (error) {
+    console.error('Remove team member error:', error);
+    res.status(500).json({ error: 'Failed to remove team member' });
+  }
+});
+
+// ============================================
 // CONFLICT CHECK
 // ============================================
 
