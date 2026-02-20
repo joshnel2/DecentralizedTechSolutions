@@ -176,6 +176,18 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
     );
 
     const te = result.rows[0];
+
+    // Auto-assign user to matter if they log time on it
+    if (te.matter_id && te.user_id) {
+      try {
+        await query(
+          `INSERT INTO matter_assignments (matter_id, user_id, role)
+           VALUES ($1, $2, 'team_member')
+           ON CONFLICT (matter_id, user_id) DO NOTHING`,
+          [te.matter_id, te.user_id]
+        );
+      } catch (_) { /* ignore - already assigned */ }
+    }
     
     // Emit real-time event for time entry creation
     emitEvent(req.user.firmId, null, 'time_entry.created', {

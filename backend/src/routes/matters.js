@@ -547,7 +547,6 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
       // Also handle legacy assignedTo array (simple user IDs without rates)
       else if (assignedTo && Array.isArray(assignedTo)) {
         for (const odId of assignedTo) {
-          // Skip invalid user IDs (like 'user-1' placeholder)
           if (odId && typeof odId === 'string' && odId.length === 36 && odId.includes('-')) {
             await client.query(
               'INSERT INTO matter_assignments (matter_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -556,6 +555,14 @@ router.post('/', authenticate, requirePermission('matters:create'), async (req, 
           }
         }
       }
+
+      // Always assign the creator as a team member
+      await client.query(
+        `INSERT INTO matter_assignments (matter_id, user_id, role)
+         VALUES ($1, $2, 'creator')
+         ON CONFLICT (matter_id, user_id) DO NOTHING`,
+        [matter.id, req.user.id]
+      );
 
       return matter;
     });

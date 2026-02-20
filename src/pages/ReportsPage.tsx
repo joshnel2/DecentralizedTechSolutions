@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useDataStore } from '../stores/dataStore'
+import { useAuthStore } from '../stores/authStore'
 import { 
   TrendingUp, DollarSign, Clock, Users, Briefcase,
   Download, Calendar, CheckCircle2, Filter,
@@ -66,7 +67,8 @@ const reportCategories = [
 // These are managed locally for the demo
 
 export function ReportsPage() {
-  const { matters, clients, timeEntries, invoices, expenses: _expenses } = useDataStore()
+  const { matters, clients, timeEntries, invoices, expenses: _expenses, fetchMatters, fetchClients, fetchTimeEntries, fetchInvoices } = useDataStore()
+  const { user } = useAuthStore()
   const toast = useToast()
   const [activeCategory, setActiveCategory] = useState('overview')
   const [selectedReport, setSelectedReport] = useState<string | null>(null)
@@ -76,6 +78,16 @@ export function ReportsPage() {
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [exportError, setExportError] = useState<string | null>(null)
+
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+
+  useEffect(() => {
+    const view = isAdmin ? 'all' : 'my'
+    fetchMatters({ view, forceRefresh: true })
+    fetchClients({ view, forceRefresh: true })
+    fetchTimeEntries({ limit: 100000 })
+    fetchInvoices({ view })
+  }, [isAdmin])
 
   // Date range calculations
   const _getDateRange = () => {
@@ -268,18 +280,24 @@ export function ReportsPage() {
           setTimeout(() => setExportError(null), 5000)
           return
         }
-        const data = invoices.map(i => ({
-          invoice_number: i.number,
-          client: clients.find(c => c.id === i.clientId)?.name || '',
-          matter: matters.find(m => m.id === i.matterId)?.name || '',
-          issue_date: i.issueDate.split('T')[0],
-          due_date: i.dueDate.split('T')[0],
-          total: i.total,
-          paid: i.amountPaid,
-          balance: i.total - i.amountPaid,
-          status: i.status
-        }))
-        exportToCSV(data, 'billing_summary', ['Invoice Number', 'Client', 'Matter', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance', 'Status'])
+        const data = invoices.map(i => {
+          const matter = matters.find(m => m.id === i.matterId)
+          return {
+            invoice_number: i.number,
+            client: clients.find(c => c.id === i.clientId)?.name || '',
+            matter: matter?.name || '',
+            matter_number: matter?.number || '',
+            responsible_attorney: matter?.responsibleAttorneyName || '',
+            practice_area: matter?.practiceArea || '',
+            issue_date: i.issueDate.split('T')[0],
+            due_date: i.dueDate.split('T')[0],
+            total: i.total,
+            paid: i.amountPaid,
+            balance: i.total - i.amountPaid,
+            status: i.status
+          }
+        })
+        exportToCSV(data, 'billing_summary', ['Invoice Number', 'Client', 'Matter', 'Matter Number', 'Responsible Attorney', 'Practice Area', 'Issue Date', 'Due Date', 'Total', 'Paid', 'Balance', 'Status'])
       },
       'ar-aging': () => {
         const unpaidInvoices = invoices.filter(i => i.status !== 'paid')
@@ -303,20 +321,28 @@ export function ReportsPage() {
         exportToCSV(data, 'ar_aging', ['Invoice Number', 'Client', 'Issue Date', 'Due Date', 'Days Outstanding', 'Amount', 'Aging Bucket'])
       },
       'timekeeper-summary': () => {
-        if (utilizationByUser.length === 0) {
+        if (timeEntries.length === 0) {
           setExportError('No time entries found. Log time entries to generate a timekeeper summary report.')
           setTimeout(() => setExportError(null), 5000)
           return
         }
-        const data = utilizationByUser.map(u => ({
-          timekeeper: u.name,
-          billable_hours: u.billable,
-          non_billable_hours: u.nonBillable,
-          total_hours: u.billable + u.nonBillable,
-          utilization: ((u.billable / (u.billable + u.nonBillable)) * 100).toFixed(1) + '%',
-          target: u.target
-        }))
-        exportToCSV(data, 'timekeeper_summary', ['Timekeeper', 'Billable Hours', 'Non Billable Hours', 'Total Hours', 'Utilization', 'Target'])
+        const data = timeEntries.map(te => {
+          const matter = matters.find(m => m.id === te.matterId)
+          return {
+            date: te.date ? te.date.split('T')[0] : '',
+            timekeeper: te.userId || '',
+            matter: matter?.name || '',
+            matter_number: matter?.number || '',
+            client: matter ? (clients.find(c => c.id === matter.clientId)?.name || matter.clientName || '') : '',
+            description: te.description || '',
+            hours: te.hours,
+            rate: te.rate,
+            amount: te.amount || (te.hours * te.rate),
+            billable: te.billable ? 'Yes' : 'No',
+            billed: te.billed ? 'Yes' : 'No',
+          }
+        })
+        exportToCSV(data, 'timekeeper_detail', ['Date', 'Timekeeper', 'Matter', 'Matter Number', 'Client', 'Description', 'Hours', 'Rate', 'Amount', 'Billable', 'Billed'])
       },
       'matter-status': () => {
         if (matters.length === 0) {
@@ -327,14 +353,21 @@ export function ReportsPage() {
         const data = matters.map(m => ({
           number: m.number,
           name: m.name,
-          client: clients.find(c => c.id === m.clientId)?.name || '',
-          type: m.type.replace(/_/g, ' '),
-          status: m.status.replace(/_/g, ' '),
+          client: clients.find(c => c.id === m.clientId)?.name || m.clientName || '',
+          practice_area: m.practiceArea || '',
+          type: (m.type || '').replace(/_/g, ' '),
+          status: (m.status || '').replace(/_/g, ' '),
+          stage: m.matterStage || '',
           priority: m.priority,
-          open_date: m.openDate.split('T')[0],
-          billing_type: m.billingType
+          responsible_attorney: m.responsibleAttorneyName || '',
+          originating_attorney: m.originatingAttorneyName || '',
+          open_date: m.openDate ? m.openDate.split('T')[0] : '',
+          close_date: m.closeDate ? m.closeDate.split('T')[0] : '',
+          billing_type: m.billingType || '',
+          billable: m.billable !== false ? 'Yes' : 'No',
+          location: m.location || '',
         }))
-        exportToCSV(data, 'matter_status', ['Number', 'Name', 'Client', 'Type', 'Status', 'Priority', 'Open Date', 'Billing Type'])
+        exportToCSV(data, 'matter_status', ['Number', 'Name', 'Client', 'Practice Area', 'Type', 'Status', 'Stage', 'Priority', 'Responsible Attorney', 'Originating Attorney', 'Open Date', 'Close Date', 'Billing Type', 'Billable', 'Location'])
       },
       'client-summary': () => {
         if (clients.length === 0) {
@@ -362,15 +395,21 @@ export function ReportsPage() {
           setTimeout(() => setExportError(null), 5000)
           return
         }
-        const data = unbilledEntries.map(t => ({
-          date: t.date.split('T')[0],
-          matter: matters.find(m => m.id === t.matterId)?.name || '',
-          description: t.description,
-          hours: t.hours,
-          rate: t.rate,
-          amount: t.amount
-        }))
-        exportToCSV(data, 'unbilled_time', ['Date', 'Matter', 'Description', 'Hours', 'Rate', 'Amount'])
+        const data = unbilledEntries.map(t => {
+          const matter = matters.find(m => m.id === t.matterId)
+          return {
+            date: t.date ? t.date.split('T')[0] : '',
+            matter: matter?.name || '',
+            matter_number: matter?.number || '',
+            client: matter ? (clients.find(c => c.id === matter.clientId)?.name || '') : '',
+            responsible_attorney: matter?.responsibleAttorneyName || '',
+            description: t.description,
+            hours: t.hours,
+            rate: t.rate,
+            amount: t.amount || (t.hours * t.rate)
+          }
+        })
+        exportToCSV(data, 'unbilled_time', ['Date', 'Matter', 'Matter Number', 'Client', 'Responsible Attorney', 'Description', 'Hours', 'Rate', 'Amount'])
       },
       'payment-history': () => {
         const paidInvoices = invoices.filter(i => i.amountPaid > 0)

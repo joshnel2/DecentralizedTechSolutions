@@ -63,12 +63,15 @@ export function DashboardPage() {
     setShowSaveTimerModal(true)
   }
 
-  // Fetch all data when component mounts
+  const isAdmin = user?.role === 'owner' || user?.role === 'admin'
+
+  // Fetch all data when component mounts - admins see firm-wide data
   useEffect(() => {
-    fetchClients()
-    fetchMatters()
-    fetchTimeEntries({ limit: 500 })
-    fetchInvoices()
+    const view = isAdmin ? 'all' : 'my'
+    fetchClients({ view })
+    fetchMatters({ view })
+    fetchTimeEntries({ limit: 100000 })
+    fetchInvoices({ view })
     fetchEvents({})
     fetchDocuments()
     
