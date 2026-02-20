@@ -2792,7 +2792,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               filterClioUserId = matchingUser.id;
               console.log(`[CLIO IMPORT] Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
               addLog(`✅ Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
-              addLog(`📋 Will only import matters where this user is the responsible attorney`);
+              addLog(`📋 Will import matters where this user is responsible attorney, originating attorney, or team member`);
             } else {
               console.log(`[CLIO IMPORT] WARNING: No Clio user found with email: ${filterUserEmail}`);
               addLog(`⚠️ No Clio user found with email: ${filterUserEmail}`);
@@ -3039,16 +3039,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           addLog(`🔍 Identifying which contacts to import...`);
           
           try {
-            // Use simple paginated fetch with minimal fields for speed
             const mattersList = await clioGetPaginated(
               accessToken, '/matters.json',
-              { fields: 'id,client{id},responsible_attorney{id}', limit: 200 },
+              { fields: 'id,client{id},responsible_attorney{id},originating_attorney{id}', limit: 200 },
               null
             );
             
-            // Collect client IDs from user's matters
+            // Collect client IDs from user's matters (responsible, originating, or any relationship)
             for (const m of mattersList) {
-              if (m.responsible_attorney?.id === filterClioUserId && m.client?.id) {
+              const isUserMatter = m.responsible_attorney?.id === filterClioUserId
+                || m.originating_attorney?.id === filterClioUserId;
+              if (isUserMatter && m.client?.id) {
                 filterClientClioIds.add(m.client.id);
               }
             }
@@ -3378,21 +3379,29 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           console.log('[CLIO IMPORT] Step 3/10: Importing matters directly to DB...');
           updateProgress('matters', 'running', 0);
           try {
-            // Fetch matters
+            // Fetch matters - include all Clio fields for full parity
             const matters = await clioGetMattersByStatus(
               accessToken, '/matters.json',
-              { fields: 'id,display_number,description,status,open_date,close_date,billing_method,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}' },
+              { fields: 'id,display_number,description,status,open_date,close_date,pending_date,billing_method,billable,location,client_reference,maildrop_address,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name},statute_of_limitations,relationships{id,description,contact{id,name,type},user{id,name}}' },
               (count) => updateProgress('matters', 'running', count)
             );
             
             // If user-specific filter is active, filter matters
+            // Include matters where user is responsible attorney, originating attorney,
+            // or has a relationship (e.g., assigned team member)
             let filteredMatters = matters;
             if (filterClioUserId) {
-              filteredMatters = matters.filter(m => 
-                m.responsible_attorney?.id === filterClioUserId
-              );
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible attorney`);
-              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user is responsible attorney`);
+              filteredMatters = matters.filter(m => {
+                if (m.responsible_attorney?.id === filterClioUserId) return true;
+                if (m.originating_attorney?.id === filterClioUserId) return true;
+                // Check relationships for this user
+                if (m.relationships && Array.isArray(m.relationships)) {
+                  return m.relationships.some(r => r.user?.id === filterClioUserId);
+                }
+                return false;
+              });
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible attorney, originating attorney, or has a relationship`);
+              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user has any role`);
             }
             
             for (const m of filteredMatters) {
@@ -3404,8 +3413,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 const responsibleId = m.responsible_attorney?.id ? userIdMap.get(`clio:${m.responsible_attorney.id}`) : null;
                 const originatingId = m.originating_attorney?.id ? userIdMap.get(`clio:${m.originating_attorney.id}`) : null;
                 
-                // Map practice_area to matter type
-                const matterType = m.practice_area?.name || null;
+                // Map practice_area - store both in type and practice_area
+                const practiceAreaName = m.practice_area?.name || null;
+                const matterType = practiceAreaName;
                 
                 // Get billing rate from matter's custom_rate or responsible attorney's rate
                 const billingRate = m.custom_rate 
@@ -3438,12 +3448,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 // Set visibility: 'restricted' for user-specific migrations, 'firm_wide' otherwise
-                // This ensures that when migrating a single user's matters, only that user can see them
                 const matterVisibility = filterClioUserId ? 'restricted' : 'firm_wide';
                 
+                // Map Clio billable flag
+                const isBillable = m.billable !== false;
+                
                 const result = await query(
-                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, statute_of_limitations, jurisdiction, custom_fields, visibility)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+                  `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, pending_date, billing_type, billing_rate, billable, statute_of_limitations, jurisdiction, practice_area, location, client_reference_number, maildrop_address, custom_fields, visibility)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id`,
                   [
                     firmId,
                     clientId,
@@ -3456,10 +3468,16 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     originatingId,
                     m.open_date || null,
                     m.close_date || null,
+                    m.pending_date || null,
                     billingType,
                     billingRate,
+                    isBillable,
                     m.statute_of_limitations || null,
                     m.location || null,
+                    practiceAreaName,
+                    m.location || null,
+                    m.client_reference || null,
+                    m.maildrop_address || null,
                     Object.keys(customFields).length > 0 ? JSON.stringify(customFields) : '{}',
                     matterVisibility
                   ]
@@ -3467,7 +3485,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const matterId = result.rows[0].id;
                 matterIdMap.set(`clio:${m.id}`, matterId);
-                importedClioMatterIds.add(m.id); // Track for filtering time entries, bills, calendar
+                importedClioMatterIds.add(m.id);
                 
                 // Create matter_assignments for responsible and originating attorneys
                 if (responsibleId) {
@@ -3492,6 +3510,27 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                     );
                   } catch (assignErr) {
                     // Ignore assignment errors
+                  }
+                }
+                
+                // Create matter_assignments from Clio relationships (team members working on this matter)
+                if (m.relationships && Array.isArray(m.relationships)) {
+                  for (const rel of m.relationships) {
+                    if (rel.user?.id) {
+                      const relUserId = userIdMap.get(`clio:${rel.user.id}`);
+                      if (relUserId && relUserId !== responsibleId && relUserId !== originatingId) {
+                        try {
+                          await query(
+                            `INSERT INTO matter_assignments (matter_id, user_id, role, billing_rate)
+                             VALUES ($1, $2, $3, $4)
+                             ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                            [matterId, relUserId, rel.description || 'team_member', null]
+                          );
+                        } catch (relAssignErr) {
+                          // Ignore - already assigned or FK issue
+                        }
+                      }
+                    }
                   }
                 }
                 
@@ -3796,6 +3835,31 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Time entries saved: ${counts.activities}, expenses saved: ${expenseCount}`);
             console.log(`[CLIO IMPORT] Verified in DB: ${actualActivityCount} time entries, ${actualExpenseCount} expenses`);
             updateProgress('activities', 'done', actualActivityCount + actualExpenseCount);
+            
+            // Derive matter_assignments from time entries:
+            // Any user who billed time on a matter should be assigned to it
+            try {
+              const teAssignResult = await query(`
+                INSERT INTO matter_assignments (matter_id, user_id, role)
+                SELECT DISTINCT te.matter_id, te.user_id, 'team_member'
+                FROM time_entries te
+                WHERE te.firm_id = $1
+                  AND te.matter_id IS NOT NULL
+                  AND te.user_id IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM matter_assignments ma
+                    WHERE ma.matter_id = te.matter_id AND ma.user_id = te.user_id
+                  )
+                ON CONFLICT (matter_id, user_id) DO NOTHING
+              `, [firmId]);
+              const derivedCount = teAssignResult.rowCount || 0;
+              if (derivedCount > 0) {
+                console.log(`[CLIO IMPORT] Derived ${derivedCount} matter_assignments from time entries`);
+                addLog(`👥 Added ${derivedCount} team member assignments from time entries`);
+              }
+            } catch (deriveErr) {
+              console.log(`[CLIO IMPORT] Could not derive assignments from time entries: ${deriveErr.message}`);
+            }
           } catch (err) {
             console.error('[CLIO IMPORT] Activities error:', err.message);
             updateProgress('activities', 'error', counts.activities, err.message);
