@@ -897,6 +897,36 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "edit_document_sections",
+      description: "Make targeted edits to an existing document without rewriting the entire thing. Provide a list of find-and-replace operations. The original document is preserved and a new edited version is created. Use this instead of update_document when you only need to change specific sections, paragraphs, or clauses.",
+      parameters: {
+        type: "object",
+        properties: {
+          document_id: { type: "string", description: "ID of the document to edit" },
+          edits: {
+            type: "array",
+            description: "List of find-and-replace edits to apply in order",
+            items: {
+              type: "object",
+              properties: {
+                find: { type: "string", description: "Text to find in the document (exact match or substring)" },
+                replace: { type: "string", description: "Text to replace it with" },
+                description: { type: "string", description: "Brief note about why this change was made" }
+              },
+              required: ["find", "replace"]
+            }
+          },
+          append: { type: "string", description: "Optional: text to append to the end of the document" },
+          prepend: { type: "string", description: "Optional: text to prepend to the beginning of the document" },
+          change_summary: { type: "string", description: "Summary of all changes made for the version history" }
+        },
+        required: ["document_id", "edits"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "delete_document",
       description: "Permanently delete a document. WARNING: This cannot be undone.",
       parameters: {
@@ -2135,6 +2165,7 @@ async function executeTool(toolName, args, user, req = null) {
       case 'create_document': return await createDocument(args, user);
       case 'create_note': return await createNote(args, user);
       case 'update_document': return await updateDocument(args, user);
+      case 'edit_document_sections': return await editDocumentSections(args, user);
       case 'delete_document': return await deleteDocument(args, user);
       case 'move_document': return await moveDocument(args, user);
       case 'rename_document': return await renameDocument(args, user);
@@ -6300,6 +6331,181 @@ async function updateDocument(args, user) {
   } catch (error) {
     console.error('Error creating edited document:', error);
     return { error: 'Failed to create edited document: ' + error.message };
+  }
+}
+
+async function editDocumentSections(args, user) {
+  const { document_id, edits = [], append, prepend, change_summary } = args;
+  
+  if (!document_id) {
+    return { error: 'document_id is required' };
+  }
+  if ((!edits || edits.length === 0) && !append && !prepend) {
+    return { error: 'At least one edit, append, or prepend is required' };
+  }
+  
+  try {
+    // Get the existing document with full content
+    const existing = await query(
+      `SELECT d.id, d.name, d.original_name, d.matter_id, d.client_id, d.type, d.tags, d.firm_id, d.content_text,
+              m.name as matter_name
+       FROM documents d
+       LEFT JOIN matters m ON d.matter_id = m.id
+       WHERE d.id = $1 AND d.firm_id = $2`,
+      [document_id, user.firmId]
+    );
+    
+    if (existing.rows.length === 0) {
+      return { error: 'Document not found or access denied' };
+    }
+    
+    const originalDoc = existing.rows[0];
+    let content = originalDoc.content_text || '';
+    
+    // If no stored content, try to get it from metadata
+    if (!content) {
+      try {
+        const metaResult = await query(
+          `SELECT metadata->>'content_text' as content FROM documents WHERE id = $1`,
+          [document_id]
+        );
+        content = metaResult.rows[0]?.content || '';
+      } catch (e) { /* ignore */ }
+    }
+    
+    if (!content) {
+      return { 
+        error: 'Document has no readable text content. It may be a scanned PDF or binary file that cannot be edited this way.',
+        suggestion: 'Use read_document_content first to check if the document has extractable text.'
+      };
+    }
+    
+    // Apply edits
+    const editResults = [];
+    let editedContent = content;
+    
+    if (prepend) {
+      editedContent = prepend + '\n\n' + editedContent;
+      editResults.push({ action: 'prepend', chars_added: prepend.length });
+    }
+    
+    for (const edit of edits) {
+      if (!edit.find || edit.replace === undefined) continue;
+      
+      const beforeLength = editedContent.length;
+      if (editedContent.includes(edit.find)) {
+        editedContent = editedContent.replace(edit.find, edit.replace);
+        editResults.push({
+          action: 'replaced',
+          find_preview: edit.find.substring(0, 60),
+          description: edit.description || null,
+          chars_changed: Math.abs(editedContent.length - beforeLength),
+        });
+      } else {
+        // Try case-insensitive match
+        const idx = editedContent.toLowerCase().indexOf(edit.find.toLowerCase());
+        if (idx >= 0) {
+          editedContent = editedContent.substring(0, idx) + edit.replace + editedContent.substring(idx + edit.find.length);
+          editResults.push({
+            action: 'replaced (case-insensitive)',
+            find_preview: edit.find.substring(0, 60),
+            description: edit.description || null,
+          });
+        } else {
+          editResults.push({
+            action: 'not_found',
+            find_preview: edit.find.substring(0, 60),
+            description: edit.description || null,
+          });
+        }
+      }
+    }
+    
+    if (append) {
+      editedContent = editedContent + '\n\n' + append;
+      editResults.push({ action: 'append', chars_added: append.length });
+    }
+    
+    // Check if anything actually changed
+    if (editedContent === content) {
+      return {
+        success: false,
+        message: 'No changes were applied. The find text was not found in the document.',
+        edits_attempted: editResults,
+      };
+    }
+    
+    // Create the edited version as a new document (preserving original)
+    const userName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User';
+    const origName = originalDoc.original_name || originalDoc.name;
+    const hasExt = origName.includes('.');
+    const ext = hasExt ? origName.substring(origName.lastIndexOf('.')) : '.txt';
+    let baseName = hasExt ? origName.substring(0, origName.lastIndexOf('.')) : origName;
+    baseName = baseName.replace(/\s*-\s*[^-]+\s*\(AI\)\s*-\s*\w+\s+\d+,?\s*\d*$/i, '').replace(/\s*\(AI\)\s*$/i, '').trim();
+    
+    const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const clonedName = `${baseName} - ${userName} (AI) - ${dateStr}${ext}`;
+    const safeFileName = clonedName.replace(/[^a-z0-9.\-_ ]/gi, '_');
+    const newPath = `ai-documents/${Date.now()}-${safeFileName}`;
+    
+    const result = await query(
+      `INSERT INTO documents (
+        firm_id, matter_id, client_id, name, original_name, type,
+        size, path, status, tags, uploaded_by, owner_id, privacy_level, content_text, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14)
+      RETURNING id, name`,
+      [
+        user.firmId, originalDoc.matter_id, originalDoc.client_id,
+        clonedName, clonedName, originalDoc.type || 'text/plain',
+        editedContent.length, newPath, 'draft', originalDoc.tags || [],
+        user.id, originalDoc.matter_id ? 'team' : 'private',
+        editedContent,
+        JSON.stringify({ ai_generated: true, edit_source: document_id, content_text: editedContent })
+      ]
+    );
+    
+    const newDoc = result.rows[0];
+    
+    // Create version record
+    try {
+      const contentHash = crypto.createHash('sha256').update(editedContent).digest('hex');
+      const summary = change_summary || `AI edits: ${editResults.filter(e => e.action !== 'not_found').length} changes applied`;
+      await query(
+        `INSERT INTO document_versions (
+          document_id, firm_id, version_number, version_label,
+          content_text, content_hash, change_summary, change_type,
+          word_count, character_count, file_size, created_by, created_by_name, source
+        ) VALUES ($1, $2, 1, 'AI Edited', $3, $4, $5, 'edit', $6, $7, $8, $9, $10, 'ai_edited')`,
+        [
+          newDoc.id, user.firmId, editedContent, contentHash, summary,
+          editedContent.split(/\s+/).filter(w => w).length,
+          editedContent.length, editedContent.length,
+          user.id, `${userName} (AI)`
+        ]
+      );
+    } catch (versionError) {
+      console.log('[AI Agent] Version record creation skipped:', versionError.message);
+    }
+    
+    const appliedCount = editResults.filter(e => e.action !== 'not_found').length;
+    const notFoundCount = editResults.filter(e => e.action === 'not_found').length;
+    
+    return {
+      success: true,
+      message: `Edited document: ${appliedCount} change(s) applied${notFoundCount > 0 ? `, ${notFoundCount} not found` : ''}. Original preserved. New version: "${clonedName}"`,
+      data: {
+        original_id: document_id,
+        original_name: origName,
+        new_id: newDoc.id,
+        new_name: clonedName,
+        edits_applied: editResults,
+        content_length: editedContent.length,
+        word_count: editedContent.split(/\s+/).filter(w => w).length,
+      }
+    };
+  } catch (error) {
+    console.error('Error editing document sections:', error);
+    return { error: 'Failed to edit document: ' + error.message };
   }
 }
 

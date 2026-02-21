@@ -1194,6 +1194,11 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
         }
       }
       
+      // Edit results are small - don't trim
+      if (toolName === 'edit_document_sections' || toolName === 'update_document') {
+        return JSON.stringify(result);
+      }
+      
       if (toolName === 'get_matter_documents_content') {
         // Aggressively trim - only keep document names and short previews
         const docs = result?.documents || result?.results || [];
@@ -2709,6 +2714,7 @@ ${matterNeedsVerification ? `- **MATTER SAFETY GATE**: Write tools (add_matter_n
 **Read:** get_matter, search_matters, list_clients, read_document_content, search_document_content, list_documents, get_calendar_events, list_tasks
 **Research:** lookup_cplr (NY procedure), run_legal_research_plugin (deep external authority analysis)
 **Write:** add_matter_note (notes), create_document (formal .docx), create_task (follow-ups), create_calendar_event (deadlines)
+**Edit:** edit_document_sections (targeted find-and-replace edits on existing documents — preserves original, creates new version), update_document (full rewrite of existing document)
 **Meta:** think_and_plan, evaluate_progress, review_created_documents (REVIEW phase), task_complete
 
 ## PHASES (current: ${this.executionPhase.toUpperCase()})
