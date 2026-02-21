@@ -242,6 +242,9 @@ async function runMigrations(client) {
     'add_user_ai_memory.sql',
     'add_legal_research_tables.sql',
     'add_ai_custom_instructions.sql',
+    'add_api_key_value.sql',
+    'add_attorney_workflow_templates.sql',
+    'add_azure_sync_index.sql',
     // Clio + new features
     'add_clio_matter_fields.sql',
     'add_communications.sql',
