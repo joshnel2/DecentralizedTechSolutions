@@ -21,7 +21,8 @@ import {
   Bell, Sparkles, Menu, X, FolderOpen, Shield, Key, UserCircle,
   Building2, UsersRound, Link2, TrendingUp, Lock, FileStack,
   Play, Pause, Square, Mail, Cloud, FileText, Video, MessageSquare, 
-  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck, Scale, Bot
+  Calculator, HardDrive, Share2, CreditCard, ClipboardCheck, Scale, Bot,
+  Sun, Moon
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import styles from './Layout.module.css'
@@ -66,7 +67,7 @@ const settingsItems = [
 ]
 
 export function Layout() {
-  const { user, firm, logout } = useAuthStore()
+  const { user, firm, logout, theme, setTheme } = useAuthStore()
   const { notifications, fetchMatterTypes } = useDataStore()
   const { fetchAll: fetchBillingData, isInitialized: billingInitialized } = useBillingStore()
   const { fetchAll: fetchTemplateData, isInitialized: templateInitialized } = useTemplateStore()
@@ -507,6 +508,10 @@ export function Layout() {
                     <button onClick={() => { navigate('/app/settings/security'); setUserMenuOpen(false) }}>
                       <Lock size={16} />
                       <span>Security</span>
+                    </button>
+                    <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+                      {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                      <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
                     </button>
                     <button onClick={handleLogout} className={styles.logoutBtn}>
                       <LogOut size={16} />

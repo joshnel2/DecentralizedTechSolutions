@@ -312,6 +312,14 @@ function AppContent() {
   )
 }
 
+function ThemeInitializer() {
+  const theme = useAuthStore(s => s.theme)
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme || 'light')
+  }, [theme])
+  return null
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -319,6 +327,7 @@ export default function App() {
         <TimerProvider>
           <AIChatProvider>
             <BrowserRouter>
+              <ThemeInitializer />
               <ScrollToTop />
               <AppContent />
             </BrowserRouter>

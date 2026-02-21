@@ -15,7 +15,7 @@ import { useToast } from '../components/Toast'
 export function SettingsPage() {
   const navigate = useNavigate()
   const toast = useToast()
-  const { user, updateUser } = useAuthStore()
+  const { user, updateUser, theme, setTheme } = useAuthStore()
   const { matterTypes, addMatterType, updateMatterType, deleteMatterType, toggleMatterTypeActive } = useDataStore()
   const [activeTab, setActiveTab] = useState('profile')
   const [saved, setSaved] = useState(false)
@@ -70,7 +70,7 @@ export function SettingsPage() {
   })
 
   const [displayData, setDisplayData] = useState({
-    theme: 'dark',
+    theme: theme || 'light',
     dateFormat: 'MM/DD/YYYY',
     timeFormat: '12h',
     timezone: 'America/New_York',
@@ -1465,11 +1465,14 @@ export function SettingsPage() {
                     <label>Theme</label>
                     <select
                       value={displayData.theme}
-                      onChange={e => setDisplayData({...displayData, theme: e.target.value})}
+                      onChange={e => {
+                        const newTheme = e.target.value as 'light' | 'dark'
+                        setDisplayData({...displayData, theme: newTheme})
+                        setTheme(newTheme)
+                      }}
                     >
-                      <option value="dark">Dark</option>
                       <option value="light">Light</option>
-                      <option value="system">System Default</option>
+                      <option value="dark">Dark</option>
                     </select>
                   </div>
                   <div className={styles.formGroup}>

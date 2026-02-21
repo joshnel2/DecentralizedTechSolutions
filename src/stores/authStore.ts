@@ -69,6 +69,10 @@ interface AuthState {
   // Permissions cache
   userPermissions: string[]
   
+  // Theme
+  theme: 'light' | 'dark'
+  setTheme: (theme: 'light' | 'dark') => void
+  
   // Actions
   login: (email: string, password: string) => Promise<{ requires2FA: boolean }>
   verify2FA: (code: string) => Promise<boolean>
@@ -195,6 +199,13 @@ export const useAuthStore = create<AuthState>()(
       teamMembers: [],
       invitations: [],
       userPermissions: [],
+      theme: (localStorage.getItem('apex-theme') as 'light' | 'dark') || 'light',
+
+      setTheme: (theme: 'light' | 'dark') => {
+        localStorage.setItem('apex-theme', theme)
+        document.documentElement.setAttribute('data-theme', theme)
+        set({ theme })
+      },
 
       login: async (email: string, password: string) => {
         set({ isLoading: true })
