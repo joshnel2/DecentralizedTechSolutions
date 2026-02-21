@@ -128,6 +128,15 @@ export function BillingPage() {
 
   const handleDownloadInvoice = async (invoice: any) => {
     setOpenDropdownId(null)
+    // Open server-rendered printable invoice (includes time entries, expenses, payments)
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+    const printUrl = `/api/invoices/${invoice.id}/print`
+    const printWindow = window.open(printUrl, '_blank')
+    if (!printWindow) {
+      toast.error('Please allow popups to print invoices')
+    }
+    return // Skip legacy client-side generation below
+    
     const client = clients.find(c => c.id === invoice.clientId)
     const matter = matters.find(m => m.id === invoice.matterId)
     

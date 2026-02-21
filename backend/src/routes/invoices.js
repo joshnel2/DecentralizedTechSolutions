@@ -195,6 +195,135 @@ router.get('/:id', authenticate, requirePermission('billing:view'), async (req, 
   }
 });
 
+// Generate printable invoice HTML (browser prints to PDF)
+router.get('/:id/print', authenticate, requirePermission('billing:view'), async (req, res) => {
+  try {
+    const invoice = await query(`
+      SELECT i.*, c.display_name as client_name, c.email as client_email,
+             c.address_street, c.address_city, c.address_state, c.address_zip,
+             m.name as matter_name, m.number as matter_number,
+             f.name as firm_name, f.address as firm_address, f.phone as firm_phone, f.email as firm_email
+      FROM invoices i
+      LEFT JOIN clients c ON i.client_id = c.id
+      LEFT JOIN matters m ON i.matter_id = m.id
+      LEFT JOIN firms f ON i.firm_id = f.id
+      WHERE i.id = $1 AND i.firm_id = $2
+    `, [req.params.id, req.user.firmId]);
+
+    if (invoice.rows.length === 0) return res.status(404).json({ error: 'Invoice not found' });
+    const inv = invoice.rows[0];
+
+    const timeEntries = await query(`
+      SELECT te.date, te.hours, te.rate, te.description,
+             u.first_name || ' ' || u.last_name as timekeeper
+      FROM time_entries te
+      LEFT JOIN users u ON te.user_id = u.id
+      WHERE te.invoice_id = $1
+      ORDER BY te.date
+    `, [req.params.id]);
+
+    const expenses = await query(`
+      SELECT date, description, amount, category
+      FROM expenses
+      WHERE invoice_id = $1
+      ORDER BY date
+    `, [req.params.id]);
+
+    const payments = await query(`
+      SELECT amount, payment_method, payment_date, reference
+      FROM payments
+      WHERE invoice_id = $1
+      ORDER BY payment_date
+    `, [req.params.id]);
+
+    const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const formatMoney = (n) => `$${(parseFloat(n) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    let feesTotal = timeEntries.rows.reduce((s, t) => s + parseFloat(t.hours) * parseFloat(t.rate), 0);
+    let expensesTotal = expenses.rows.reduce((s, e) => s + parseFloat(e.amount), 0);
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Invoice ${inv.number}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; padding: 40px; max-width: 800px; margin: 0 auto; }
+  .header { display: flex; justify-content: space-between; margin-bottom: 40px; }
+  .firm-name { font-size: 24px; font-weight: 700; color: #111; }
+  .firm-info { font-size: 12px; color: #666; margin-top: 4px; }
+  .invoice-title { font-size: 28px; font-weight: 700; color: #333; text-align: right; }
+  .invoice-meta { text-align: right; font-size: 13px; color: #555; margin-top: 8px; }
+  .invoice-meta strong { color: #111; }
+  .parties { display: flex; justify-content: space-between; margin-bottom: 30px; padding: 20px; background: #f8f9fa; border-radius: 8px; }
+  .party h4 { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 6px; letter-spacing: 0.5px; }
+  .party p { font-size: 13px; line-height: 1.5; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  th { background: #f1f3f5; padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #555; letter-spacing: 0.5px; border-bottom: 2px solid #dee2e6; }
+  td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #eee; }
+  .text-right { text-align: right; }
+  .totals { margin-left: auto; width: 280px; }
+  .totals tr td { padding: 6px 12px; }
+  .totals .total-row { font-weight: 700; font-size: 16px; border-top: 2px solid #333; }
+  .status { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+  .status-paid { background: #d4edda; color: #155724; }
+  .status-sent { background: #cce5ff; color: #004085; }
+  .status-overdue { background: #f8d7da; color: #721c24; }
+  .status-draft { background: #e2e3e5; color: #383d41; }
+  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 11px; color: #888; text-align: center; }
+  @media print { body { padding: 20px; } .no-print { display: none; } }
+</style></head><body>
+<div class="no-print" style="margin-bottom:20px;text-align:right">
+  <button onclick="window.print()" style="padding:10px 24px;background:#333;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px">Print / Save as PDF</button>
+</div>
+<div class="header">
+  <div>
+    <div class="firm-name">${inv.firm_name || 'Law Firm'}</div>
+    <div class="firm-info">${inv.firm_address || ''}<br>${inv.firm_phone || ''} · ${inv.firm_email || ''}</div>
+  </div>
+  <div>
+    <div class="invoice-title">INVOICE</div>
+    <div class="invoice-meta">
+      <strong>#${inv.number}</strong><br>
+      Date: ${formatDate(inv.issue_date)}<br>
+      Due: ${formatDate(inv.due_date)}<br>
+      <span class="status status-${inv.status}">${inv.status?.toUpperCase()}</span>
+    </div>
+  </div>
+</div>
+<div class="parties">
+  <div class="party"><h4>Bill To</h4><p><strong>${inv.client_name || 'Client'}</strong><br>${inv.address_street || ''}<br>${[inv.address_city, inv.address_state, inv.address_zip].filter(Boolean).join(', ')}<br>${inv.client_email || ''}</p></div>
+  <div class="party"><h4>Matter</h4><p><strong>${inv.matter_name || ''}</strong><br>${inv.matter_number || ''}</p></div>
+</div>
+${timeEntries.rows.length > 0 ? `<h3 style="margin-bottom:10px;font-size:14px">Professional Services</h3>
+<table><thead><tr><th>Date</th><th>Timekeeper</th><th>Description</th><th class="text-right">Hours</th><th class="text-right">Rate</th><th class="text-right">Amount</th></tr></thead><tbody>
+${timeEntries.rows.map(t => `<tr><td>${formatDate(t.date)}</td><td>${t.timekeeper || ''}</td><td>${t.description || ''}</td><td class="text-right">${parseFloat(t.hours).toFixed(2)}</td><td class="text-right">${formatMoney(t.rate)}</td><td class="text-right">${formatMoney(parseFloat(t.hours) * parseFloat(t.rate))}</td></tr>`).join('')}
+</tbody></table>` : ''}
+${expenses.rows.length > 0 ? `<h3 style="margin-bottom:10px;font-size:14px">Expenses & Disbursements</h3>
+<table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="text-right">Amount</th></tr></thead><tbody>
+${expenses.rows.map(e => `<tr><td>${formatDate(e.date)}</td><td>${e.description || ''}</td><td>${(e.category || '').replace(/_/g, ' ')}</td><td class="text-right">${formatMoney(e.amount)}</td></tr>`).join('')}
+</tbody></table>` : ''}
+<table class="totals"><tbody>
+<tr><td>Professional Services</td><td class="text-right">${formatMoney(feesTotal || inv.subtotal_fees)}</td></tr>
+<tr><td>Expenses</td><td class="text-right">${formatMoney(expensesTotal || inv.subtotal_expenses || 0)}</td></tr>
+${inv.discount_amount ? `<tr><td>Discount</td><td class="text-right">-${formatMoney(inv.discount_amount)}</td></tr>` : ''}
+${inv.tax_amount ? `<tr><td>Tax</td><td class="text-right">${formatMoney(inv.tax_amount)}</td></tr>` : ''}
+<tr class="total-row"><td>Total</td><td class="text-right">${formatMoney(inv.total || (feesTotal + expensesTotal))}</td></tr>
+<tr><td>Paid</td><td class="text-right">${formatMoney(inv.amount_paid)}</td></tr>
+<tr class="total-row"><td>Balance Due</td><td class="text-right">${formatMoney((inv.total || (feesTotal + expensesTotal)) - (parseFloat(inv.amount_paid) || 0))}</td></tr>
+</tbody></table>
+${payments.rows.length > 0 ? `<h3 style="margin:20px 0 10px;font-size:14px">Payment History</h3>
+<table><thead><tr><th>Date</th><th>Method</th><th>Reference</th><th class="text-right">Amount</th></tr></thead><tbody>
+${payments.rows.map(p => `<tr><td>${formatDate(p.payment_date)}</td><td>${(p.payment_method || '').replace(/_/g, ' ')}</td><td>${p.reference || ''}</td><td class="text-right">${formatMoney(p.amount)}</td></tr>`).join('')}
+</tbody></table>` : ''}
+<div class="footer">Thank you for your business. Payment is due by ${formatDate(inv.due_date)}.</div>
+</body></html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (error) {
+    console.error('Print invoice error:', error);
+    res.status(500).json({ error: 'Failed to generate invoice' });
+  }
+});
+
 // Create invoice
 router.post('/', authenticate, requirePermission('billing:create'), async (req, res) => {
   try {
