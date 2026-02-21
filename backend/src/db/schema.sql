@@ -226,6 +226,46 @@ CREATE TABLE expenses (
     CONSTRAINT valid_status CHECK (status IN ('pending', 'approved', 'rejected', 'billed'))
 );
 
+-- Communications
+CREATE TABLE communications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    firm_id UUID REFERENCES firms(id) ON DELETE CASCADE,
+    matter_id UUID REFERENCES matters(id) ON DELETE SET NULL,
+    client_id UUID REFERENCES clients(id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    type VARCHAR(30) NOT NULL DEFAULT 'note',
+    direction VARCHAR(10) DEFAULT 'outbound',
+    subject TEXT,
+    body TEXT,
+    from_address TEXT,
+    to_address TEXT,
+    phone_number TEXT,
+    duration_seconds INTEGER,
+    is_billable BOOLEAN DEFAULT false,
+    time_entry_id UUID,
+    external_id TEXT,
+    external_source VARCHAR(30),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Custom Field Definitions
+CREATE TABLE custom_field_definitions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    firm_id UUID REFERENCES firms(id) ON DELETE CASCADE,
+    entity_type VARCHAR(30) NOT NULL DEFAULT 'matter',
+    field_key VARCHAR(100) NOT NULL,
+    field_label VARCHAR(200) NOT NULL,
+    field_type VARCHAR(30) NOT NULL DEFAULT 'text',
+    options JSONB DEFAULT '[]',
+    is_required BOOLEAN DEFAULT false,
+    is_visible BOOLEAN DEFAULT true,
+    display_order INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(firm_id, entity_type, field_key)
+);
+
 -- Invoices
 CREATE TABLE invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

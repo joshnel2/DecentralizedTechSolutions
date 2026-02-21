@@ -128,14 +128,27 @@ export function BillingPage() {
 
   const handleDownloadInvoice = async (invoice: any) => {
     setOpenDropdownId(null)
-    // Open server-rendered printable invoice (includes time entries, expenses, payments)
-    const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
-    const printUrl = `/api/invoices/${invoice.id}/print`
-    const printWindow = window.open(printUrl, '_blank')
-    if (!printWindow) {
-      toast.error('Please allow popups to print invoices')
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+      const res = await fetch(`/api/invoices/${invoice.id}/print`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const html = await res.text()
+        const printWindow = window.open('', '_blank')
+        if (printWindow) {
+          printWindow.document.write(html)
+          printWindow.document.close()
+        } else {
+          toast.error('Please allow popups to print invoices')
+        }
+      } else {
+        toast.error('Failed to generate invoice')
+      }
+    } catch (err) {
+      toast.error('Failed to generate invoice')
     }
-    return // Skip legacy client-side generation below
+    return
     
     const client = clients.find(c => c.id === invoice.clientId)
     const matter = matters.find(m => m.id === invoice.matterId)
