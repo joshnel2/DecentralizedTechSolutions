@@ -217,3 +217,7 @@
 :global([data-theme="light"]) .item:hover, :global([data-theme="light"]) .row:hover { background: #F8FAFC !important; }
 :global([data-theme="light"]) input, :global([data-theme="light"]) textarea, :global([data-theme="light"]) select { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
 :global([data-theme="light"]) .cancelBtn, :global([data-theme="light"]) .secondaryBtn { border-color: #D1D5DB !important; color: #475569 !important; }
+:global([data-theme="light"]) .errorContainer { background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%) !important; }
+:global([data-theme="light"]) .errorCard { background: #FFFFFF !important; border-color: #FECACA !important; }
+:global([data-theme="light"]) .errorTitle { color: #0F172A !important; }
+:global([data-theme="light"]) .errorMessage { color: #475569 !important; }

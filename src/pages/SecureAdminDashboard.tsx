@@ -5617,7 +5617,7 @@ bob@example.com, Bob, Wilson, partner"
 
           {/* Hero Header */}
           <div style={{ 
-            background: 'linear-gradient(135deg, #1E293B 0%, #334155 50%, #475569 100%)',
+            background: 'linear-gradient(135deg, var(--apex-slate) 0%, var(--apex-muted) 50%, var(--apex-subtle) 100%)',
             padding: '48px 32px',
             color: 'white'
           }}>
