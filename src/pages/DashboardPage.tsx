@@ -476,8 +476,8 @@ export function DashboardPage() {
                 />
                 <Tooltip 
                   contentStyle={{
-                    background: '#1E293B',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'var(--apex-slate)',
+                    border: '1px solid var(--border-secondary)',
                     borderRadius: '8px',
                     color: '#F1F5F9'
                   }}
@@ -517,8 +517,8 @@ export function DashboardPage() {
                 </Pie>
                 <Tooltip 
                   contentStyle={{
-                    background: '#1E293B',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'var(--apex-slate)',
+                    border: '1px solid var(--border-secondary)',
                     borderRadius: '8px',
                     color: '#F1F5F9'
                   }}

@@ -349,7 +349,7 @@ export function ResetPasswordPage() {
             {/* Password requirements hint */}
             <div style={{ 
               padding: '12px', 
-              background: 'rgba(255, 255, 255, 0.03)', 
+              background: 'var(--border-primary)', 
               borderRadius: '8px',
               fontSize: '13px',
               color: '#64748b'

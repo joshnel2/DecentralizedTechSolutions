@@ -5034,7 +5034,7 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                                 </div>
                               </td>
                               <td>
-                                <span style={{ fontWeight: 600, color: '#1E293B' }}>{firm.documentsCount}</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{firm.documentsCount}</span>
                               </td>
                               <td>
                                 <span style={{ 
@@ -5233,7 +5233,7 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                               <div style={{ marginBottom: '8px' }}>
                                 <span style={{ color: '#64748B', marginRight: '8px' }}>Windows:</span>
                                 <code style={{ 
-                                  background: '#1E293B',
+                                  background: 'var(--apex-slate)',
                                   color: '#E2E8F0',
                                   padding: '4px 8px',
                                   borderRadius: '4px',
@@ -5249,7 +5249,7 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                               <div>
                                 <span style={{ color: '#64748B', marginRight: '8px' }}>Mac:</span>
                                 <code style={{ 
-                                  background: '#1E293B',
+                                  background: 'var(--apex-slate)',
                                   color: '#E2E8F0',
                                   padding: '4px 8px',
                                   borderRadius: '4px',
@@ -5327,7 +5327,7 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                                   driveSettings: { ...editingFirmStorage.driveSettings, inheritMatterPermissions: e.target.checked }
                                 })}
                               />
-                              <label htmlFor="inheritPermissions" style={{ fontSize: '14px', color: '#1E293B' }}>
+                              <label htmlFor="inheritPermissions" style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
                                 Inherit permissions from parent matter
                               </label>
                             </div>
@@ -5341,7 +5341,7 @@ Bob Johnson, bob@smithlaw.com, Paralegal, $150`}
                                   driveSettings: { ...editingFirmStorage.driveSettings, preserveFolderStructure: e.target.checked }
                                 })}
                               />
-                              <label htmlFor="preserveStructure" style={{ fontSize: '14px', color: '#1E293B' }}>
+                              <label htmlFor="preserveStructure" style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
                                 Preserve folder structure from source
                               </label>
                             </div>
@@ -5663,7 +5663,7 @@ bob@example.com, Bob, Wilson, partner"
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '12px',
-                    background: 'rgba(255,255,255,0.1)',
+                    background: 'var(--border-secondary)',
                     padding: '12px 20px',
                     borderRadius: '12px',
                     marginTop: '8px'
@@ -5682,7 +5682,7 @@ bob@example.com, Bob, Wilson, partner"
                     <button 
                       onClick={() => { navigator.clipboard.writeText(selectedFirmDetail.id); showNotification('success', 'Firm ID copied!') }}
                       style={{ 
-                        background: 'rgba(255,255,255,0.1)', 
+                        background: 'var(--border-secondary)', 
                         border: 'none', 
                         borderRadius: '6px',
                         padding: '6px 10px',
@@ -5712,7 +5712,7 @@ bob@example.com, Bob, Wilson, partner"
                         width: '48px', 
                         height: '48px', 
                         borderRadius: '12px', 
-                        background: 'rgba(255,255,255,0.1)',
+                        background: 'var(--border-secondary)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -5813,7 +5813,7 @@ bob@example.com, Bob, Wilson, partner"
                             <stat.icon size={22} style={{ color: stat.color }} />
                           </div>
                         </div>
-                        <div style={{ fontSize: '36px', fontWeight: 700, color: '#1E293B', marginBottom: '4px' }}>{stat.value}</div>
+                        <div style={{ fontSize: '36px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>{stat.value}</div>
                         <div style={{ fontSize: '14px', color: '#64748B', fontWeight: 500 }}>{stat.label}</div>
                         {stat.sub && <div style={{ fontSize: '13px', color: '#94A3B8', marginTop: '4px' }}>{stat.sub}</div>}
                       </div>
@@ -5872,7 +5872,7 @@ bob@example.com, Bob, Wilson, partner"
                                 }}>
                                   {user.first_name?.[0]}{user.last_name?.[0]}
                                 </div>
-                                <span style={{ fontWeight: 600, color: '#1E293B' }}>{user.first_name} {user.last_name}</span>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{user.first_name} {user.last_name}</span>
                               </div>
                             </td>
                             <td style={{ padding: '20px 24px', color: '#64748B' }}>{user.email}</td>
@@ -5943,7 +5943,7 @@ bob@example.com, Bob, Wilson, partner"
                     </div>
                     {clioConnectionId ? (
                       <div style={{ 
-                        background: 'rgba(255,255,255,0.2)', 
+                        background: 'var(--border-secondary)', 
                         padding: '8px 16px', 
                         borderRadius: '8px',
                         fontSize: '14px',
@@ -5953,7 +5953,7 @@ bob@example.com, Bob, Wilson, partner"
                       </div>
                     ) : (
                       <div style={{ 
-                        background: 'rgba(255,255,255,0.15)', 
+                        background: 'var(--border-secondary)', 
                         padding: '8px 16px', 
                         borderRadius: '8px',
                         fontSize: '14px',
@@ -5967,11 +5967,11 @@ bob@example.com, Bob, Wilson, partner"
                   {/* Azure Storage Location */}
                   {azureStorageInfo && (
                     <div style={{ 
-                      background: 'rgba(255,255,255,0.1)', 
+                      background: 'var(--border-secondary)', 
                       padding: '16px 20px', 
                       borderRadius: '12px',
                       marginBottom: '20px',
-                      border: '1px solid rgba(255,255,255,0.2)'
+                      border: '1px solid var(--border-secondary)'
                     }}>
                       <div style={{ fontSize: '14px', opacity: 0.8, marginBottom: '8px' }}>📂 Azure Storage Location:</div>
                       <div style={{ 
@@ -5998,19 +5998,19 @@ bob@example.com, Bob, Wilson, partner"
                       gap: '16px',
                       marginBottom: '24px'
                     }}>
-                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--border-secondary)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                         <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.total}</div>
                         <div style={{ fontSize: '13px', opacity: 0.9 }}>Total</div>
                       </div>
-                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--border-secondary)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                         <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.pending}</div>
                         <div style={{ fontSize: '13px', opacity: 0.9 }}>Pending</div>
                       </div>
-                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--border-secondary)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                         <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.imported}</div>
                         <div style={{ fontSize: '13px', opacity: 0.9 }}>Imported</div>
                       </div>
-                      <div style={{ background: 'rgba(255,255,255,0.15)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                      <div style={{ background: 'var(--border-secondary)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                         <div style={{ fontSize: '28px', fontWeight: 700 }}>{streamingStatus.totalSizeMB} MB</div>
                         <div style={{ fontSize: '13px', opacity: 0.9 }}>Total Size</div>
                       </div>
@@ -6024,7 +6024,7 @@ bob@example.com, Bob, Wilson, partner"
                         <span>Streaming in progress...</span>
                         <span>{streamProgress.processed || 0} / {streamProgress.total || 0}</span>
                       </div>
-                      <div style={{ background: 'rgba(255,255,255,0.2)', borderRadius: '8px', height: '8px', overflow: 'hidden' }}>
+                      <div style={{ background: 'var(--border-secondary)', borderRadius: '8px', height: '8px', overflow: 'hidden' }}>
                         <div style={{ 
                           background: 'white', 
                           height: '100%', 
@@ -6095,9 +6095,9 @@ bob@example.com, Bob, Wilson, partner"
                         alignItems: 'center',
                         gap: '8px',
                         padding: '14px 24px',
-                        background: 'rgba(255,255,255,0.2)',
+                        background: 'var(--border-secondary)',
                         color: 'white',
-                        border: '1px solid rgba(255,255,255,0.3)',
+                        border: '1px solid var(--border-secondary)',
                         borderRadius: '10px',
                         cursor: !streamingStatus?.imported ? 'not-allowed' : 'pointer',
                         fontWeight: 600,
@@ -6206,7 +6206,7 @@ bob@example.com, Bob, Wilson, partner"
                         alignItems: 'center',
                         gap: '12px',
                         padding: '18px 32px',
-                        background: 'rgba(255,255,255,0.2)',
+                        background: 'var(--border-secondary)',
                         color: 'white',
                         border: '2px solid white',
                         borderRadius: '14px',
@@ -6216,8 +6216,8 @@ bob@example.com, Bob, Wilson, partner"
                         transition: 'transform 0.2s, background 0.2s',
                         opacity: scanningFirmId === selectedFirmDetail.id ? 0.8 : 1
                       }}
-                      onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.3)' }}}
-                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.background = 'rgba(255,255,255,0.2)' }}
+                      onMouseOver={e => { if (scanningFirmId !== selectedFirmDetail.id) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.background = 'var(--border-secondary)' }}}
+                      onMouseOut={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.background = 'var(--border-secondary)' }}
                       title="Re-match unmatched documents to matters (run after adding new matters)"
                     >
                       <RefreshCw size={22} />
@@ -6347,7 +6347,7 @@ bob@example.com, Bob, Wilson, partner"
                 {/* Status Cards - Shows ACTUAL document counts */}
                 {firmManifestStats?.stats && (
                   <div style={{ marginBottom: '32px' }}>
-                    <h3 style={{ margin: '0 0 20px 0', color: '#1E293B', fontSize: '18px', fontWeight: 600 }}>
+                    <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary)', fontSize: '18px', fontWeight: 600 }}>
                       Document Status (Actual)
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px' }}>
@@ -6378,7 +6378,7 @@ bob@example.com, Bob, Wilson, partner"
                   borderRadius: '16px',
                   padding: '28px'
                 }}>
-                  <h3 style={{ margin: '0 0 20px 0', color: '#1E293B', fontSize: '18px', fontWeight: 600 }}>
+                  <h3 style={{ margin: '0 0 20px 0', color: 'var(--text-primary)', fontSize: '18px', fontWeight: 600 }}>
                     How to Migrate Documents
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
@@ -6404,7 +6404,7 @@ bob@example.com, Bob, Wilson, partner"
                           {item.step}
                         </div>
                         <div>
-                          <div style={{ fontWeight: 600, color: '#1E293B', marginBottom: '4px' }}>{item.title}</div>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>{item.title}</div>
                           <div style={{ fontSize: '14px', color: '#64748B', lineHeight: 1.5 }}>{item.desc}</div>
                         </div>
                       </div>

@@ -488,7 +488,7 @@ export function ClientDetailPage() {
               style={{
                 padding: '0.5rem 0.75rem',
                 background: 'var(--apex-deep)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
+                border: '1px solid var(--border-secondary)',
                 borderRadius: 'var(--radius-md)',
                 color: 'var(--apex-white)',
                 fontSize: '0.875rem',

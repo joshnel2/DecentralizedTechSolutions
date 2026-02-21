@@ -297,7 +297,7 @@ export function TrustAccountingPage() {
                   flex: 1,
                   padding: '0.75rem 1rem',
                   background: 'var(--apex-slate)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  border: '1px solid var(--border-secondary)',
                   borderRadius: '8px',
                   color: 'var(--apex-white)',
                   fontSize: '1rem'

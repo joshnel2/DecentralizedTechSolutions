@@ -410,8 +410,8 @@ export function MattersPage() {
           <button onClick={() => handleBulkAction('close')} style={{ padding: '4px 12px', background: '#6B7280', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Close</button>
           <button onClick={() => handleBulkAction('archive')} style={{ padding: '4px 12px', background: '#64748B', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Archive</button>
           <div style={{ flex: 1 }} />
-          <button onClick={selectAllVisible} style={{ padding: '4px 12px', background: 'transparent', color: 'var(--apex-light)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Select All ({filteredMatters.length})</button>
-          <button onClick={clearSelection} style={{ padding: '4px 12px', background: 'transparent', color: 'var(--apex-light)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Clear</button>
+          <button onClick={selectAllVisible} style={{ padding: '4px 12px', background: 'transparent', color: 'var(--apex-white)', border: '1px solid var(--border-secondary)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Select All ({filteredMatters.length})</button>
+          <button onClick={clearSelection} style={{ padding: '4px 12px', background: 'transparent', color: 'var(--apex-white)', border: '1px solid var(--border-secondary)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Clear</button>
         </div>
       )}
 
@@ -1185,7 +1185,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
                                 marginLeft: '8px', 
                                 fontSize: '0.6875rem', 
                                 padding: '2px 6px', 
-                                background: 'rgba(255,255,255,0.1)', 
+                                background: 'var(--border-secondary)', 
                                 borderRadius: '4px',
                                 textTransform: 'uppercase'
                               }}>
@@ -1287,7 +1287,7 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
               {/* List of assigned team members */}
               {teamAssignments.length > 0 && (
                 <div style={{ 
-                  border: '1px solid rgba(255,255,255,0.1)', 
+                  border: '1px solid var(--border-secondary)', 
                   borderRadius: '8px',
                   overflow: 'hidden'
                 }}>
@@ -1299,8 +1299,8 @@ function NewMatterModal({ onClose, onSave, clients, attorneys, isAdmin, prefille
                         alignItems: 'center', 
                         gap: '12px',
                         padding: '10px 12px',
-                        borderBottom: idx < teamAssignments.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none',
-                        background: 'rgba(255,255,255,0.02)'
+                        borderBottom: idx < teamAssignments.length - 1 ? '1px solid var(--border-secondary)' : 'none',
+                        background: 'var(--border-primary)'
                       }}
                     >
                       <span style={{ flex: 1 }}>{member.name}</span>

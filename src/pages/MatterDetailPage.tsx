@@ -1406,7 +1406,7 @@ Only analyze documents actually associated with this matter.`
 
               {/* Add team member form */}
               {showAddTeamMember && (
-                <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-primary)', display: 'flex', gap: '8px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <div style={{ flex: 2, minWidth: '150px' }}>
                     <label style={{ fontSize: '0.75rem', color: 'var(--apex-muted)', display: 'block', marginBottom: '4px' }}>Person</label>
                     <select
@@ -1495,7 +1495,7 @@ Only analyze documents actually associated with this matter.`
                         alignItems: 'center',
                         gap: '12px',
                         padding: '10px 16px',
-                        borderBottom: idx < teamMembers.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                        borderBottom: idx < teamMembers.length - 1 ? '1px solid var(--border-primary)' : 'none',
                       }}
                     >
                       <div style={{
@@ -3381,7 +3381,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
         
         <div style={{ 
           background: 'var(--apex-slate)', 
-          border: '1px solid rgba(255, 255, 255, 0.1)', 
+          border: '1px solid var(--border-secondary)', 
           borderRadius: '8px',
           overflow: 'hidden'
         }}>
@@ -3392,7 +3392,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
             gap: '0.5rem',
             padding: '0.5rem 1rem',
             background: 'rgba(0, 0, 0, 0.2)',
-            borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
+            borderBottom: '1px solid var(--border-primary)',
             fontSize: '0.7rem',
             fontWeight: '600',
             color: 'var(--apex-text)',
@@ -3414,7 +3414,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
                 gridTemplateColumns: '2fr 80px 100px 120px 40px',
                 gap: '0.5rem',
                 padding: '0.5rem 1rem',
-                borderBottom: index < formData.lineItems.length - 1 ? '1px solid rgba(255, 255, 255, 0.05)' : 'none'
+                borderBottom: index < formData.lineItems.length - 1 ? '1px solid var(--border-primary)' : 'none'
               }}
             >
               <input
@@ -3425,7 +3425,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
                 style={{ 
                   padding: '0.375rem 0.5rem',
                   background: 'var(--apex-deep)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: '1px solid var(--border-secondary)',
                   borderRadius: '4px',
                   color: 'var(--apex-white)',
                   fontSize: '0.875rem'
@@ -3441,7 +3441,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
                 style={{ 
                   padding: '0.375rem 0.5rem',
                   background: 'var(--apex-deep)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: '1px solid var(--border-secondary)',
                   borderRadius: '4px',
                   color: 'var(--apex-white)',
                   fontSize: '0.875rem',
@@ -3458,7 +3458,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
                 style={{ 
                   padding: '0.375rem 0.5rem',
                   background: 'var(--apex-deep)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: '1px solid var(--border-secondary)',
                   borderRadius: '4px',
                   color: 'var(--apex-white)',
                   fontSize: '0.875rem',
@@ -3475,7 +3475,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
                 style={{ 
                   padding: '0.375rem 0.5rem',
                   background: 'var(--apex-deep)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  border: '1px solid var(--border-secondary)',
                   borderRadius: '4px',
                   color: 'var(--apex-white)',
                   fontSize: '0.875rem',
@@ -3490,7 +3490,7 @@ function InvoiceForm({ matterId, clientId, clientName, matterName, unbilledAmoun
                 style={{
                   background: 'none',
                   border: 'none',
-                  color: formData.lineItems.length === 1 ? 'rgba(255,255,255,0.2)' : 'var(--apex-text)',
+                  color: formData.lineItems.length === 1 ? 'var(--border-secondary)' : 'var(--apex-text)',
                   cursor: formData.lineItems.length === 1 ? 'not-allowed' : 'pointer',
                   padding: '0.25rem'
                 }}
@@ -4397,7 +4397,7 @@ function NotesSection({
                 padding: '10px 12px',
                 borderRadius: '8px',
                 background: 'var(--apex-charcoal)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid var(--border-secondary)',
                 color: 'var(--apex-white)',
                 fontSize: '0.9rem'
               }}
@@ -4424,7 +4424,7 @@ function NotesSection({
                 padding: '12px',
                 borderRadius: '8px',
                 background: 'var(--apex-charcoal)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid var(--border-secondary)',
                 color: 'var(--apex-white)',
                 fontSize: '0.9rem',
                 resize: 'vertical'
@@ -4466,7 +4466,7 @@ function NotesSection({
                 background: 'var(--apex-dark)',
                 borderRadius: '12px',
                 padding: '16px 20px',
-                border: '1px solid rgba(255,255,255,0.08)'
+                border: '1px solid var(--border-primary)'
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
@@ -4528,7 +4528,7 @@ function NotesSection({
           padding: '60px 20px',
           background: 'var(--apex-dark)',
           borderRadius: '12px',
-          border: '1px dashed rgba(255,255,255,0.1)'
+          border: '1px dashed var(--border-secondary)'
         }}>
           <FileText size={48} style={{ color: 'var(--apex-text-muted)', marginBottom: '16px' }} />
           <p style={{ color: 'var(--apex-white)', fontSize: '1.1rem', marginBottom: '8px' }}>No notes yet</p>
@@ -4541,7 +4541,7 @@ function NotesSection({
 
       {/* Legacy Notes Section (backward compatibility) */}
       {legacyNotes && (
-        <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+        <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid var(--border-secondary)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ color: 'var(--apex-text-muted)', fontSize: '0.9rem', fontWeight: 500 }}>Legacy Matter Notes</h3>
             {!isEditingLegacy ? (
@@ -4587,7 +4587,7 @@ function NotesSection({
                 padding: '12px',
                 borderRadius: '8px',
                 background: 'var(--apex-charcoal)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid var(--border-secondary)',
                 color: 'var(--apex-white)',
                 fontSize: '0.9rem',
                 minHeight: '100px',

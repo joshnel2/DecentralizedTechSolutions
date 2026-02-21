@@ -639,8 +639,8 @@ export function ReportsPage() {
                     />
                     <Tooltip 
                       contentStyle={{
-                        background: '#1E293B',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'var(--apex-slate)',
+                        border: '1px solid var(--border-secondary)',
                         borderRadius: '8px',
                         color: '#F1F5F9'
                       }}
@@ -681,8 +681,8 @@ export function ReportsPage() {
                     />
                     <Tooltip 
                       contentStyle={{
-                        background: '#1E293B',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'var(--apex-slate)',
+                        border: '1px solid var(--border-secondary)',
                         borderRadius: '8px',
                         color: '#F1F5F9'
                       }}
@@ -728,8 +728,8 @@ export function ReportsPage() {
                     />
                     <Tooltip 
                       contentStyle={{
-                        background: '#1E293B',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'var(--apex-slate)',
+                        border: '1px solid var(--border-secondary)',
                         borderRadius: '8px',
                         color: '#F1F5F9'
                       }}
@@ -764,8 +764,8 @@ export function ReportsPage() {
                     </Pie>
                     <Tooltip 
                       contentStyle={{
-                        background: '#1E293B',
-                        border: '1px solid rgba(255,255,255,0.1)',
+                        background: 'var(--apex-slate)',
+                        border: '1px solid var(--border-secondary)',
                         borderRadius: '8px',
                         color: '#F1F5F9'
                       }}
@@ -1195,7 +1195,7 @@ function CustomReportModal({
                   style={{
                     padding: '0.25rem 0.5rem',
                     background: 'none',
-                    border: '1px solid rgba(255,255,255,0.2)',
+                    border: '1px solid var(--border-secondary)',
                     borderRadius: '4px',
                     color: 'var(--apex-text)',
                     fontSize: '0.75rem',
@@ -1210,7 +1210,7 @@ function CustomReportModal({
                   style={{
                     padding: '0.25rem 0.5rem',
                     background: 'none',
-                    border: '1px solid rgba(255,255,255,0.2)',
+                    border: '1px solid var(--border-secondary)',
                     borderRadius: '4px',
                     color: 'var(--apex-text)',
                     fontSize: '0.75rem',
@@ -1223,7 +1223,7 @@ function CustomReportModal({
             </div>
             <div style={{ 
               background: 'var(--apex-slate)', 
-              border: '1px solid rgba(255,255,255,0.1)', 
+              border: '1px solid var(--border-secondary)', 
               borderRadius: '8px',
               padding: '1rem',
               maxHeight: '250px',

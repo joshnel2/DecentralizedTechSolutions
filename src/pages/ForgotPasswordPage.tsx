@@ -172,7 +172,7 @@ export function ForgotPasswordPage() {
 
               <div style={{ 
                 padding: '16px', 
-                background: 'rgba(255, 255, 255, 0.03)', 
+                background: 'var(--border-primary)', 
                 borderRadius: '8px',
                 marginTop: '24px'
               }}>
