@@ -1375,6 +1375,15 @@ Only analyze documents actually associated with this matter.`
                       : '—'}
                   </span>
                 </div>
+                {/* Custom Fields */}
+                {matter.customFields && Object.keys(matter.customFields).length > 0 && (
+                  Object.entries(matter.customFields).map(([key, value]) => (
+                    <div key={key} className={styles.detailItem}>
+                      <span className={styles.detailLabel}>{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+                      <span className={styles.detailValue}>{String(value) || '—'}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
