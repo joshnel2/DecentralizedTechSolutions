@@ -242,18 +242,27 @@ async function getFirmRolePermissions(firmId) {
     return cached.roles;
   }
 
-  const result = await query(
-    'SELECT name, permissions FROM firm_roles WHERE firm_id = $1',
-    [firmId]
-  );
+  try {
+    const result = await query(
+      'SELECT name, permissions FROM firm_roles WHERE firm_id = $1',
+      [firmId]
+    );
 
-  const roles = new Map();
-  for (const row of result.rows) {
-    roles.set(row.name, row.permissions || []);
+    const roles = new Map();
+    for (const row of result.rows) {
+      roles.set(row.name, row.permissions || []);
+    }
+
+    roleCache.set(firmId, { roles, timestamp: Date.now() });
+    return roles;
+  } catch (err) {
+    if (err.code === '42P01') {
+      const roles = new Map();
+      roleCache.set(firmId, { roles, timestamp: Date.now() });
+      return roles;
+    }
+    throw err;
   }
-
-  roleCache.set(firmId, { roles, timestamp: Date.now() });
-  return roles;
 }
 
 /**
@@ -289,22 +298,26 @@ export async function resolveUserPermissions(userId, userRole, firmId) {
   }
 
   // 2. Get user-specific overrides
-  const overrides = await query(
-    `SELECT permission, action FROM user_permission_overrides 
-     WHERE firm_id = $1 AND user_id = $2 
-       AND (expires_at IS NULL OR expires_at > NOW())`,
-    [firmId, userId]
-  );
-
-  // 3. Apply overrides
   const effectivePerms = new Set(rolePerms);
 
-  for (const override of overrides.rows) {
-    if (override.action === 'grant') {
-      effectivePerms.add(override.permission);
-    } else if (override.action === 'revoke') {
-      effectivePerms.delete(override.permission);
+  try {
+    const overrides = await query(
+      `SELECT permission, action FROM user_permission_overrides 
+       WHERE firm_id = $1 AND user_id = $2 
+         AND (expires_at IS NULL OR expires_at > NOW())`,
+      [firmId, userId]
+    );
+
+    // 3. Apply overrides
+    for (const override of overrides.rows) {
+      if (override.action === 'grant') {
+        effectivePerms.add(override.permission);
+      } else if (override.action === 'revoke') {
+        effectivePerms.delete(override.permission);
+      }
     }
+  } catch (err) {
+    if (err.code !== '42P01') throw err;
   }
 
   return Array.from(effectivePerms);
