@@ -2810,12 +2810,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         const filterClientClioIds = new Set();
         
         // ============================================
-        // PRE-LOAD EXISTING DATA MAPS (for when steps are skipped)
-        // This allows time entries/bills to link to already-imported users/matters
+        // PRE-LOAD EXISTING DATA MAPS
+        // Always pre-load so re-runs and multi-user migrations don't create duplicates
         // ============================================
         
-        // Pre-load userIdMap from database if we're skipping users but need to link activities
-        if (!includeUsers && includeActivities) {
+        // Pre-load userIdMap from database
+        if (true) {
           console.log('[CLIO IMPORT] Pre-loading existing users from database for activity linking...');
           try {
             // Get all users for this firm and map by email
@@ -2852,8 +2852,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
         }
         
-        // Pre-load matterIdMap from database if we're skipping matters but need to link activities/bills/documents
-        if (!includeMatters && (includeActivities || includeBills || includeDocuments)) {
+        // Pre-load matterIdMap from database
+        if (true) {
           console.log('[CLIO IMPORT] Pre-loading existing matters from database for activity/bill linking...');
           try {
             // Get all matters for this firm
@@ -2879,8 +2879,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
           }
         }
         
-        // Pre-load contactIdMap from database if we're skipping contacts but need to link bills
-        if (!includeContacts && includeBills) {
+        // Pre-load contactIdMap from database
+        if (true) {
           console.log('[CLIO IMPORT] Pre-loading existing clients from database for bill linking...');
           try {
             const existingClients = await query(
@@ -2994,26 +2994,38 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   console.log(`[CLIO IMPORT] Email exists globally, using unique: ${email}`);
                 }
                 
-                const result = await query(
-                  `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, hourly_rate, phone, is_active)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-                  [firmId, email, passwordHash, firstName, lastName, role, hourlyRate, null, u.enabled !== false]
+                // Check if user already exists in this firm (from a previous migration run)
+                const existingUser = await query(
+                  `SELECT id FROM users WHERE firm_id = $1 AND email = $2`,
+                  [firmId, email]
                 );
                 
-                userIdMap.set(`clio:${u.id}`, result.rows[0].id);
-                counts.users++;
+                let userId;
+                if (existingUser.rows.length > 0) {
+                  userId = existingUser.rows[0].id;
+                  console.log(`[CLIO IMPORT] User already exists, reusing: ${email}`);
+                } else {
+                  const result = await query(
+                    `INSERT INTO users (firm_id, email, password_hash, first_name, last_name, role, hourly_rate, phone, is_active)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+                    [firmId, email, passwordHash, firstName, lastName, role, hourlyRate, null, u.enabled !== false]
+                  );
+                  userId = result.rows[0].id;
+                  counts.users++;
+                  
+                  userCredentials.push({
+                    email: email,
+                    firstName: firstName,
+                    lastName: lastName,
+                    name: `${firstName} ${lastName}`.trim(),
+                    password: randomPassword,
+                    role: role
+                  });
+                  
+                  console.log(`[CLIO IMPORT] User imported: ${email} (role: ${role}, rate: ${hourlyRate || 'none'})`);
+                }
                 
-                // Store credentials for display on portal
-                userCredentials.push({
-                  email: email,
-                  firstName: firstName,
-                  lastName: lastName,
-                  name: `${firstName} ${lastName}`.trim(),
-                  password: randomPassword,
-                  role: role
-                });
-                
-                console.log(`[CLIO IMPORT] User imported: ${email} (role: ${role}, rate: ${hourlyRate || 'none'})`);
+                userIdMap.set(`clio:${u.id}`, userId);
               } catch (err) {
                 console.log(`[CLIO IMPORT] User error: ${u.email || u.id} - ${err.message}`);
               }
@@ -3289,6 +3301,20 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const notes = notesParts.length > 0 ? `--- FROM CLIO ---\n${notesParts.join('\n')}` : null;
                 
+                // Check if this Clio contact already exists (from a previous migration)
+                const existingClient = await query(
+                  `SELECT id FROM clients WHERE firm_id = $1 AND display_name = $2`,
+                  [firmId, displayName]
+                );
+                
+                if (existingClient.rows.length > 0) {
+                  contactIdMap.set(`clio:${c.id}`, existingClient.rows[0].id);
+                  if (c.client?.id) {
+                    filterClientClioIds.add(c.id);
+                  }
+                  continue; // Skip - already imported
+                }
+                
                 const result = await query(
                   `INSERT INTO clients (firm_id, type, display_name, first_name, last_name, company_name, email, phone, address_street, address_city, address_state, address_zip, notes, is_active)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
@@ -3454,7 +3480,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 const result = await query(
                   `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, pending_date, billing_type, billing_rate, billable, statute_of_limitations, jurisdiction, practice_area, location, client_reference_number, maildrop_address, custom_fields, visibility)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) RETURNING id`,
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+                   ON CONFLICT (number) DO UPDATE SET
+                     client_id = COALESCE(EXCLUDED.client_id, matters.client_id),
+                     responsible_attorney = COALESCE(EXCLUDED.responsible_attorney, matters.responsible_attorney),
+                     originating_attorney = COALESCE(EXCLUDED.originating_attorney, matters.originating_attorney),
+                     updated_at = NOW()
+                   RETURNING id`,
                   [
                     firmId,
                     clientId,
@@ -4031,21 +4063,31 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 else if (b.state === 'awaiting_approval') invoiceStatus = 'draft';
                 else if (b.state === 'partial') invoiceStatus = 'partial';
                 
-                await query(
-                  `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, subtotal_fees, amount_paid, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-                  [
-                    firmId,
-                    matterId,
-                    clientId,
-                    `${b.number || 'INV'}-${b.id}`, // Append ID to ensure unique
-                    b.issued_at || new Date().toISOString().split('T')[0],
-                    b.due_at || null,
-                    billTotal, // Use total as subtotal_fees
-                    amountPaid,
-                    invoiceStatus
-                  ]
+                const invoiceNumber = `${b.number || 'INV'}-${b.id}`;
+                
+                // Check if invoice already exists
+                const existingInvoice = await query(
+                  `SELECT id FROM invoices WHERE firm_id = $1 AND number = $2`,
+                  [firmId, invoiceNumber]
                 );
+                
+                if (existingInvoice.rows.length === 0) {
+                  await query(
+                    `INSERT INTO invoices (firm_id, matter_id, client_id, number, issue_date, due_date, subtotal_fees, amount_paid, status)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+                    [
+                      firmId,
+                      matterId,
+                      clientId,
+                      invoiceNumber,
+                      b.issued_at || new Date().toISOString().split('T')[0],
+                      b.due_at || null,
+                      billTotal,
+                      amountPaid,
+                      invoiceStatus
+                    ]
+                  );
+                }
                 
                 counts.bills++;
               } catch (err) {
@@ -4182,6 +4224,13 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 
                 // Check if event is private
                 const isPrivate = e.permission === 'private' || e.permission === 'private_no_time';
+                
+                // Skip duplicate events (same firm, title, start time)
+                const existingEvent = await query(
+                  `SELECT id FROM calendar_events WHERE firm_id = $1 AND title = $2 AND start_time = $3`,
+                  [firmId, e.summary || 'Event', e.start_at]
+                );
+                if (existingEvent.rows.length > 0) continue;
                 
                 await query(
                   `INSERT INTO calendar_events (firm_id, matter_id, title, description, type, start_time, end_time, all_day, location, attendees, reminders, recurrence_rule, is_private)
