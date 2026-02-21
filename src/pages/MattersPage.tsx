@@ -50,7 +50,9 @@ export function MattersPage() {
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const [prefilledClientId, setPrefilledClientId] = useState<string | null>(null)
-  const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my') // Default to "My Matters"
+  const [viewFilter, setViewFilter] = useState<'my' | 'all'>('my')
+  const [selectedMatterIds, setSelectedMatterIds] = useState<string[]>([])
+  const [showBulkActions, setShowBulkActions] = useState(false)
   
   // Virtualization state for "All" view
   const tableContainerRef = useRef<HTMLDivElement>(null)
@@ -260,6 +262,40 @@ export function MattersPage() {
     }
   }, [viewFilter])
 
+  const toggleSelectMatter = (id: string) => {
+    setSelectedMatterIds(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id])
+  }
+
+  const selectAllVisible = () => {
+    const allIds = filteredMatters.map(m => m.id)
+    setSelectedMatterIds(allIds)
+  }
+
+  const clearSelection = () => setSelectedMatterIds([])
+
+  const handleBulkAction = async (action: string) => {
+    if (selectedMatterIds.length === 0) return
+    
+    try {
+      for (const matterId of selectedMatterIds) {
+        if (action === 'close') {
+          await updateMatter(matterId, { status: 'closed' })
+        } else if (action === 'archive') {
+          await updateMatter(matterId, { status: 'closed_other' })
+        } else if (action === 'active') {
+          await updateMatter(matterId, { status: 'active' })
+        } else if (action === 'on_hold') {
+          await updateMatter(matterId, { status: 'on_hold' })
+        }
+      }
+      toast.success(`${selectedMatterIds.length} matter(s) updated`)
+      setSelectedMatterIds([])
+      fetchMatters({ view: viewFilter, forceRefresh: true })
+    } catch (error) {
+      toast.error('Failed to update some matters')
+    }
+  }
+
   const getClientName = (clientId: string) => {
     return clients.find(c => c.id === clientId)?.name || 'Unknown Client'
   }
@@ -361,6 +397,24 @@ export function MattersPage() {
         </div>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedMatterIds.length > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px',
+          background: 'rgba(var(--apex-gold-rgb, 212,175,55), 0.1)', borderRadius: '8px',
+          marginBottom: '8px', border: '1px solid rgba(var(--apex-gold-rgb, 212,175,55), 0.3)',
+        }}>
+          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{selectedMatterIds.length} selected</span>
+          <button onClick={() => handleBulkAction('active')} style={{ padding: '4px 12px', background: '#10B981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Set Active</button>
+          <button onClick={() => handleBulkAction('on_hold')} style={{ padding: '4px 12px', background: '#F59E0B', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Put On Hold</button>
+          <button onClick={() => handleBulkAction('close')} style={{ padding: '4px 12px', background: '#6B7280', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Close</button>
+          <button onClick={() => handleBulkAction('archive')} style={{ padding: '4px 12px', background: '#64748B', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Archive</button>
+          <div style={{ flex: 1 }} />
+          <button onClick={selectAllVisible} style={{ padding: '4px 12px', background: 'transparent', color: 'var(--apex-light)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Select All ({filteredMatters.length})</button>
+          <button onClick={clearSelection} style={{ padding: '4px 12px', background: 'transparent', color: 'var(--apex-light)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', cursor: 'pointer', fontSize: '0.8125rem' }}>Clear</button>
+        </div>
+      )}
+
       {/* Table */}
       <div 
         ref={tableContainerRef}
@@ -370,6 +424,9 @@ export function MattersPage() {
         <table className={styles.table}>
             <thead>
               <tr>
+                <th style={{ width: '36px', padding: '8px' }}>
+                  <input type="checkbox" checked={selectedMatterIds.length > 0 && selectedMatterIds.length === filteredMatters.length} onChange={e => e.target.checked ? selectAllVisible() : clearSelection()} style={{ accentColor: 'var(--apex-gold)' }} />
+                </th>
                 {visibleColumns.map(col => (
                   <th key={col.id}>{col.label}</th>
                 ))}
@@ -380,11 +437,14 @@ export function MattersPage() {
               {/* Top spacer for virtualization */}
               {paddingTop > 0 && (
                 <tr style={{ height: paddingTop }} aria-hidden="true">
-                  <td colSpan={visibleColumns.length + 1} style={{ padding: 0, border: 'none' }} />
+                  <td colSpan={visibleColumns.length + 2} style={{ padding: 0, border: 'none' }} />
                 </tr>
               )}
               {visibleMatters.map(matter => (
                 <tr key={matter.id}>
+                  <td style={{ width: '36px', padding: '8px' }}>
+                    <input type="checkbox" checked={selectedMatterIds.includes(matter.id)} onChange={() => toggleSelectMatter(matter.id)} onClick={e => e.stopPropagation()} style={{ accentColor: 'var(--apex-gold)' }} />
+                  </td>
                   {visibleColumns.map(col => {
                     switch (col.id) {
                       case 'matter':

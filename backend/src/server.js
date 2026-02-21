@@ -15,6 +15,7 @@ import matterTypesRoutes from './routes/matterTypes.js';
 import matterPermissionsRoutes from './routes/matterPermissions.js';
 import timeEntryRoutes from './routes/timeEntries.js';
 import expenseRoutes from './routes/expenses.js';
+import communicationsRoutes from './routes/communications.js';
 import invoiceRoutes from './routes/invoices.js';
 import calendarRoutes from './routes/calendar.js';
 import documentRoutes, { extractTextForExistingDocuments } from './routes/documents.js';
@@ -120,6 +121,7 @@ app.use('/api/matters', matterPermissionsRoutes);  // Matter permissions and vis
 app.use('/api/matter-types', matterTypesRoutes);
 app.use('/api/time-entries', timeEntryRoutes);
 app.use('/api/expenses', expenseRoutes);
+app.use('/api/communications', communicationsRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/calendar', calendarRoutes);
 app.use('/api/documents', documentRoutes);

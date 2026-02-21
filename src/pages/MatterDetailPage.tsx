@@ -1223,7 +1223,7 @@ Only analyze documents actually associated with this matter.`
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'notes', 'updates', 'tasks', 'time', 'expenses', 'billing', 'documents', 'calendar', 'contacts', 'activity'].map(tab => (
+        {['overview', 'notes', 'updates', 'tasks', 'time', 'expenses', 'billing', 'documents', 'calendar', 'contacts', 'comms', 'activity'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -2668,6 +2668,11 @@ Only analyze documents actually associated with this matter.`
           <ExpensesTab matterId={id!} firmId={user?.firmId || ''} />
         )}
 
+        {/* Communications Tab */}
+        {activeTab === 'comms' && (
+          <CommunicationsTab matterId={id!} />
+        )}
+
         {/* Activity Tab */}
         {activeTab === 'activity' && (
           <ActivityTab matterId={id!} firmId={user?.firmId || ''} />
@@ -3542,7 +3547,11 @@ function EventForm({ matterId, matterName, onClose, onSave, existingEvent }: {
     endTime: existingEvent?.endTime ? format(parseISO(existingEvent.endTime), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'11:00"),
     location: existingEvent?.location || '',
     description: existingEvent?.description || '',
-    allDay: existingEvent?.allDay || false
+    allDay: existingEvent?.allDay || false,
+    recurring: false,
+    recurrenceFrequency: 'weekly',
+    recurrenceInterval: 1,
+    recurrenceEndDate: '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -3553,7 +3562,13 @@ function EventForm({ matterId, matterName, onClose, onSave, existingEvent }: {
       await onSave({
         ...formData,
         startTime: new Date(formData.startTime).toISOString(),
-        endTime: new Date(formData.endTime).toISOString()
+        endTime: new Date(formData.endTime).toISOString(),
+        recurring: formData.recurring,
+        recurrenceRule: formData.recurring ? JSON.stringify({
+          frequency: formData.recurrenceFrequency,
+          interval: formData.recurrenceInterval,
+          endDate: formData.recurrenceEndDate || undefined,
+        }) : undefined,
       })
     } finally {
       setIsSubmitting(false)
@@ -3635,6 +3650,35 @@ function EventForm({ matterId, matterName, onClose, onSave, existingEvent }: {
           rows={2}
         />
       </div>
+
+      <div className={styles.formGroup}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input type="checkbox" checked={formData.recurring} onChange={e => setFormData({...formData, recurring: e.target.checked})} style={{ width: 'auto', accentColor: 'var(--apex-gold)' }} />
+          Recurring Event
+        </label>
+      </div>
+
+      {formData.recurring && (
+        <div className={styles.formRow}>
+          <div className={styles.formGroup}>
+            <label>Repeat</label>
+            <select value={formData.recurrenceFrequency} onChange={e => setFormData({...formData, recurrenceFrequency: e.target.value})}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+          <div className={styles.formGroup}>
+            <label>Every</label>
+            <input type="number" min="1" max="52" value={formData.recurrenceInterval} onChange={e => setFormData({...formData, recurrenceInterval: parseInt(e.target.value) || 1})} />
+          </div>
+          <div className={styles.formGroup}>
+            <label>Until</label>
+            <input type="date" value={formData.recurrenceEndDate} onChange={e => setFormData({...formData, recurrenceEndDate: e.target.value})} />
+          </div>
+        </div>
+      )}
 
       <div className={styles.modalActions}>
         <button type="button" onClick={onClose} className={styles.cancelBtn} disabled={isSubmitting}>
@@ -4651,6 +4695,115 @@ function ExpensesTab({ matterId }: { matterId: string; firmId: string }) {
                 <div className={styles.formGroup}><label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={formData.billable} onChange={e => setFormData({...formData, billable: e.target.checked})} style={{ width: 'auto' }} /> Billable</label></div>
               </div>
               <div className={styles.modalActions}><button type="button" onClick={() => setShowNewModal(false)} className={styles.cancelBtn}>Cancel</button><button type="submit" className={styles.saveBtn}>Add Expense</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Communications Tab Component
+function CommunicationsTab({ matterId }: { matterId: string }) {
+  const [comms, setComms] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [formData, setFormData] = useState({ type: 'phone_call', direction: 'outbound', subject: '', body: '', phoneNumber: '', durationSeconds: '' })
+  const toast = useToast()
+
+  const loadComms = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+      const res = await fetch(`/api/communications?matterId=${matterId}`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      })
+      if (res.ok) { const data = await res.json(); setComms(data.communications || []) }
+    } catch (err) { console.error('Failed to load communications:', err) }
+    finally { setLoading(false) }
+  }, [matterId])
+
+  useEffect(() => { loadComms() }, [loadComms])
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+      const res = await fetch('/api/communications', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, matterId, durationSeconds: formData.durationSeconds ? parseInt(formData.durationSeconds) : null })
+      })
+      if (res.ok) {
+        setShowNewModal(false)
+        setFormData({ type: 'phone_call', direction: 'outbound', subject: '', body: '', phoneNumber: '', durationSeconds: '' })
+        loadComms()
+        toast.success('Communication logged')
+      }
+    } catch (err) { toast.error('Failed to log communication') }
+  }
+
+  const typeIcons: Record<string, string> = { email: '📧', phone_call: '📞', text_message: '💬', letter: '✉️', meeting_notes: '📝', fax: '📠', voicemail: '📱', other: '📋' }
+  const typeLabels: Record<string, string> = { email: 'Email', phone_call: 'Phone Call', text_message: 'Text', letter: 'Letter', meeting_notes: 'Meeting Notes', fax: 'Fax', voicemail: 'Voicemail', other: 'Other' }
+
+  return (
+    <div className={styles.timeTab}>
+      <div className={styles.tabHeader}>
+        <h2>Communications</h2>
+        <div className={styles.tabActions}>
+          <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}><Plus size={18} /> Log Communication</button>
+        </div>
+      </div>
+      {loading ? <p className={styles.noData}>Loading...</p> : comms.length === 0 ? (
+        <p className={styles.noData}>No communications logged for this matter</p>
+      ) : (
+        <div className={styles.timeList}>
+          {comms.map((c: any) => (
+            <div key={c.id} className={styles.timeItem}>
+              <div style={{ width: '28px', textAlign: 'center', fontSize: '1.2rem' }}>{typeIcons[c.type] || '📋'}</div>
+              <div style={{ flex: 1 }}>
+                <span className={styles.timeDesc}>
+                  {c.subject || typeLabels[c.type] || c.type}
+                  <span style={{ fontSize: '0.75rem', color: '#94A3B8', marginLeft: '8px' }}>{c.direction === 'inbound' ? '← Inbound' : '→ Outbound'}</span>
+                </span>
+                <span className={styles.timeDate}>
+                  {c.userName || 'Unknown'} · {c.createdAt ? format(parseISO(c.createdAt), 'MMM d, yyyy h:mm a') : ''}
+                  {c.durationSeconds ? ` · ${Math.round(c.durationSeconds / 60)} min` : ''}
+                </span>
+                {c.body && <p style={{ margin: '4px 0 0', fontSize: '0.8125rem', color: '#CBD5E1', lineHeight: 1.4 }}>{c.body.substring(0, 200)}{c.body.length > 200 ? '...' : ''}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {showNewModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowNewModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className={styles.modalHeader}><h2>Log Communication</h2><button onClick={() => setShowNewModal(false)} className={styles.closeBtn}>×</button></div>
+            <form onSubmit={handleCreate} className={styles.modalForm}>
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>Type</label>
+                  <select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                    {Object.entries(typeLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>Direction</label>
+                  <select value={formData.direction} onChange={e => setFormData({...formData, direction: e.target.value})}>
+                    <option value="outbound">Outbound</option>
+                    <option value="inbound">Inbound</option>
+                  </select>
+                </div>
+              </div>
+              <div className={styles.formGroup}><label>Subject</label><input type="text" value={formData.subject} onChange={e => setFormData({...formData, subject: e.target.value})} placeholder="Re: Settlement discussion" /></div>
+              <div className={styles.formGroup}><label>Notes</label><textarea rows={4} value={formData.body} onChange={e => setFormData({...formData, body: e.target.value})} placeholder="Summary of the communication..." /></div>
+              {(formData.type === 'phone_call' || formData.type === 'voicemail') && (
+                <div className={styles.formRow}>
+                  <div className={styles.formGroup}><label>Phone Number</label><input type="tel" value={formData.phoneNumber} onChange={e => setFormData({...formData, phoneNumber: e.target.value})} placeholder="(555) 555-5555" /></div>
+                  <div className={styles.formGroup}><label>Duration (min)</label><input type="number" value={formData.durationSeconds ? String(Math.round(parseInt(formData.durationSeconds) / 60)) : ''} onChange={e => setFormData({...formData, durationSeconds: String(parseInt(e.target.value || '0') * 60)})} placeholder="15" /></div>
+                </div>
+              )}
+              <div className={styles.modalActions}><button type="button" onClick={() => setShowNewModal(false)} className={styles.cancelBtn}>Cancel</button><button type="submit" className={styles.saveBtn}>Log</button></div>
             </form>
           </div>
         </div>

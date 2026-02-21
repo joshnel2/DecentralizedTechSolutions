@@ -8,7 +8,7 @@ import { analyticsApi } from '../services/api'
 // OnboardingWizard removed - not needed
 import { 
   Briefcase, Users, Clock, DollarSign, Calendar, TrendingUp,
-  AlertCircle, ArrowRight, Sparkles, FileText,
+  AlertCircle, AlertTriangle, ArrowRight, Sparkles, FileText,
   Play, Pause, StopCircle, X, Save, Rocket, Search
 } from 'lucide-react'
 import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
@@ -118,6 +118,24 @@ export function DashboardPage() {
       upcomingDeadlines
     }
   }, [matters, clients, timeEntries, invoices, events])
+
+  // Statute of limitations alerts - matters with SOL dates within 90 days
+  const solAlerts = useMemo(() => {
+    const now = new Date()
+    const ninetyDays = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000)
+    return matters
+      .filter(m => m.statuteOfLimitations && m.status === 'active')
+      .filter(m => {
+        const solDate = parseISO(m.statuteOfLimitations!)
+        return isAfter(solDate, now) && !isAfter(solDate, ninetyDays)
+      })
+      .map(m => ({
+        ...m,
+        solDate: parseISO(m.statuteOfLimitations!),
+        daysRemaining: Math.ceil((parseISO(m.statuteOfLimitations!).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+      }))
+      .sort((a, b) => a.daysRemaining - b.daysRemaining)
+  }, [matters])
 
   const recentMatters = useMemo(() => {
     return [...matters]
@@ -596,6 +614,48 @@ export function DashboardPage() {
             }}>
               Billable Hours × Hourly Rate = Production Value
             </div>
+          </div>
+        </section>
+      )}
+
+      {/* SOL Alerts */}
+      {solAlerts.length > 0 && (
+        <section style={{
+          background: 'linear-gradient(135deg, rgba(239,68,68,0.1) 0%, rgba(245,158,11,0.1) 100%)',
+          border: '1px solid rgba(239,68,68,0.3)',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '20px',
+        }}>
+          <h3 style={{ margin: '0 0 12px', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertTriangle size={18} style={{ color: '#EF4444' }} />
+            Statute of Limitations Alerts ({solAlerts.length})
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {solAlerts.slice(0, 5).map(m => (
+              <Link
+                key={m.id}
+                to={`/app/matters/${m.id}`}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 14px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px',
+                  textDecoration: 'none', color: 'inherit',
+                  borderLeft: `3px solid ${m.daysRemaining <= 14 ? '#EF4444' : m.daysRemaining <= 30 ? '#F59E0B' : '#3B82F6'}`,
+                }}
+              >
+                <div>
+                  <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{m.name}</span>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--apex-muted)' }}>{m.number}</span>
+                </div>
+                <span style={{
+                  padding: '4px 10px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
+                  background: m.daysRemaining <= 14 ? 'rgba(239,68,68,0.2)' : m.daysRemaining <= 30 ? 'rgba(245,158,11,0.2)' : 'rgba(59,130,246,0.2)',
+                  color: m.daysRemaining <= 14 ? '#EF4444' : m.daysRemaining <= 30 ? '#F59E0B' : '#3B82F6',
+                }}>
+                  {m.daysRemaining} days
+                </span>
+              </Link>
+            ))}
           </div>
         </section>
       )}
