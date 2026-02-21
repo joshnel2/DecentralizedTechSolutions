@@ -154,13 +154,13 @@ export function BillingPage() {
     const matter = matters.find(m => m.id === invoice.matterId)
     
     const firmName = firm?.name || 'Law Firm'
-    const firmAddress = firm?.address ? `${firm.address}${firm.city ? `, ${firm.city}` : ''}${firm.state ? `, ${firm.state}` : ''} ${firm.zipCode || ''}` : ''
+    const firmAddress = firm?.address ? `${firm?.address}${firm?.city ? `, ${firm?.city}` : ''}${firm?.state ? `, ${firm?.state}` : ''} ${firm?.zipCode || ''}` : ''
     const firmPhone = firm?.phone || ''
     const firmEmail = firm?.email || ''
     
     const clientName = client?.name || client?.displayName || 'Client'
     const clientAddress = client?.addressStreet 
-      ? `${client.addressStreet}${client.addressCity ? `, ${client.addressCity}` : ''}${client.addressState ? `, ${client.addressState}` : ''} ${client.addressZip || ''}`.trim()
+      ? `${client?.addressStreet}${client?.addressCity ? `, ${client?.addressCity}` : ''}${client?.addressState ? `, ${client?.addressState}` : ''} ${client?.addressZip || ''}`.trim()
       : ''
     const clientEmail = client?.email || ''
     
@@ -229,7 +229,7 @@ export function BillingPage() {
             <div class="info-label">Matter</div>
             <div class="info-value">
               <strong>${matter?.name || 'General Legal Services'}</strong><br>
-              ${matter?.number ? `Matter #: ${matter.number}` : ''}
+              ${matter?.number ? `Matter #: ${matter?.number}` : ''}
             </div>
           </div>
           <div class="info-block" style="text-align: right;">
@@ -304,11 +304,9 @@ export function BillingPage() {
     `
     
     const printWindow = window.open('', '_blank')
-    if (printWindow) {
-      printWindow.document.write(invoiceHtml)
-      printWindow.document.close()
-      printWindow.print()
-    }
+    printWindow?.document.write(invoiceHtml)
+    printWindow?.document.close()
+    printWindow?.print()
   }
 
   // Calculate comprehensive stats
