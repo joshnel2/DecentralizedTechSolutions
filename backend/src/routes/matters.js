@@ -68,9 +68,11 @@ router.get('/', authenticate, requirePermission('matters:view'), async (req, res
     // "My Matters" filter - only show matters user is working on
     // This applies to all users, even admins, when they want to see their own matters
     if (view === 'my') {
+      const { hasClioFields } = await checkMatterColumns();
       sql += ` AND (
         m.responsible_attorney = $${paramIndex}
         OR m.originating_attorney = $${paramIndex}
+        ${hasClioFields ? `OR m.responsible_staff = $${paramIndex}` : ''}
         OR EXISTS (SELECT 1 FROM matter_assignments ma2 WHERE ma2.matter_id = m.id AND ma2.user_id = $${paramIndex})
         OR m.created_by = $${paramIndex}
       )`;

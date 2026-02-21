@@ -3675,6 +3675,90 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               console.log(`[CLIO IMPORT] Activity breakdown: ${timeEntries} time entries, ${expenses} expenses, ${billed} billed, ${withMatter} with matter`);
             }
             
+            // Import any matters referenced by this user's time entries that weren't already imported
+            if (filterClioUserId && filteredActivities.length > 0) {
+              const missingClioMatterIds = new Set();
+              for (const a of filteredActivities) {
+                const clioMatterId = a.matter?.id || a.matter_id || a.case?.id;
+                if (clioMatterId && !matterIdMap.has(`clio:${clioMatterId}`)) {
+                  missingClioMatterIds.add(clioMatterId);
+                }
+              }
+              
+              if (missingClioMatterIds.size > 0) {
+                console.log(`[CLIO IMPORT] Importing ${missingClioMatterIds.size} additional matters referenced by time entries...`);
+                addLog(`📋 Importing ${missingClioMatterIds.size} additional matters from time entries...`);
+                let additionalMatters = 0;
+                
+                for (const clioMatterId of missingClioMatterIds) {
+                  try {
+                    const mResp = await fetch(`https://app.clio.com/api/v4/matters/${clioMatterId}.json?fields=id,display_number,description,status,open_date,close_date,pending_date,billing_method,billable,client{id,name},responsible_attorney{id,name},originating_attorney{id,name},practice_area{id,name}`, {
+                      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+                    });
+                    if (!mResp.ok) continue;
+                    const mData = await mResp.json();
+                    const m = mData.data;
+                    if (!m) continue;
+
+                    const baseNumber = m.display_number || `M-${m.id}`;
+                    const matterNumber = `${baseNumber}-${m.id}`;
+                    const clientId = m.client?.id ? contactIdMap.get(`clio:${m.client.id}`) : null;
+                    const responsibleId = m.responsible_attorney?.id ? userIdMap.get(`clio:${m.responsible_attorney.id}`) : null;
+                    const originatingId = m.originating_attorney?.id ? userIdMap.get(`clio:${m.originating_attorney.id}`) : null;
+                    const practiceAreaName = m.practice_area?.name || null;
+                    const matterType = practiceAreaName;
+                    const billingRate = m.responsible_attorney?.rate ? parseFloat(m.responsible_attorney.rate) : null;
+
+                    let matterStatus = 'active';
+                    if (m.status === 'closed') matterStatus = 'closed';
+                    else if (m.status === 'pending') matterStatus = 'pending';
+
+                    const billingMethod = m.billing_method || 'hourly';
+                    let billingType = 'hourly';
+                    if (billingMethod === 'flat_rate' || billingMethod === 'flat') billingType = 'flat';
+                    else if (billingMethod === 'contingency') billingType = 'contingency';
+
+                    const result = await query(
+                      `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, billing_type, billing_rate, billable, practice_area, visibility)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                       ON CONFLICT (firm_id, number) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
+                      [firmId, clientId, matterNumber, m.description || matterNumber, m.description || '', matterType, matterStatus, responsibleId, originatingId, m.open_date || null, m.close_date || null, billingType, billingRate, m.billable !== false, practiceAreaName, 'firm_wide']
+                    );
+                    
+                    const matterId = result.rows[0].id;
+                    matterIdMap.set(`clio:${m.id}`, matterId);
+                    importedClioMatterIds.add(m.id);
+                    additionalMatters++;
+
+                    // Assign the migrated user as team member
+                    const filteredUserId = userIdMap.get(`clio:${filterClioUserId}`);
+                    if (filteredUserId) {
+                      try {
+                        await query(
+                          `INSERT INTO matter_assignments (matter_id, user_id, role) VALUES ($1, $2, 'team_member') ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                          [matterId, filteredUserId]
+                        );
+                      } catch (e) { /* ignore */ }
+                    }
+                    if (responsibleId) {
+                      try {
+                        await query(
+                          `INSERT INTO matter_assignments (matter_id, user_id, role, billing_rate) VALUES ($1, $2, 'responsible_attorney', $3) ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                          [matterId, responsibleId, billingRate]
+                        );
+                      } catch (e) { /* ignore */ }
+                    }
+                  } catch (err) {
+                    console.log(`[CLIO IMPORT] Could not import matter ${clioMatterId}: ${err.message}`);
+                  }
+                }
+                
+                console.log(`[CLIO IMPORT] Imported ${additionalMatters} additional matters from time entries`);
+                addLog(`✅ Imported ${additionalMatters} additional matters where user has time entries`);
+                counts.matters += additionalMatters;
+              }
+            }
+            
             let expenseCount = 0;
             let timeEntriesNoMatter = 0;
             let timeEntriesNoUser = 0;
