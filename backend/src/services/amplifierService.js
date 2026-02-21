@@ -136,8 +136,8 @@ const DEFAULT_MAX_RUNTIME_MINUTES = 90;   // Up from 45: 60 min target + 30 min 
 const EXTENDED_MAX_ITERATIONS = 800;      // Up from 400: deep-dive complex projects
 const EXTENDED_MAX_RUNTIME_MINUTES = 480; // Up from 120: 8 hours for major projects
 const CHECKPOINT_INTERVAL_MS = 10000;     // Down from 15s: save progress more often
-const MESSAGE_COMPACT_MAX_CHARS = 20000;  // Tightened from 24000: reduce per-call token cost
-const MESSAGE_COMPACT_MAX_MESSAGES = 28;  // Tightened from 36: compact sooner to stay lean
+const MESSAGE_COMPACT_MAX_CHARS = 40000;
+const MESSAGE_COMPACT_MAX_MESSAGES = 50;
 const MEMORY_MESSAGE_PREFIX = '## TASK MEMORY';
 const PLAN_MESSAGE_PREFIX = '## EXECUTION PLAN';
 
@@ -151,29 +151,29 @@ const ExecutionPhase = {
 
 const PHASE_CONFIG = {
   [ExecutionPhase.DISCOVERY]: {
-    maxIterationPercent: 25,  // spend at most 25% of iterations here
-    tokenBudget: 3000,       // Up from 2000: richer context gathering
+    maxIterationPercent: 20,
+    tokenBudget: 4000,
     temperature: 0.3,
     description: 'Gathering information and understanding context',
     requiredBefore: null,
   },
   [ExecutionPhase.ANALYSIS]: {
-    maxIterationPercent: 25,
-    tokenBudget: 4000,       // Up from 3000: deeper analysis responses
+    maxIterationPercent: 20,
+    tokenBudget: 6000,
     temperature: 0.4,
     description: 'Analyzing findings and identifying issues',
     requiredBefore: ExecutionPhase.DISCOVERY,
   },
   [ExecutionPhase.ACTION]: {
-    maxIterationPercent: 35,
-    tokenBudget: 4000,       // longer responses for document creation
+    maxIterationPercent: 40,
+    tokenBudget: 8000,
     temperature: 0.5,
     description: 'Creating deliverables and work product',
     requiredBefore: ExecutionPhase.ANALYSIS,
   },
   [ExecutionPhase.REVIEW]: {
-    maxIterationPercent: 15,
-    tokenBudget: 4000,       // Up from 3000: thorough review responses
+    maxIterationPercent: 20,
+    tokenBudget: 6000,
     temperature: 0.3,
     description: 'Reviewing work, creating follow-ups, finalizing',
     requiredBefore: ExecutionPhase.ACTION,
@@ -383,7 +383,7 @@ async function callAzureOpenAI(messages, tools = [], options = {}) {
   const body = {
     messages,
     temperature: options.temperature ?? 0.7,
-    max_tokens: options.max_tokens ?? 4000,
+    max_tokens: options.max_tokens ?? 6000,
   };
   
   // Add tools for function calling (agent mode) - EXACT same as aiAgent.js
@@ -1166,13 +1166,11 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
    * version is trimmed so it doesn't eat the entire context window.
    */
   trimToolResultForMessage(toolName, result) {
-    const MAX_RESULT_CHARS = 2500; // Tighter cap: saves ~500 tokens per large result
+    const MAX_RESULT_CHARS = 6000;
     
-    // Tool-specific trimming strategies (applied BEFORE size check for proactive trimming)
     try {
       if (toolName === 'read_document_content' && result?.content) {
-        // For document content, keep first 1800 chars
-        const maxContent = 1800;
+        const maxContent = 5000;
         if (result.content.length > maxContent) {
           return JSON.stringify({
             name: result.name,
@@ -1185,7 +1183,7 @@ If any deliverable is weak, fix it now with another tool call. Then proceed to R
       }
       
       if (toolName === 'find_and_read_document' && result?.content) {
-        const maxContent = 1800;
+        const maxContent = 5000;
         if (result.content.length > maxContent) {
           return JSON.stringify({
             name: result.name,
@@ -3253,12 +3251,11 @@ ${hasMatterPreloaded && matterIsVerified
         this.messages = this.normalizeMessages(this.messages);
         this.compactMessagesIfNeeded();
         
-        // ===== ADAPTIVE TOKEN BUDGET =====
-        // Use phase-specific token budget, reduce if rate limited heavily
         let tokenBudget = phaseConfig.tokenBudget;
         let temperature = phaseConfig.temperature;
-        if (this.rateLimitCount > 3) {
-          tokenBudget = Math.max(1500, Math.round(tokenBudget * 0.7));
+        // Only reduce token budget under extreme rate limiting, and never below 4000
+        if (this.rateLimitCount > 8) {
+          tokenBudget = Math.max(4000, Math.round(tokenBudget * 0.8));
           console.log(`[Amplifier] Reducing token budget to ${tokenBudget} due to ${this.rateLimitCount} rate limits`);
         }
         
