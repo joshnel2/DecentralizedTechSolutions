@@ -440,12 +440,16 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
 router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, res) => {
   try {
     const existing = await query(
-      'SELECT id, status FROM invoices WHERE id = $1 AND firm_id = $2',
+      'SELECT * FROM invoices WHERE id = $1 AND firm_id = $2',
       [req.params.id, req.user.firmId]
     );
 
     if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Invoice not found' });
+    }
+
+    if (!await canAccessInvoice(req.user.id, req.user.role, existing.rows[0])) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
     }
 
     const {
@@ -532,6 +536,10 @@ router.post('/:id/payments', authenticate, requirePermission('billing:edit'), as
     }
 
     const invoice = invoiceResult.rows[0];
+
+    if (!await canAccessInvoice(req.user.id, req.user.role, invoice)) {
+      return res.status(403).json({ error: 'Access denied to this invoice' });
+    }
     let paymentId;
 
     await withTransaction(async (client) => {

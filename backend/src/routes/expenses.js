@@ -121,6 +121,11 @@ router.put('/:id', authenticate, requirePermission('billing:edit'), async (req, 
       return res.status(404).json({ error: 'Expense not found' });
     }
 
+    const isAdmin = ['owner', 'admin', 'billing'].includes(req.user.role);
+    if (!isAdmin && existing.rows[0].user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only edit your own expenses' });
+    }
+
     const { date, description, amount, category, expenseType, billable, reimbursable, status } = req.body;
 
     await query(

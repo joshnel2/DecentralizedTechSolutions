@@ -1,10 +1,26 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
 import { authenticate, requirePermission } from '../middleware/auth.js';
+import { canAccessMatter } from '../middleware/matterPermissions.js';
 import { getTodayInTimezone } from '../utils/dateUtils.js';
 import { learnFromTask } from '../services/manualLearning.js';
 
 const router = Router();
+
+async function verifyMatterAccess(req, res) {
+  const { matterId } = req.params;
+  const matterCheck = await query('SELECT id FROM matters WHERE id = $1 AND firm_id = $2', [matterId, req.user.firmId]);
+  if (matterCheck.rows.length === 0) {
+    res.status(404).json({ error: 'Matter not found' });
+    return false;
+  }
+  const access = await canAccessMatter(req.user.id, req.user.role, matterId, req.user.firmId);
+  if (!access.hasAccess) {
+    res.status(403).json({ error: 'Access denied to this matter' });
+    return false;
+  }
+  return true;
+}
 
 // ============================================
 // MATTER TASKS
@@ -14,16 +30,7 @@ const router = Router();
 router.get('/:matterId/tasks', authenticate, requirePermission('matters:view'), async (req, res) => {
   try {
     const { matterId } = req.params;
-    
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `SELECT t.*, u.first_name || ' ' || u.last_name as assignee_name
@@ -66,15 +73,7 @@ router.post('/:matterId/tasks', authenticate, requirePermission('matters:edit'),
       return res.status(400).json({ error: 'Task name is required' });
     }
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `INSERT INTO matter_tasks (firm_id, matter_id, name, description, status, priority, due_date, assignee, created_by)
@@ -118,15 +117,7 @@ router.put('/:matterId/tasks/:taskId', authenticate, requirePermission('matters:
     const { matterId, taskId } = req.params;
     const { name, description, status, priority, dueDate, assignee } = req.body;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     // Update completed_at based on status
     let completedAt = null;
@@ -183,15 +174,7 @@ router.delete('/:matterId/tasks/:taskId', authenticate, requirePermission('matte
   try {
     const { matterId, taskId } = req.params;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       'DELETE FROM matter_tasks WHERE id = $1 AND matter_id = $2 RETURNING id',
@@ -218,15 +201,7 @@ router.get('/:matterId/updates', authenticate, requirePermission('matters:view')
   try {
     const { matterId } = req.params;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `SELECT u.*, usr.first_name || ' ' || usr.last_name as created_by_name
@@ -266,15 +241,7 @@ router.post('/:matterId/updates', authenticate, requirePermission('matters:edit'
       return res.status(400).json({ error: 'Update title is required' });
     }
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `INSERT INTO matter_updates (firm_id, matter_id, date, title, description, category, created_by)
@@ -306,15 +273,7 @@ router.put('/:matterId/updates/:updateId', authenticate, requirePermission('matt
     const { matterId, updateId } = req.params;
     const { date, title, description, category } = req.body;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `UPDATE matter_updates SET
@@ -354,15 +313,7 @@ router.delete('/:matterId/updates/:updateId', authenticate, requirePermission('m
   try {
     const { matterId, updateId } = req.params;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       'DELETE FROM matter_updates WHERE id = $1 AND matter_id = $2 RETURNING id',
@@ -389,15 +340,7 @@ router.get('/:matterId/contacts', authenticate, requirePermission('matters:view'
   try {
     const { matterId } = req.params;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `SELECT * FROM matter_contacts
@@ -435,15 +378,7 @@ router.post('/:matterId/contacts', authenticate, requirePermission('matters:edit
       return res.status(400).json({ error: 'Contact name is required' });
     }
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `INSERT INTO matter_contacts (firm_id, matter_id, name, role, firm, email, phone, notes)
@@ -476,15 +411,7 @@ router.put('/:matterId/contacts/:contactId', authenticate, requirePermission('ma
     const { matterId, contactId } = req.params;
     const { name, role, firm, email, phone, notes } = req.body;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       `UPDATE matter_contacts SET
@@ -527,15 +454,7 @@ router.delete('/:matterId/contacts/:contactId', authenticate, requirePermission(
   try {
     const { matterId, contactId } = req.params;
     
-    // Verify matter belongs to user's firm
-    const matterCheck = await query(
-      'SELECT id FROM matters WHERE id = $1 AND firm_id = $2',
-      [matterId, req.user.firmId]
-    );
-    
-    if (matterCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Matter not found' });
-    }
+    if (!(await verifyMatterAccess(req, res))) return;
     
     const result = await query(
       'DELETE FROM matter_contacts WHERE id = $1 AND matter_id = $2 RETURNING id',

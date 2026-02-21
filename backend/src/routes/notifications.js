@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { query } from '../db/connection.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
+
+router.use(authenticate);
 
 // ============================================
 // NOTIFICATION PREFERENCES
@@ -10,8 +13,8 @@ const router = Router();
 // Get user's notification preferences
 router.get('/preferences', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const firmId = req.user.firmId;
+    const userId = req.user.id;
     
     // Try to get existing preferences
     let result = await query(
@@ -54,8 +57,8 @@ router.get('/preferences', async (req, res) => {
 // Update notification preferences
 router.put('/preferences', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const firmId = req.user.firmId;
+    const userId = req.user.id;
     
     const {
       // Email settings
@@ -133,8 +136,8 @@ router.put('/preferences', async (req, res) => {
 // Get notifications for user
 router.get('/', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const firmId = req.user.firmId;
+    const userId = req.user.id;
     const { limit = 50, offset = 0, unread_only = false } = req.query;
     
     let query = `
@@ -177,7 +180,7 @@ router.get('/', async (req, res) => {
 // Create a notification (internal API / AI tool)
 router.post('/', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const firmId = req.user.firmId;
     
     const {
       user_id, // Can be single user or 'all' for all firm users
@@ -208,11 +211,11 @@ router.post('/', async (req, res) => {
     } else if (Array.isArray(user_id)) {
       targetUserIds = user_id;
     } else {
-      targetUserIds = [user_id || req.headers['x-user-id']];
+      targetUserIds = [user_id || req.user.id];
     }
     
     const notifications = [];
-    const triggeredBy = req.headers['x-user-id'] || null;
+    const triggeredBy = req.user.id;
     
     for (const targetUserId of targetUserIds) {
       // Create the notification
@@ -252,7 +255,7 @@ router.post('/', async (req, res) => {
 router.put('/:id/read', async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const userId = req.user.id;
     
     const result = await query(`
       UPDATE notifications SET read_at = NOW()
@@ -274,8 +277,8 @@ router.put('/:id/read', async (req, res) => {
 // Mark all notifications as read
 router.put('/read-all', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const firmId = req.user.firmId;
+    const userId = req.user.id;
     
     const result = await query(`
       UPDATE notifications SET read_at = NOW()
@@ -293,7 +296,7 @@ router.put('/read-all', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const userId = req.user.id;
     
     await query(
       `DELETE FROM notifications WHERE id = $1 AND user_id = $2`,
@@ -443,7 +446,7 @@ async function sendSMSNotification(notification, phone) {
 // Get templates
 router.get('/templates', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const firmId = req.user.firmId;
     
     const result = await query(`
       SELECT * FROM notification_templates 
@@ -461,7 +464,7 @@ router.get('/templates', async (req, res) => {
 // Create/update custom template
 router.post('/templates', async (req, res) => {
   try {
-    const firmId = req.headers['x-firm-id'] || 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
+    const firmId = req.user.firmId;
     const { type, channel, name, subject, body, available_variables } = req.body;
     
     const result = await query(`
@@ -519,7 +522,7 @@ router.post('/test-sms', async (req, res) => {
 // Verify phone number (send verification code)
 router.post('/verify-phone', async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'] || 'a1b2c3d4-5678-90ab-cdef-1234567890ab';
+    const userId = req.user.id;
     const { phone } = req.body;
     
     if (!phone) {
