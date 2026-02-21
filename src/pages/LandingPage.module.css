@@ -1466,3 +1466,13 @@
     gap: var(--space-md);
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .hero { background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%); }
+:global([data-theme="light"]) .heroTitle { color: #0F172A; }
+:global([data-theme="light"]) .heroSubtitle { color: #475569; }
+:global([data-theme="light"]) .card, :global([data-theme="light"]) .featureCard, :global([data-theme="light"]) .section { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .featureCard:hover { border-color: #CBD5E1 !important; }
+:global([data-theme="light"]) .featureTitle { color: #0F172A; }
+:global([data-theme="light"]) .featureDesc { color: #64748B; }
+:global([data-theme="light"]) .footer { background: #0F172A; color: #CBD5E1; }

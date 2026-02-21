@@ -538,3 +538,13 @@
     display: none;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .page { background: #FFFFFF; }
+:global([data-theme="light"]) .title { color: #0F172A; }
+:global([data-theme="light"]) .subtitle { color: #475569; }
+:global([data-theme="light"]) .card, :global([data-theme="light"]) .section { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .content { color: #334155; }
+:global([data-theme="light"]) .nav { background: #FFFFFF; border-color: #E2E8F0; }
+:global([data-theme="light"]) .navLink { color: #475569; }
+:global([data-theme="light"]) .navLink:hover { color: #B45309; }
