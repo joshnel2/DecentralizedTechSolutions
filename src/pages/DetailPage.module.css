@@ -4299,3 +4299,138 @@ a.contactName:hover {
     gap: 0.5rem;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .page h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .backBtn {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .backBtn:hover {
+  color: #0F172A;
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .detailCard,
+:global([data-theme="light"]) .section,
+:global([data-theme="light"]) .contentCard {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .sectionHeader,
+:global([data-theme="light"]) .sectionTitle {
+  color: #0F172A;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .detailRow,
+:global([data-theme="light"]) .detailItem {
+  border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .detailLabel,
+:global([data-theme="light"]) .label {
+  color: #64748B !important;
+}
+
+:global([data-theme="light"]) .detailValue,
+:global([data-theme="light"]) .value {
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .tab,
+:global([data-theme="light"]) .tabBtn {
+  color: #64748B;
+  border-color: transparent;
+}
+
+:global([data-theme="light"]) .tab.active,
+:global([data-theme="light"]) .tabBtn.active,
+:global([data-theme="light"]) .activeTab {
+  color: #B45309;
+  border-color: #B45309;
+}
+
+:global([data-theme="light"]) .tabBar,
+:global([data-theme="light"]) .tabsContainer {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .noteItem,
+:global([data-theme="light"]) .timeEntry,
+:global([data-theme="light"]) .taskItem,
+:global([data-theme="light"]) .docItem,
+:global([data-theme="light"]) .contactItem,
+:global([data-theme="light"]) .updateItem {
+  background: #FFFFFF;
+  border-color: #F1F5F9 !important;
+}
+
+:global([data-theme="light"]) .noteItem:hover,
+:global([data-theme="light"]) .taskItem:hover,
+:global([data-theme="light"]) .docItem:hover {
+  background: #F8FAFC;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select,
+:global([data-theme="light"]) .editInput,
+:global([data-theme="light"]) .editTextarea,
+:global([data-theme="light"]) .editSelect {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalHeader {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  border-color: #D1D5DB;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .actionBtn,
+:global([data-theme="light"]) .editBtn,
+:global([data-theme="light"]) .deleteBtn {
+  background: transparent;
+}
+
+:global([data-theme="light"]) .emptyState,
+:global([data-theme="light"]) .noItems {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .editorWrapper,
+:global([data-theme="light"]) .editorContent {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .editorToolbar {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .editorFooter {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}

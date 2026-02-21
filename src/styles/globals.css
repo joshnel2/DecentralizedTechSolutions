@@ -203,160 +203,529 @@
   border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-/* Light mode: override hardcoded rgba(255,255,255) borders/backgrounds across all modules */
-[data-theme="light"] [class*="module"] {
-  --tw-border-opacity: 1;
+/* ===== COMPREHENSIVE LIGHT MODE OVERRIDES ===== */
+
+/* Global border fix: all elements using rgba(255,255,255) borders become subtle dark borders */
+[data-theme="light"] {
+  color-scheme: light;
 }
 
-/* Global overrides for common dark-mode patterns used in CSS modules */
-@media screen {
-  [data-theme="light"] {
-    color-scheme: light;
-  }
+/* ------------------------------------------------------------------
+   1. LAYOUT: Sidebar, Header, Main content area
+   ------------------------------------------------------------------ */
+[data-theme="light"] nav,
+[data-theme="light"] aside,
+[data-theme="light"] [class*="sidebar"],
+[data-theme="light"] [class*="Sidebar"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
 
-  /* Sidebar and navigation */
-  [data-theme="light"] nav,
-  [data-theme="light"] aside,
-  [data-theme="light"] [class*="sidebar"],
-  [data-theme="light"] [class*="Sidebar"] {
-    background: #FFFFFF !important;
-    border-color: #E2E8F0 !important;
-  }
+[data-theme="light"] [class*="sidebar"] [class*="navItem"],
+[data-theme="light"] [class*="Sidebar"] [class*="navItem"],
+[data-theme="light"] [class*="sidebar"] [class*="subNavItem"],
+[data-theme="light"] [class*="sidebar"] a {
+  color: #475569 !important;
+}
 
-  /* Cards, panels, modals */
-  [data-theme="light"] [class*="card"],
-  [data-theme="light"] [class*="Card"],
-  [data-theme="light"] [class*="panel"],
-  [data-theme="light"] [class*="Panel"],
-  [data-theme="light"] [class*="modal"] > div > div,
-  [data-theme="light"] [class*="Modal"] > div > div {
-    background: #FFFFFF;
-    border-color: #E2E8F0;
-  }
+[data-theme="light"] [class*="sidebar"] [class*="navItem"]:hover,
+[data-theme="light"] [class*="sidebar"] [class*="subNavItem"]:hover {
+  background: #F1F5F9 !important;
+  color: #0F172A !important;
+}
 
-  /* Dropdowns and menus */
-  [data-theme="light"] [class*="dropdown"],
-  [data-theme="light"] [class*="Dropdown"],
-  [data-theme="light"] [class*="menu"]:not(nav *),
-  [data-theme="light"] [class*="Menu"] {
-    background: #FFFFFF;
-    border-color: #E2E8F0;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-  }
+[data-theme="light"] [class*="sidebar"] [class*="active"] {
+  color: #B45309 !important;
+}
 
-  /* Tables */
-  [data-theme="light"] table th {
-    background: #F8FAFC !important;
-    color: #475569 !important;
-    border-color: #E2E8F0 !important;
-  }
+[data-theme="light"] [class*="navDivider"],
+[data-theme="light"] [class*="sidebar"] [class*="Divider"] {
+  background: #E2E8F0 !important;
+}
 
-  [data-theme="light"] table td {
-    border-color: #F1F5F9 !important;
-  }
+[data-theme="light"] [class*="sidebarHeader"],
+[data-theme="light"] [class*="sidebarFooter"] {
+  border-color: #E2E8F0 !important;
+}
 
-  [data-theme="light"] table tr:hover td {
-    background: #F8FAFC !important;
-  }
+[data-theme="light"] [class*="sectionLabel"] {
+  color: #94A3B8 !important;
+}
 
-  /* Badges and tags */
-  [data-theme="light"] [class*="badge"],
-  [data-theme="light"] [class*="Badge"],
-  [data-theme="light"] [class*="tag"],
-  [data-theme="light"] [class*="Tag"] {
-    border-color: #E2E8F0;
-  }
+[data-theme="light"] [class*="firmInfo"] {
+  color: #64748B !important;
+}
 
-  /* Override inline rgba(255,255,255,...) on common elements */
-  [data-theme="light"] [style*="rgba(255, 255, 255, 0.0"],
-  [data-theme="light"] [style*="rgba(255,255,255,0.0"] {
-    border-color: rgba(0, 0, 0, 0.08) !important;
-  }
+[data-theme="light"] header,
+[data-theme="light"] [class*="header"]:not(table *):not([class*="cardHeader"]):not([class*="modalHeader"]):not([class*="dropdownHeader"]) {
+  background: rgba(255, 255, 255, 0.9) !important;
+  backdrop-filter: blur(12px) !important;
+  border-color: #E2E8F0 !important;
+}
 
-  /* Tabs */
-  [data-theme="light"] [class*="tabs"] button,
-  [data-theme="light"] [class*="Tabs"] button {
-    color: #64748B;
-  }
+[data-theme="light"] [class*="pageTitle"] {
+  color: #0F172A !important;
+}
 
-  [data-theme="light"] [class*="tabs"] button[class*="active"],
-  [data-theme="light"] [class*="Tabs"] button[class*="active"] {
-    color: #B45309;
-    border-color: #B45309;
-  }
+[data-theme="light"] [class*="iconBtn"] {
+  color: #64748B !important;
+}
 
-  /* Modal overlays */
-  [data-theme="light"] [class*="modalOverlay"],
-  [data-theme="light"] [class*="overlay"] {
-    background: rgba(0, 0, 0, 0.3) !important;
-  }
+[data-theme="light"] [class*="iconBtn"]:hover {
+  background: #F1F5F9 !important;
+  color: #0F172A !important;
+}
 
-  /* Status badges */
-  [data-theme="light"] [class*="active"] {
-    --status-bg: #D1FAE5;
-    --status-color: #065F46;
-  }
+[data-theme="light"] [class*="userBtn"] {
+  background: #F1F5F9 !important;
+  border-color: #E2E8F0 !important;
+  color: #1E293B !important;
+}
 
-  /* Buttons - primary */
-  [data-theme="light"] [class*="primaryBtn"] {
-    background: #B45309 !important;
-    color: #FFFFFF !important;
-  }
+[data-theme="light"] [class*="userBtn"]:hover {
+  background: #E2E8F0 !important;
+}
 
-  [data-theme="light"] [class*="primaryBtn"]:hover {
-    background: #92400E !important;
-  }
+[data-theme="light"] [class*="userName"] {
+  color: #1E293B !important;
+}
 
-  /* Buttons - save */
-  [data-theme="light"] [class*="saveBtn"] {
-    background: #B45309 !important;
-    color: #FFFFFF !important;
-  }
+[data-theme="light"] [class*="mobileMenuBtn"] {
+  background: #F1F5F9 !important;
+  border-color: #E2E8F0 !important;
+  color: #475569 !important;
+}
 
-  /* Header area */
-  [data-theme="light"] header,
-  [data-theme="light"] [class*="header"]:not(table *) {
-    border-color: #E2E8F0 !important;
-  }
+/* ------------------------------------------------------------------
+   2. CARDS, PANELS, CONTAINERS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="card"],
+[data-theme="light"] [class*="Card"],
+[data-theme="light"] [class*="panel"],
+[data-theme="light"] [class*="Panel"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
 
-  /* Detail items with --apex-muted */
-  [data-theme="light"] [class*="detailLabel"] {
-    color: #64748B !important;
-  }
+[data-theme="light"] [class*="statCard"],
+[data-theme="light"] [class*="stat_card"],
+[data-theme="light"] [class*="chartCard"],
+[data-theme="light"] [class*="listCard"] {
+  background: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
 
-  [data-theme="light"] [class*="detailValue"] {
-    color: #1E293B !important;
-  }
+[data-theme="light"] [class*="statValue"],
+[data-theme="light"] [class*="cardHeader"] h3,
+[data-theme="light"] [class*="listItemTitle"] {
+  color: #0F172A !important;
+}
 
-  /* Search inputs */
-  [data-theme="light"] [class*="search"] input,
-  [data-theme="light"] [class*="Search"] input {
-    background: #F8FAFC;
-    border: 1px solid #E2E8F0;
-    color: #1E293B;
-  }
+[data-theme="light"] [class*="statLabel"],
+[data-theme="light"] [class*="listItemMeta"] {
+  color: #64748B !important;
+}
 
-  /* Stat cards */
-  [data-theme="light"] [class*="stat"],
-  [data-theme="light"] [class*="Stat"] {
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
-  }
+/* ------------------------------------------------------------------
+   3. MODALS & OVERLAYS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="modalOverlay"],
+[data-theme="light"] [class*="overlay"] {
+  background: rgba(0, 0, 0, 0.3) !important;
+}
 
-  /* Empty states */
-  [data-theme="light"] [class*="empty"],
-  [data-theme="light"] [class*="Empty"],
-  [data-theme="light"] [class*="noData"] {
-    color: #94A3B8;
-  }
+[data-theme="light"] [class*="modal"]:not([class*="modalOverlay"]),
+[data-theme="light"] [class*="Modal"]:not([class*="modalOverlay"]),
+[data-theme="light"] [class*="timerModal"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
 
-  /* Filter selects */
-  [data-theme="light"] [class*="filter"] select,
-  [data-theme="light"] [class*="Filter"] select {
-    background: #FFFFFF;
-    border: 1px solid #D1D5DB;
-    color: #1E293B;
-  }
+[data-theme="light"] [class*="modalHeader"] h2,
+[data-theme="light"] [class*="timerModal"] h3 {
+  color: #0F172A !important;
+}
+
+[data-theme="light"] [class*="closeBtn"] {
+  color: #94A3B8 !important;
+}
+
+[data-theme="light"] [class*="closeBtn"]:hover {
+  color: #0F172A !important;
+}
+
+/* ------------------------------------------------------------------
+   4. DROPDOWNS & MENUS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="dropdown"],
+[data-theme="light"] [class*="Dropdown"],
+[data-theme="light"] [class*="menu"]:not(nav *),
+[data-theme="light"] [class*="Menu"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] [class*="dropdown"] button,
+[data-theme="light"] [class*="Dropdown"] button,
+[data-theme="light"] [class*="dropdownContent"] button {
+  color: #334155 !important;
+}
+
+[data-theme="light"] [class*="dropdown"] button:hover,
+[data-theme="light"] [class*="dropdownContent"] button:hover {
+  background: #F1F5F9 !important;
+}
+
+[data-theme="light"] [class*="dropdownHeader"] {
+  border-color: #E2E8F0 !important;
+}
+
+[data-theme="light"] [class*="dropdownHeader"] span,
+[data-theme="light"] [class*="dropdownHeader"] strong {
+  color: #0F172A !important;
+}
+
+[data-theme="light"] [class*="dropdownHeader"] p {
+  color: #64748B !important;
+}
+
+/* ------------------------------------------------------------------
+   5. TABLES
+   ------------------------------------------------------------------ */
+[data-theme="light"] table {
+  border-color: #E2E8F0 !important;
+}
+
+[data-theme="light"] table th {
+  background: #F8FAFC !important;
+  color: #475569 !important;
+  border-color: #E2E8F0 !important;
+}
+
+[data-theme="light"] table td {
+  color: #334155 !important;
+  border-color: #F1F5F9 !important;
+}
+
+[data-theme="light"] table tr:hover td {
+  background: #F8FAFC !important;
+}
+
+/* ------------------------------------------------------------------
+   6. LIST ITEMS, BORDERS, DIVIDERS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="listItem"],
+[data-theme="light"] [class*="eventItem"],
+[data-theme="light"] [class*="invoiceItem"],
+[data-theme="light"] [class*="notifItem"] {
+  border-color: #F1F5F9 !important;
+}
+
+[data-theme="light"] [class*="listItem"]:hover,
+[data-theme="light"] [class*="notifItem"]:hover {
+  background: #F8FAFC !important;
+}
+
+[data-theme="light"] [class*="notifItem"][class*="unread"] {
+  background: #FFFBEB !important;
+}
+
+[data-theme="light"] [class*="listItemIcon"],
+[data-theme="light"] [class*="notifIcon"],
+[data-theme="light"] [class*="eventDate"] {
+  background: #F1F5F9 !important;
+}
+
+/* ------------------------------------------------------------------
+   7. BADGES & TAGS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="badge"],
+[data-theme="light"] [class*="Badge"],
+[data-theme="light"] [class*="tag"],
+[data-theme="light"] [class*="Tag"] {
+  border-color: #E2E8F0 !important;
+}
+
+/* ------------------------------------------------------------------
+   8. BUTTONS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="primaryBtn"],
+[data-theme="light"] [class*="saveBtn"] {
+  background: linear-gradient(135deg, #D97706 0%, #B45309 100%) !important;
+  color: #FFFFFF !important;
+}
+
+[data-theme="light"] [class*="primaryBtn"]:hover,
+[data-theme="light"] [class*="saveBtn"]:hover {
+  background: linear-gradient(135deg, #B45309 0%, #92400E 100%) !important;
+}
+
+[data-theme="light"] [class*="cancelBtn"] {
+  border-color: #D1D5DB !important;
+  color: #475569 !important;
+}
+
+[data-theme="light"] [class*="cancelBtn"]:hover {
+  background: #F1F5F9 !important;
+  color: #0F172A !important;
+}
+
+[data-theme="light"] [class*="matterTimerBtn"] {
+  background: #F1F5F9 !important;
+  border-color: #E2E8F0 !important;
+  color: #1E293B !important;
+}
+
+/* ------------------------------------------------------------------
+   9. FORMS: Inputs, Textareas, Selects
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="formGroup"] input,
+[data-theme="light"] [class*="formGroup"] textarea,
+[data-theme="light"] [class*="formGroup"] select,
+[data-theme="light"] [class*="timerSelect"],
+[data-theme="light"] [class*="timerModalField"] textarea {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+[data-theme="light"] [class*="formGroup"] label,
+[data-theme="light"] [class*="timerModalField"] label {
+  color: #475569 !important;
+}
+
+[data-theme="light"] [class*="timerModalInfo"] {
+  background: #F8FAFC !important;
+}
+
+[data-theme="light"] [class*="timerModalInfo"] p {
+  color: #334155 !important;
+}
+
+[data-theme="light"] [class*="timerModalInfo"] strong {
+  color: #64748B !important;
+}
+
+[data-theme="light"] [class*="clientInfo"] {
+  background: #F1F5F9 !important;
+  color: #475569 !important;
+}
+
+[data-theme="light"] [class*="search"] input,
+[data-theme="light"] [class*="Search"] input {
+  background: #F8FAFC !important;
+  border: 1px solid #E2E8F0 !important;
+  color: #1E293B !important;
+}
+
+[data-theme="light"] [class*="filter"] select,
+[data-theme="light"] [class*="Filter"] select {
+  background: #FFFFFF !important;
+  border: 1px solid #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+/* ------------------------------------------------------------------
+   10. TABS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="tabs"] button,
+[data-theme="light"] [class*="Tabs"] button,
+[data-theme="light"] [class*="tabBtn"],
+[data-theme="light"] [class*="tab_btn"] {
+  color: #64748B !important;
+}
+
+[data-theme="light"] [class*="tabs"] button[class*="active"],
+[data-theme="light"] [class*="Tabs"] button[class*="active"],
+[data-theme="light"] [class*="tabBtn"][class*="active"] {
+  color: #B45309 !important;
+  border-color: #B45309 !important;
+}
+
+/* ------------------------------------------------------------------
+   11. DASHBOARD-SPECIFIC
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="greeting"] {
+  color: #0F172A !important;
+}
+
+[data-theme="light"] [class*="date"] {
+  color: #64748B !important;
+}
+
+[data-theme="light"] [class*="timerSection"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+[data-theme="light"] [class*="quickTimerHeader"],
+[data-theme="light"] [class*="quickTimerHeader"] h3 {
+  color: #64748B !important;
+}
+
+[data-theme="light"] [class*="timerMatterName"],
+[data-theme="light"] [class*="eventDay"],
+[data-theme="light"] [class*="amount"],
+[data-theme="light"] [class*="legendValue"] {
+  color: #0F172A !important;
+}
+
+[data-theme="light"] [class*="eventMonth"],
+[data-theme="light"] [class*="legendLabel"],
+[data-theme="light"] [class*="timerClientName"] {
+  color: #64748B !important;
+}
+
+/* ------------------------------------------------------------------
+   12. AI SECTIONS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="aiActionCard"] {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+  color: #334155 !important;
+}
+
+[data-theme="light"] [class*="aiActionCard"]:hover {
+  background: #F1F5F9 !important;
+  border-color: rgba(124, 58, 237, 0.3) !important;
+}
+
+/* ------------------------------------------------------------------
+   13. DETAIL PAGES & VALUE/LABEL PAIRS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="detailLabel"],
+[data-theme="light"] [class*="label"] {
+  color: #64748B !important;
+}
+
+[data-theme="light"] [class*="detailValue"],
+[data-theme="light"] [class*="value"] {
+  color: #1E293B !important;
+}
+
+/* ------------------------------------------------------------------
+   14. EMPTY STATES
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="empty"],
+[data-theme="light"] [class*="Empty"],
+[data-theme="light"] [class*="noData"],
+[data-theme="light"] [class*="noResults"] {
+  color: #94A3B8 !important;
+}
+
+/* ------------------------------------------------------------------
+   15. INLINE STYLE OVERRIDES: rgba(255,255,255,...) borders
+   ------------------------------------------------------------------ */
+[data-theme="light"] [style*="rgba(255, 255, 255, 0.0"],
+[data-theme="light"] [style*="rgba(255,255,255,0.0"] {
+  border-color: rgba(0, 0, 0, 0.06) !important;
+}
+
+[data-theme="light"] [style*="rgba(255, 255, 255, 0.1"],
+[data-theme="light"] [style*="rgba(255,255,255,0.1"] {
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Inline background overrides for hardcoded dark colors */
+[data-theme="light"] [style*="background: rgb(11, 15, 26)"],
+[data-theme="light"] [style*="background-color: rgb(11, 15, 26)"],
+[data-theme="light"] [style*="background: rgb(15, 23, 42)"],
+[data-theme="light"] [style*="background-color: rgb(15, 23, 42)"],
+[data-theme="light"] [style*="background: #0B0F1A"],
+[data-theme="light"] [style*="background: #0F172A"],
+[data-theme="light"] [style*="background:#0B0F1A"],
+[data-theme="light"] [style*="background:#0F172A"] {
+  background: #FFFFFF !important;
+}
+
+/* ------------------------------------------------------------------
+   16. NOTIFICATION CONTENT
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="notifContent"] strong {
+  color: #0F172A !important;
+}
+
+[data-theme="light"] [class*="notifContent"] p {
+  color: #64748B !important;
+}
+
+/* ------------------------------------------------------------------
+   17. TOOLTIP & POPOVER
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="tooltip"],
+[data-theme="light"] [class*="Tooltip"],
+[data-theme="light"] [class*="popover"],
+[data-theme="light"] [class*="Popover"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #334155 !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* ------------------------------------------------------------------
+   18. SKELETON LOADING
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="skeleton"],
+[data-theme="light"] [class*="Skeleton"] {
+  background: #E2E8F0 !important;
+}
+
+/* ------------------------------------------------------------------
+   19. SCROLLBAR (light mode override already exists but reinforce)
+   ------------------------------------------------------------------ */
+
+/* ------------------------------------------------------------------
+   20. SECTION BACKGROUNDS & PAGE-LEVEL CONTAINERS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="page"],
+[data-theme="light"] [class*="Page"],
+[data-theme="light"] [class*="container"],
+[data-theme="light"] [class*="Container"],
+[data-theme="light"] [class*="wrapper"],
+[data-theme="light"] [class*="Wrapper"] {
+  color: #334155;
+}
+
+[data-theme="light"] [class*="section"],
+[data-theme="light"] [class*="Section"] {
+  border-color: #E2E8F0;
+}
+
+/* ------------------------------------------------------------------
+   21. ERROR BOUNDARY
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="errorBoundary"],
+[data-theme="light"] [class*="ErrorBoundary"] {
+  background: #FFFFFF !important;
+  color: #334155 !important;
+}
+
+/* ------------------------------------------------------------------
+   22. CONNECTION STATUS
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="connectionStatus"],
+[data-theme="light"] [class*="ConnectionStatus"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* ------------------------------------------------------------------
+   23. AUTH PAGES (Login, Register, etc.)
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="authContainer"],
+[data-theme="light"] [class*="authCard"],
+[data-theme="light"] [class*="authForm"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* ------------------------------------------------------------------
+   24. LOGO TEXT in light mode
+   ------------------------------------------------------------------ */
+[data-theme="light"] [class*="logoText"] {
+  color: #0F172A !important;
 }
 
 * {

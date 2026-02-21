@@ -107,19 +107,23 @@ function ScrollToTop() {
 
 // Loading screen component
 function LoadingScreen() {
+  const theme = document.documentElement.getAttribute('data-theme') || 'light'
+  const isLight = theme === 'light'
   return (
     <div style={{
       minHeight: '100vh',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%)',
-      color: '#fff'
+      background: isLight
+        ? 'linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)'
+        : 'linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%)',
+      color: isLight ? '#0F172A' : '#fff'
     }}>
       <div style={{ textAlign: 'center' }}>
         <svg width="48" height="48" viewBox="0 0 32 32" fill="none" style={{ marginBottom: '1rem' }}>
           <path d="M16 4L28 28H4L16 4Z" fill="url(#loadGrad)" stroke="#F59E0B" strokeWidth="1.5"/>
-          <circle cx="16" cy="19" r="3" fill="#0B0F1A"/>
+          <circle cx="16" cy="19" r="3" fill={isLight ? '#FFFFFF' : '#0B0F1A'}/>
           <defs>
             <linearGradient id="loadGrad" x1="16" y1="4" x2="16" y2="28">
               <stop stopColor="#FBBF24"/>
@@ -130,8 +134,8 @@ function LoadingScreen() {
         <div style={{ 
           width: '40px', 
           height: '40px', 
-          border: '3px solid rgba(245, 158, 11, 0.2)', 
-          borderTopColor: '#F59E0B', 
+          border: isLight ? '3px solid rgba(217, 119, 6, 0.15)' : '3px solid rgba(245, 158, 11, 0.2)', 
+          borderTopColor: '#D97706', 
           borderRadius: '50%',
           animation: 'spin 1s linear infinite',
           margin: '0 auto'

@@ -1119,3 +1119,217 @@
     padding: var(--space-md);
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .layout {
+  background: #FFFFFF;
+}
+
+:global([data-theme="light"]) .sidebar {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%) !important;
+  border-right: 1px solid #E2E8F0;
+}
+
+:global([data-theme="light"]) .sidebarHeader {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .logoText {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .toggleBtn {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .toggleBtn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .navItem {
+  color: #475569;
+}
+
+:global([data-theme="light"]) .navItem:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .navItem.active {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.08) 0%, rgba(217, 119, 6, 0.03) 100%);
+  color: #B45309;
+  border-left-color: #D97706;
+}
+
+:global([data-theme="light"]) .subNavItem {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .subNavItem:hover {
+  color: #0F172A;
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .subNavItem.active {
+  color: #B45309;
+  background: rgba(217, 119, 6, 0.06);
+}
+
+:global([data-theme="light"]) .navDivider {
+  background: #E2E8F0;
+}
+
+:global([data-theme="light"]) .sectionLabel {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .integrationNav svg {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .sidebarFooter {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .firmInfo {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .integrationsSection {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .header {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .pageTitle {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .iconBtn {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .iconBtn:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .userBtn {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .userBtn:hover {
+  background: #E2E8F0;
+  border-color: #CBD5E1;
+}
+
+:global([data-theme="light"]) .userName {
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .mobileMenuBtn {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .dropdown {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+:global([data-theme="light"]) .dropdownHeader {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .dropdownHeader span,
+:global([data-theme="light"]) .dropdownHeader strong {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .dropdownHeader p {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .dropdownContent button {
+  color: #334155;
+}
+
+:global([data-theme="light"]) .dropdownContent button:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .logoutBtn {
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .notifItem:hover {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .notifItem.unread {
+  background: #FFFBEB;
+}
+
+:global([data-theme="light"]) .notifIcon {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .notifContent strong {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .notifContent p {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .timerModal {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .timerModal h3 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .timerModalInfo {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .timerModalInfo p {
+  color: #334155;
+}
+
+:global([data-theme="light"]) .timerModalInfo strong {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .timerModalField label {
+  color: #475569;
+}
+
+:global([data-theme="light"]) .timerModalField textarea {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  border-color: #D1D5DB;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .cancelBtn:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .modalOverlay {
+  background: rgba(0, 0, 0, 0.3);
+}

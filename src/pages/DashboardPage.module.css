@@ -1251,3 +1251,116 @@
     height: 36px;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .statCard {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .statCard:hover {
+  border-color: #CBD5E1;
+}
+
+:global([data-theme="light"]) .chartCard,
+:global([data-theme="light"]) .listCard {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .timerSection {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .listItem {
+  border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .listItem:hover {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .listItemIcon {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .eventItem {
+  border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .eventDate {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .invoiceItem {
+  border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalOverlay {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  border-color: #D1D5DB;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .cancelBtn:hover:not(:disabled) {
+  border-color: #94A3B8;
+  color: #0F172A;
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .matterTimerBtn {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .matterTimerBtn:hover {
+  background: #ECFDF5;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+:global([data-theme="light"]) .timerSelect {
+  background-color: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .timerSelect:hover {
+  border-color: #D97706;
+  background-color: #FFFBEB;
+}
+
+:global([data-theme="light"]) .timerSelect option {
+  background-color: #FFFFFF;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .aiActionCard {
+  background: #F8FAFC;
+  border-color: #E2E8F0;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .aiActionCard:hover {
+  background: #F1F5F9;
+  border-color: rgba(124, 58, 237, 0.3);
+}

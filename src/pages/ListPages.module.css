@@ -1224,3 +1224,119 @@
     opacity: 1;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .header h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .searchInput {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .addBtn,
+:global([data-theme="light"]) .importBtn {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .filterSelect {
+  background-color: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .viewBtn {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .tableContainer {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .table thead th {
+  background: #F8FAFC;
+  color: #475569;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .table tbody tr {
+  border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .table tbody tr:hover {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .table td {
+  color: #334155;
+  border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalHeader {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalHeader h2 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569;
+}
+
+:global([data-theme="light"]) .card {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .card:hover {
+  border-color: #CBD5E1;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  border-color: #D1D5DB;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .actionMenu {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+:global([data-theme="light"]) .actionItem {
+  color: #334155;
+}
+
+:global([data-theme="light"]) .actionItem:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .divider {
+  background: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalActions {
+  border-color: #E2E8F0;
+}
