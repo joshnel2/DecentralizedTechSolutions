@@ -81,8 +81,9 @@ export function MattersPage() {
   }, [])
 
   // Fetch data when component mounts or view filter changes
+  // forceRefresh ensures we don't use cached data from a different view
   useEffect(() => {
-    fetchMatters({ view: viewFilter })
+    fetchMatters({ view: viewFilter, forceRefresh: true })
     fetchClients()
     
     // Fetch attorneys for attorney selection dropdowns

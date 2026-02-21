@@ -65,13 +65,13 @@ export function DashboardPage() {
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin'
 
-  // Fetch all data when component mounts - admins see firm-wide data
+  // Fetch data when component mounts
+  // Admins see firm-wide financial KPIs (invoices, time) but their own matters
   useEffect(() => {
-    const view = isAdmin ? 'all' : 'my'
-    fetchClients({ view })
-    fetchMatters({ view })
+    fetchClients()
+    fetchMatters()
     fetchTimeEntries({ limit: 100000 })
-    fetchInvoices({ view })
+    fetchInvoices({ view: isAdmin ? 'all' : 'my' })
     fetchEvents({})
     fetchDocuments()
     
