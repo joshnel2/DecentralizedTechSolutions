@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useDataStore } from '../stores/dataStore'
-import { fetchWithAuth } from '../services/api'
+import { billingDataApi } from '../services/api'
 import {
   Landmark, Search, Download, ArrowUpRight, ArrowDownLeft,
   AlertTriangle, CheckCircle2, Clock, ChevronDown,
@@ -46,8 +46,8 @@ export function TrustAccountingPage() {
   const loadTrustData = useCallback(async () => {
     try {
       const [accountsRes, transactionsRes] = await Promise.all([
-        fetchWithAuth('/billing-data/trust-accounts'),
-        fetchWithAuth('/billing-data/trust-transactions'),
+        billingDataApi.getTrustAccounts(),
+        billingDataApi.getTrustTransactions(),
       ])
       if (accountsRes.trustAccounts) {
         setClientBalances(accountsRes.trustAccounts.map((a: any) => ({
