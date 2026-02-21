@@ -53,17 +53,8 @@ export function DriveBrowsePage() {
     setError(null)
     try {
       const result = await driveApi.browseDrive(currentPath)
-      let filteredFiles = result.files || []
-      
-      // Non-admin users only see their own files
-      if (!isAdmin && user?.id) {
-        filteredFiles = filteredFiles.filter((file: DriveFile) => 
-          file.isOwned || // Files they own
-          file.uploadedByName === `${user.firstName} ${user.lastName}` || // Files they uploaded
-          file.matterId // Files attached to matters (API should already filter by assigned matters)
-        )
-      }
-      
+      const filteredFiles = result.files || []
+      // Backend already filters by permissions - no client-side filtering needed
       setFiles(filteredFiles)
       setFolders(result.folders || [])
       setStats({

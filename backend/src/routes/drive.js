@@ -20,7 +20,21 @@ const router = Router();
 // Use getAzureConfig() for actual values to support admin portal configuration
 const AZURE_FILE_SHARE_DEFAULT = process.env.AZURE_FILE_SHARE_NAME || 'apexdrive';
 
-// Helper: Get firm folder path
+// Helper: Get firm folder path (checks DB for custom azure_folder)
+let firmFolderCache = new Map();
+async function getFirmFolderPathAsync(firmId) {
+  if (firmFolderCache.has(firmId)) return firmFolderCache.get(firmId);
+  try {
+    const result = await query('SELECT azure_folder FROM firms WHERE id = $1', [firmId]);
+    const folder = result.rows[0]?.azure_folder || `firm-${firmId}`;
+    firmFolderCache.set(firmId, folder);
+    setTimeout(() => firmFolderCache.delete(firmId), 300000); // Cache 5 min
+    return folder;
+  } catch (e) {
+    return `firm-${firmId}`;
+  }
+}
+
 function getFirmFolderPath(firmId) {
   return `firm-${firmId}`;
 }
@@ -2024,7 +2038,7 @@ router.delete('/folders/:id', authenticate, async (req, res) => {
 router.get('/browse', authenticate, async (req, res) => {
   try {
     const { path: folderPath = '', source = 'auto' } = req.query;
-    const firmFolder = getFirmFolderPath(req.user.firmId);
+    const firmFolder = await getFirmFolderPathAsync(req.user.firmId);
     const isAdmin = FULL_ACCESS_ROLES.includes(req.user.role);
     
     // For admins, browse Azure directly - shows real-time view of files
@@ -2706,20 +2720,22 @@ router.get('/browse-all', authenticate, async (req, res) => {
     
     console.log(`[BROWSE-ALL] User: ${req.user.email}, FirmId: ${firmId}, Role: ${userRole}, IsAdmin: ${isAdmin}`);
     
-    // Get user's matters (matters they're assigned to or have access to)
-    const userMattersResult = await query(`
-      SELECT DISTINCT m.id, m.name, m.number
-      FROM matters m
-      WHERE m.firm_id = $1 AND (
-        m.responsible_attorney = $2
-        OR m.originating_attorney = $2
-        OR m.created_by = $2
-        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-        OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-        ${isAdmin ? 'OR TRUE' : ''} -- Admins can see all matters
-      )
-      ORDER BY m.name
-    `, [firmId, userId]);
+    const userMattersResult = isAdmin
+      ? await query('SELECT id, name, number FROM matters WHERE firm_id = $1 ORDER BY name', [firmId])
+      : await query(`
+        SELECT DISTINCT m.id, m.name, m.number
+        FROM matters m
+        WHERE m.firm_id = $1 AND (
+          m.visibility = 'firm_wide'
+          OR m.responsible_attorney = $2
+          OR m.originating_attorney = $2
+          OR m.created_by = $2
+          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+          OR EXISTS (SELECT 1 FROM matter_permissions mp JOIN user_groups ug ON mp.group_id = ug.group_id WHERE mp.matter_id = m.id AND ug.user_id = $2)
+        )
+        ORDER BY m.name
+      `, [firmId, userId]);
     
     const userMatterIds = userMattersResult.rows.map(r => r.id);
     console.log(`[BROWSE-ALL] User has access to ${userMatterIds.length} matters`);
@@ -2773,7 +2789,8 @@ router.get('/browse-all', authenticate, async (req, res) => {
           d.matter_id = ANY($3)
           OR d.uploaded_by = $2
           OR d.owner_id = $2
-          OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2)
+          OR d.privacy_level = 'firm'
+          OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id = d.id AND dp.user_id = $2 AND dp.can_view = true)
         )
       `;
       params = [firmId, userId, userMatterIds.length > 0 ? userMatterIds : [null]];

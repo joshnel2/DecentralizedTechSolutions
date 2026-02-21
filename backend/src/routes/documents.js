@@ -372,15 +372,19 @@ router.get('/', authenticate, requirePermission('documents:view'), async (req, r
       console.log(`[DOCS API] Using database (${totalDocsInDb} docs) for firm ${firmId}`);
       
       // STEP 1: Get user's accessible matter IDs (fast, small result)
-      const userMattersResult = await query(`
-        SELECT DISTINCT m.id FROM matters m
-        WHERE m.firm_id = $1 AND (
-          m.responsible_attorney = $2
-          OR m.originating_attorney = $2
-          OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
-          OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
-        )
-      `, [firmId, req.user.id]);
+      const userMattersResult = isAdmin
+        ? await query('SELECT id FROM matters WHERE firm_id = $1', [firmId])
+        : await query(`
+          SELECT DISTINCT m.id FROM matters m
+          WHERE m.firm_id = $1 AND (
+            m.visibility = 'firm_wide'
+            OR m.responsible_attorney = $2
+            OR m.originating_attorney = $2
+            OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
+            OR EXISTS (SELECT 1 FROM matter_permissions mp WHERE mp.matter_id = m.id AND mp.user_id = $2)
+            OR EXISTS (SELECT 1 FROM matter_permissions mp JOIN user_groups ug ON mp.group_id = ug.group_id WHERE mp.matter_id = m.id AND ug.user_id = $2)
+          )
+        `, [firmId, req.user.id]);
       
       const userMatterIds = userMattersResult.rows.map(r => r.id);
       console.log(`[DOCS API] User ${req.user.email} has access to ${userMatterIds.length} matters`);

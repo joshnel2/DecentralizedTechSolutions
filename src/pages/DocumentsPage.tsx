@@ -126,11 +126,9 @@ export function DocumentsPage() {
       (doc as any).isSharedWithMe
     )
     
-    // Matter documents - documents attached to matters user is assigned to
-    const myMatterIds = matters
-      .filter(m => (m as any).teamMembers?.some((tm: any) => tm.id === userId || tm.userId === userId) || m.responsibleAttorney === userId)
-      .map(m => m.id)
-    const matterDocs = searchFiltered.filter(doc => doc.matterId && myMatterIds.includes(doc.matterId))
+    // Matter documents - the backend already filters by permission, so any doc with a matterId
+    // that's in our documents list is one the user has access to
+    const matterDocs = searchFiltered.filter(doc => doc.matterId)
     
     // Recent - last 30 days, sorted by date
     const thirtyDaysAgo = new Date()
