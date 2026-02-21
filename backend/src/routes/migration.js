@@ -2995,14 +2995,14 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 // Check if user already exists in this firm (from a previous migration run)
-                const existingUser = await query(
+                const existingFirmUser = await query(
                   `SELECT id FROM users WHERE firm_id = $1 AND email = $2`,
                   [firmId, email]
                 );
                 
                 let userId;
-                if (existingUser.rows.length > 0) {
-                  userId = existingUser.rows[0].id;
+                if (existingFirmUser.rows.length > 0) {
+                  userId = existingFirmUser.rows[0].id;
                   console.log(`[CLIO IMPORT] User already exists, reusing: ${email}`);
                 } else {
                   const result = await query(
