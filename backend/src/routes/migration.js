@@ -6690,7 +6690,7 @@ router.post('/documents/import', requireSecureAdmin, async (req, res) => {
 // ============================================
 router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
   try {
-    const { firmId } = req.body;
+    const { firmId, customFolder } = req.body;
     
     if (!firmId) {
       return res.status(400).json({ error: 'firmId required' });
@@ -6712,7 +6712,24 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
     
     // Get share client
     const shareClient = await getShareClient();
-    const firmFolder = `firm-${firmId}`;
+    
+    // Determine the correct Azure folder: check firm's azure_folder column first,
+    // then use customFolder from request, then default to firm-{firmId}
+    let firmFolder = `firm-${firmId}`;
+    try {
+      const firmResult = await query('SELECT azure_folder FROM firms WHERE id = $1', [firmId]);
+      if (firmResult.rows[0]?.azure_folder) {
+        firmFolder = firmResult.rows[0].azure_folder;
+        console.log(`[SCAN] Using firm's stored Azure folder: ${firmFolder}`);
+      }
+    } catch (e) { /* azure_folder column may not exist yet */ }
+    
+    if (customFolder) {
+      firmFolder = customFolder;
+      console.log(`[SCAN] Using custom folder override: ${firmFolder}`);
+    }
+    
+    console.log(`[SCAN] Scanning Azure folder: ${firmFolder}`);
     
     // Load matters and clients for matching
     const mattersResult = await query(
@@ -6764,7 +6781,7 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
       return files;
     }
     
-    // Match folder path to matter
+    // Match folder path to matter - handles multiple naming conventions
     function matchFolder(folderPath) {
       if (!folderPath) return { matterId: null, clientId: null };
       
@@ -6774,35 +6791,60 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
       for (const part of parts) {
         if (skipFolders.includes(part.toLowerCase())) continue;
         
-        // Match "MatterNumber - MatterName" or "ClientName - MatterName"
+        // Match "MatterNumber - MatterName" or "MatterNumber-ClioId - MatterName"
         if (part.includes(' - ')) {
-          const [prefix, suffix] = part.split(' - ').map(s => s.trim());
+          const [prefix, ...suffixParts] = part.split(' - ');
+          const cleanPrefix = prefix.trim();
+          const suffix = suffixParts.join(' - ').trim();
           
-          // Try matter number first
-          const byNumber = matters.find(m => 
-            m.number && m.number.toLowerCase() === prefix.toLowerCase()
-          );
+          // Try matter number match (exact or contains, handles "MTR-2025-001-12345" format)
+          const byNumber = matters.find(m => {
+            if (!m.number) return false;
+            return cleanPrefix.toLowerCase() === m.number.toLowerCase()
+              || cleanPrefix.toLowerCase().startsWith(m.number.toLowerCase());
+          });
           if (byNumber) return { matterId: byNumber.id, clientId: null };
           
           // Try matter name
           const byName = matters.find(m =>
-            m.name && m.name.toLowerCase().includes(suffix.toLowerCase())
+            m.name && (
+              m.name.toLowerCase() === suffix.toLowerCase()
+              || m.name.toLowerCase().includes(suffix.toLowerCase())
+              || suffix.toLowerCase().includes(m.name.toLowerCase())
+            )
           );
           if (byName) return { matterId: byName.id, clientId: null };
         }
         
-        // Try direct matter number match
+        // Try direct matter number match (folder name contains matter number)
         const directMatch = matters.find(m => 
           m.number && part.toLowerCase().includes(m.number.toLowerCase())
         );
         if (directMatch) return { matterId: directMatch.id, clientId: null };
         
-        // Try matter-{id} folder pattern (already organized)
+        // Try matter-{uuid} folder pattern
         const matterIdMatch = part.match(/^matter-([a-f0-9-]+)$/i);
         if (matterIdMatch) {
           const m = matters.find(m => m.id === matterIdMatch[1]);
           if (m) return { matterId: m.id, clientId: null };
         }
+        
+        // Try Matter-{clioId} folder pattern from Clio migration
+        const clioIdMatch = part.match(/^Matter-(\d+)$/i);
+        if (clioIdMatch) {
+          // Look for matter with this Clio ID in the number (format: "displayNum-clioId")
+          const clioId = clioIdMatch[1];
+          const byClioId = matters.find(m =>
+            m.number && m.number.endsWith(`-${clioId}`)
+          );
+          if (byClioId) return { matterId: byClioId.id, clientId: null };
+        }
+        
+        // Try exact matter name match
+        const nameMatch = matters.find(m =>
+          m.name && part.toLowerCase() === m.name.toLowerCase().replace(/[<>:"/\\|?*]/g, '_').substring(0, 100)
+        );
+        if (nameMatch) return { matterId: nameMatch.id, clientId: null };
       }
       
       return { matterId: null, clientId: null };
@@ -6874,13 +6916,25 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
             results.updated++;
           }
         } else {
+          // Get owner from matter's responsible attorney
+          let ownerId = null;
+          if (matterId) {
+            try {
+              const ownerResult = await query(
+                'SELECT responsible_attorney FROM matters WHERE id = $1',
+                [matterId]
+              );
+              ownerId = ownerResult.rows[0]?.responsible_attorney || null;
+            } catch (e) { /* ignore */ }
+          }
+          
           // Create new record
           await query(
             `INSERT INTO documents (
               firm_id, matter_id, name, original_name, path, folder_path,
               type, size, external_path, external_etag, external_modified_at,
-              privacy_level, status, storage_location
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+              privacy_level, status, storage_location, owner_id
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
             [
               firmId,
               matterId,
@@ -6895,7 +6949,8 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
               file.lastModified,
               matterId ? 'team' : 'firm',
               'final',
-              'azure'
+              'azure',
+              ownerId
             ]
           );
           results.created++;
@@ -6910,7 +6965,8 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
     res.json({
       success: true,
       ...results,
-      message: `Scanned ${results.scanned} files: ${results.created} new, ${results.updated} updated, ${results.matched} matched to matters`
+      firmFolder,
+      message: `Scanned ${results.scanned} files in ${firmFolder}: ${results.created} new, ${results.updated} updated, ${results.matched} matched to matters`
     });
     
   } catch (error) {

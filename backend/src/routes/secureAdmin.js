@@ -1377,7 +1377,15 @@ router.get('/firms/:firmId/robocopy-info', requireSecureAdmin, async (req, res) 
     }
     
     const config = await getAzureConfig();
-    const firmFolder = `firm-${firmId}`;
+    
+    // Check firm's stored Azure folder first, then default
+    let firmFolder = `firm-${firmId}`;
+    try {
+      const firmResult = await query('SELECT azure_folder FROM firms WHERE id = $1', [firmId]);
+      if (firmResult.rows[0]?.azure_folder) {
+        firmFolder = firmResult.rows[0].azure_folder;
+      }
+    } catch (e) { /* azure_folder column may not exist */ }
     
     // Build the UNC path for Windows
     const uncPath = `\\\\${config.accountName}.file.core.windows.net\\${config.shareName}\\${firmFolder}`;
@@ -1574,7 +1582,12 @@ router.get('/firms/:firmId/scan-diagnostic', requireSecureAdmin, async (req, res
       
       if (azureStatus.configured) {
         const shareClient = await getShareClient();
-        const firmFolder = `firm-${firmId}`;
+        let firmFolder = `firm-${firmId}`;
+        try {
+          const ffResult = await query('SELECT azure_folder FROM firms WHERE id = $1', [firmId]);
+          if (ffResult.rows[0]?.azure_folder) firmFolder = ffResult.rows[0].azure_folder;
+        } catch (e) { /* ignore */ }
+        azureStatus.firmFolder = firmFolder;
         const dirClient = shareClient.getDirectoryClient(firmFolder);
         
         try {
@@ -2021,13 +2034,22 @@ async function runFolderBasedScan(firmId, dryRun, job) {
   try {
     const { getShareClient } = await import('../utils/azureStorage.js');
     const shareClient = await getShareClient();
-    const firmFolder = `firm-${firmId}`;
+    
+    // Check firm's stored Azure folder first, then default to firm-{firmId}
+    let firmFolder = `firm-${firmId}`;
+    try {
+      const firmResult = await query('SELECT azure_folder FROM firms WHERE id = $1', [firmId]);
+      if (firmResult.rows[0]?.azure_folder) {
+        firmFolder = firmResult.rows[0].azure_folder;
+        console.log(`[SCAN] Using firm's stored Azure folder: ${firmFolder}`);
+      }
+    } catch (e) { /* azure_folder column may not exist */ }
     
     // ============================================
     // 1. BUILD MATTER LOOKUP MAPS
     // ============================================
     job.phase = 'loading_matters';
-    console.log(`[SCAN] Building matter lookup maps...`);
+    console.log(`[SCAN] Building matter lookup maps for folder: ${firmFolder}`);
     
     const matterByName = new Map();
     const matterByNumber = new Map();
@@ -2533,7 +2555,16 @@ async function runManifestScan(firmId, dryRun, job) {
     // ============================================
     job.phase = 'scanning_azure';
     const shareClient = await getShareClient();
-    const firmFolder = `firm-${firmId}`;
+    
+    // Check firm's stored Azure folder first, then default to firm-{firmId}
+    let firmFolder = `firm-${firmId}`;
+    try {
+      const firmFolderResult = await query('SELECT azure_folder FROM firms WHERE id = $1', [firmId]);
+      if (firmFolderResult.rows[0]?.azure_folder) {
+        firmFolder = firmFolderResult.rows[0].azure_folder;
+        console.log(`[SCAN] Using firm's stored Azure folder: ${firmFolder}`);
+      }
+    } catch (e) { /* azure_folder column may not exist */ }
     
     let azureFileCount = 0;
     let insertBatch = [];
