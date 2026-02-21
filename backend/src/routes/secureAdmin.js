@@ -3671,36 +3671,112 @@ router.post('/firms/:firmId/bulk-permissions', requireSecureAdmin, async (req, r
     let message;
     
     switch (action) {
-      case 'match_all':
-        // Try to match all unmatched documents to matters by folder name
-        result = await query(`
-          WITH folder_matches AS (
-            SELECT DISTINCT ON (d.id)
-              d.id as doc_id,
-              m.id as matter_id,
-              m.responsible_attorney
-            FROM documents d
-            CROSS JOIN matters m
-            WHERE d.firm_id = $1 
-              AND m.firm_id = $1
-              AND d.matter_id IS NULL
-              AND (
-                d.folder_path ILIKE '%' || m.name || '%'
-                OR d.name ILIKE '%' || m.name || '%'
-                OR d.folder_path ILIKE '%' || m.matter_number || '%'
-              )
-          )
-          UPDATE documents SET
-            matter_id = fm.matter_id,
-            owner_id = COALESCE(owner_id, fm.responsible_attorney),
-            privacy_level = 'team',
-            updated_at = NOW()
-          FROM folder_matches fm
-          WHERE documents.id = fm.doc_id
-          RETURNING documents.id
+      case 'match_all': {
+        // Match all unmatched documents to matters using the same logic as rescan-unmatched
+        const matchMattersResult = await query(`
+          SELECT m.id, m.name, m.number, m.responsible_attorney,
+                 c.display_name as client_name
+          FROM matters m
+          LEFT JOIN clients c ON m.client_id = c.id
+          WHERE m.firm_id = $1
         `, [firmId]);
-        message = `Matched ${result.rows.length} documents to matters`;
+
+        if (matchMattersResult.rows.length === 0) {
+          return res.json({ success: true, message: 'No matters found to match against', matched: 0 });
+        }
+
+        const normalizeMatch = (str) => {
+          if (!str) return '';
+          return str.toLowerCase().replace(/[:\\/\*\?"<>\|_-]/g, ' ').replace(/\s+/g, ' ').trim();
+        };
+        const isIdxFolder = (name) => {
+          if (!name) return false;
+          const t = name.trim();
+          return /^[A-Za-z0-9]$/.test(t) || ['firm','matters','clients','templates','documents'].includes(t.toLowerCase()) || t.toLowerCase().startsWith('firm-');
+        };
+
+        const byName = new Map();
+        const byNumber = new Map();
+        const byClientMatter = new Map();
+        const byNorm = new Map();
+
+        for (const m of matchMattersResult.rows) {
+          if (m.name) { byName.set(m.name.toLowerCase(), m); byNorm.set(normalizeMatch(m.name), m); }
+          if (m.number) { byNumber.set(m.number.toLowerCase(), m); byNorm.set(normalizeMatch(m.number), m); }
+          if (m.client_name && m.name) {
+            const cf = `${m.client_name} - ${m.name}`.toLowerCase();
+            byClientMatter.set(cf, m);
+            byNorm.set(normalizeMatch(cf), m);
+            byNorm.set(normalizeMatch(m.client_name), m);
+          }
+        }
+
+        const matchFolder = (folderPath) => {
+          if (!folderPath) return null;
+          const parts = folderPath.split('/').filter(p => p && !isIdxFolder(p));
+          for (const part of parts) {
+            const pl = part.toLowerCase();
+            const pn = normalizeMatch(part);
+            if (byName.has(pl)) return byName.get(pl);
+            if (byClientMatter.has(pl)) return byClientMatter.get(pl);
+            if (byNumber.has(pl)) return byNumber.get(pl);
+            if (byNorm.has(pn)) return byNorm.get(pn);
+            if (part.includes(' - ')) {
+              const [cp, ...mp] = part.split(' - ');
+              const ad = mp.join(' - ').trim().toLowerCase();
+              if (byName.has(ad)) return byName.get(ad);
+              if (byNorm.has(normalizeMatch(ad))) return byNorm.get(normalizeMatch(ad));
+              const cn = normalizeMatch(cp);
+              if (byNorm.has(cn)) return byNorm.get(cn);
+            }
+            for (const [n, m] of byName) {
+              if (pl.includes(n) || n.includes(pl)) return m;
+            }
+          }
+          return null;
+        };
+
+        // Check which columns exist
+        const matchColCheck = await query(`
+          SELECT column_name FROM information_schema.columns 
+          WHERE table_name = 'documents' AND column_name IN ('folder_path', 'owner_id', 'privacy_level')
+        `);
+        const matchCols = new Set(matchColCheck.rows.map(r => r.column_name));
+
+        const unmatchedDocs = await query(`
+          SELECT id, ${matchCols.has('folder_path') ? 'folder_path,' : ''} path 
+          FROM documents WHERE firm_id = $1 AND matter_id IS NULL
+        `, [firmId]);
+
+        let matchCount = 0;
+        for (const doc of unmatchedDocs.rows) {
+          let fp = doc.folder_path;
+          if (!fp && doc.path) {
+            const pp = doc.path.split('/');
+            pp.pop();
+            fp = pp.join('/');
+          }
+          const m = matchFolder(fp);
+          if (m) {
+            let uq = 'UPDATE documents SET matter_id = $2';
+            const up = [doc.id, m.id];
+            let pi = 3;
+            if (matchCols.has('owner_id') && m.responsible_attorney) {
+              uq += `, owner_id = COALESCE(owner_id, $${pi})`;
+              up.push(m.responsible_attorney);
+              pi++;
+            }
+            if (matchCols.has('privacy_level')) uq += `, privacy_level = 'team'`;
+            uq += ', updated_at = NOW() WHERE id = $1';
+            await query(uq, up);
+            matchCount++;
+          }
+        }
+
+        result = { rows: Array(matchCount).fill({}) };
+        message = `Matched ${matchCount} of ${unmatchedDocs.rows.length} unmatched documents to matters`;
         break;
+      }
         
       case 'set_privacy':
         if (!privacyLevel || !['private', 'team', 'public'].includes(privacyLevel)) {
