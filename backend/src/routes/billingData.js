@@ -913,17 +913,35 @@ router.put('/trust-transactions/:id', authenticate, requireRole('owner', 'admin'
 
 router.get('/all', authenticate, requirePermission('billing:view'), async (req, res) => {
   try {
-    const [settings, templates, processors, links, recurring, trustAccounts, trustTransactions] = await Promise.all([
+    const isPrivileged = ['owner', 'admin', 'billing'].includes(req.user.role);
+    
+    const queries = [
       query('SELECT * FROM billing_settings WHERE firm_id = $1', [req.user.firmId]),
       query('SELECT * FROM invoice_templates WHERE firm_id = $1 ORDER BY is_default DESC', [req.user.firmId]),
-      query('SELECT * FROM payment_processors WHERE firm_id = $1 ORDER BY is_default DESC', [req.user.firmId]),
-      query('SELECT * FROM payment_links WHERE firm_id = $1 ORDER BY created_at DESC', [req.user.firmId]),
-      query('SELECT * FROM recurring_payments WHERE firm_id = $1 ORDER BY next_payment_date ASC', [req.user.firmId]),
-      query('SELECT * FROM trust_accounts WHERE firm_id = $1 ORDER BY created_at DESC', [req.user.firmId]),
-      query(`SELECT tt.* FROM trust_transactions tt
-             JOIN trust_accounts ta ON tt.trust_account_id = ta.id
-             WHERE ta.firm_id = $1 ORDER BY tt.created_at DESC`, [req.user.firmId]),
-    ]);
+    ];
+    
+    // Only privileged roles see payment processors, payment links, recurring payments, and trust data
+    if (isPrivileged) {
+      queries.push(
+        query('SELECT * FROM payment_processors WHERE firm_id = $1 ORDER BY is_default DESC', [req.user.firmId]),
+        query('SELECT * FROM payment_links WHERE firm_id = $1 ORDER BY created_at DESC', [req.user.firmId]),
+        query('SELECT * FROM recurring_payments WHERE firm_id = $1 ORDER BY next_payment_date ASC', [req.user.firmId]),
+        query('SELECT * FROM trust_accounts WHERE firm_id = $1 ORDER BY created_at DESC', [req.user.firmId]),
+        query(`SELECT tt.* FROM trust_transactions tt
+               JOIN trust_accounts ta ON tt.trust_account_id = ta.id
+               WHERE ta.firm_id = $1 ORDER BY tt.created_at DESC`, [req.user.firmId]),
+      );
+    } else {
+      queries.push(
+        Promise.resolve({ rows: [] }), // processors
+        Promise.resolve({ rows: [] }), // links
+        Promise.resolve({ rows: [] }), // recurring
+        Promise.resolve({ rows: [] }), // trust accounts
+        Promise.resolve({ rows: [] }), // trust transactions
+      );
+    }
+    
+    const [settings, templates, processors, links, recurring, trustAccounts, trustTransactions] = await Promise.all(queries);
 
     const s = settings.rows[0] || {};
     
