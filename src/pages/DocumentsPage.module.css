@@ -909,3 +909,73 @@
     border-top: 1px solid rgba(148, 163, 184, 0.1);
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .header h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .docCard,
+:global([data-theme="light"]) .section,
+:global([data-theme="light"]) .card,
+:global([data-theme="light"]) .tableContainer {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .docCard:hover,
+:global([data-theme="light"]) .card:hover {
+  border-color: #CBD5E1 !important;
+}
+
+:global([data-theme="light"]) .docName,
+:global([data-theme="light"]) .fileName {
+  color: #0F172A !important;
+}
+
+:global([data-theme="light"]) .docMeta,
+:global([data-theme="light"]) .fileMeta {
+  color: #64748B !important;
+}
+
+:global([data-theme="light"]) .table th {
+  background: #F8FAFC !important;
+  color: #475569 !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .table td {
+  border-color: #F1F5F9 !important;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .searchInput {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .filterSelect {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .breadcrumb {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .breadcrumb a {
+  color: #B45309;
+}
+
+:global([data-theme="light"]) .folderIcon,
+:global([data-theme="light"]) .fileIcon {
+  background: #F1F5F9 !important;
+}

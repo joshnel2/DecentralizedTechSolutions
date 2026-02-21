@@ -2437,3 +2437,79 @@
     padding: 0.625rem 1rem;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container,
+:global([data-theme="light"]) .chatContainer {
+  background: #FFFFFF;
+}
+
+:global([data-theme="light"]) .sidebar,
+:global([data-theme="light"]) .conversationList {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .conversationItem {
+  color: #334155;
+  border-color: #F1F5F9 !important;
+}
+
+:global([data-theme="light"]) .conversationItem:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .conversationItem.active {
+  background: #FFFBEB;
+  border-color: #FDE68A !important;
+}
+
+:global([data-theme="light"]) .messageArea {
+  background: #FFFFFF;
+}
+
+:global([data-theme="light"]) .userMessage {
+  background: #F1F5F9 !important;
+  color: #1E293B !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .assistantMessage {
+  background: #FFFFFF !important;
+  color: #334155 !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .inputArea,
+:global([data-theme="light"]) .inputContainer {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .chatInput,
+:global([data-theme="light"]) .messageInput {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .suggestions button {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .suggestions button:hover {
+  background: #F1F5F9 !important;
+  border-color: #D97706 !important;
+  color: #B45309 !important;
+}
+
+:global([data-theme="light"]) .header h1,
+:global([data-theme="light"]) .title {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .welcomeMessage {
+  color: #64748B;
+}

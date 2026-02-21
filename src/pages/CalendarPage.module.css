@@ -1513,3 +1513,98 @@
     transform: translateY(0);
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .header h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .calendarCard,
+:global([data-theme="light"]) .sidePanel,
+:global([data-theme="light"]) .eventCard,
+:global([data-theme="light"]) .section {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .dayCell {
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .dayCell:hover {
+  background: #F8FAFC !important;
+}
+
+:global([data-theme="light"]) .dayNumber {
+  color: #334155 !important;
+}
+
+:global([data-theme="light"]) .dayCell.otherMonth .dayNumber {
+  color: #CBD5E1 !important;
+}
+
+:global([data-theme="light"]) .dayCell.today {
+  background: #FFFBEB !important;
+}
+
+:global([data-theme="light"]) .weekdayHeader {
+  color: #64748B !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  border-color: #D1D5DB !important;
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .filterBar {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .filterSelect {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .eventItem,
+:global([data-theme="light"]) .listItem {
+  border-color: #F1F5F9 !important;
+}
+
+:global([data-theme="light"]) .eventItem:hover,
+:global([data-theme="light"]) .listItem:hover {
+  background: #F8FAFC !important;
+}
+
+:global([data-theme="light"]) .navBtn {
+  color: #475569;
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .navBtn:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .monthTitle {
+  color: #0F172A;
+}

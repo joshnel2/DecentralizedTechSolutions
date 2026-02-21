@@ -1808,3 +1808,106 @@
     opacity: 1;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .headerLeft h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .statCard,
+:global([data-theme="light"]) .chartCard,
+:global([data-theme="light"]) .invoiceCard,
+:global([data-theme="light"]) .section,
+:global([data-theme="light"]) .summaryCard {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .statCard:hover,
+:global([data-theme="light"]) .invoiceCard:hover {
+  border-color: #CBD5E1 !important;
+}
+
+:global([data-theme="light"]) .statValue,
+:global([data-theme="light"]) .cardTitle,
+:global([data-theme="light"]) .sectionTitle {
+  color: #0F172A !important;
+}
+
+:global([data-theme="light"]) .statLabel {
+  color: #64748B !important;
+}
+
+:global([data-theme="light"]) .tableContainer {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .table th {
+  background: #F8FAFC !important;
+  color: #475569 !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .table td {
+  border-color: #F1F5F9 !important;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .table tr:hover td {
+  background: #F8FAFC !important;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .modalHeader {
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .modalHeader h2 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  border-color: #D1D5DB !important;
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .filterBar,
+:global([data-theme="light"]) .filters {
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .filterSelect,
+:global([data-theme="light"]) .searchInput {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .tab,
+:global([data-theme="light"]) .tabBtn {
+  color: #64748B !important;
+}
+
+:global([data-theme="light"]) .tab.active,
+:global([data-theme="light"]) .tabBtn.active {
+  color: #B45309 !important;
+  border-color: #B45309 !important;
+}

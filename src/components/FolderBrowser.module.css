@@ -1055,3 +1055,37 @@
     max-width: calc(100% - 32px);
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container,
+:global([data-theme="light"]) .browser {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .folderItem,
+:global([data-theme="light"]) .fileItem {
+  border-color: #F1F5F9 !important;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .folderItem:hover,
+:global([data-theme="light"]) .fileItem:hover {
+  background: #F8FAFC !important;
+}
+
+:global([data-theme="light"]) .breadcrumb {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .toolbar {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}

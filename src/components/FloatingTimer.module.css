@@ -625,3 +625,11 @@
     border-bottom: none;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container, :global([data-theme="light"]) .modal, :global([data-theme="light"]) .wrapper { background: #FFFFFF !important; border-color: #E2E8F0 !important; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08) !important; }
+:global([data-theme="light"]) .overlay { background: rgba(0, 0, 0, 0.3) !important; }
+:global([data-theme="light"]) .header, :global([data-theme="light"]) .footer { border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .title, :global([data-theme="light"]) h2, :global([data-theme="light"]) h3 { color: #0F172A; }
+:global([data-theme="light"]) .content, :global([data-theme="light"]) .body, :global([data-theme="light"]) .message { color: #334155; }
+:global([data-theme="light"]) .cancelBtn, :global([data-theme="light"]) .secondaryBtn { border-color: #D1D5DB !important; color: #475569 !important; }

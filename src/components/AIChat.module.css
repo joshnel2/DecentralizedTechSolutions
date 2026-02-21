@@ -1276,3 +1276,76 @@
     padding: 8px 12px;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .overlay {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+:global([data-theme="light"]) .panel {
+  background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 50%, #FFFFFF 100%);
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.1);
+  border-left: 1px solid #E2E8F0;
+}
+
+:global([data-theme="light"]) .panel::before {
+  background: radial-gradient(ellipse at top, rgba(124, 58, 237, 0.05) 0%, transparent 70%);
+}
+
+:global([data-theme="light"]) .header {
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .header h2 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .closeBtn {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .closeBtn:hover {
+  color: #0F172A;
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .messagesArea {
+  background: transparent;
+}
+
+:global([data-theme="light"]) .userBubble,
+:global([data-theme="light"]) .userMessage {
+  background: #F1F5F9 !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .assistantBubble,
+:global([data-theme="light"]) .assistantMessage {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #334155 !important;
+}
+
+:global([data-theme="light"]) .inputArea {
+  background: #FFFFFF;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .inputArea textarea,
+:global([data-theme="light"]) .chatInput {
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+  border-color: #D1D5DB !important;
+}
+
+:global([data-theme="light"]) .suggestion {
+  background: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .suggestion:hover {
+  background: #F1F5F9 !important;
+  border-color: #D97706 !important;
+  color: #B45309 !important;
+}

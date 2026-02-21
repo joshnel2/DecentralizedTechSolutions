@@ -478,3 +478,37 @@
     flex-direction: column;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .settingsPage h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .section,
+:global([data-theme="light"]) .card,
+:global([data-theme="light"]) .settingsCard {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .sectionTitle {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .dangerZone {
+  border-color: #FECACA !important;
+  background: #FEF2F2 !important;
+}

@@ -545,3 +545,15 @@
     display: none;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .header h1 { color: #0F172A; }
+:global([data-theme="light"]) .card, :global([data-theme="light"]) .section, :global([data-theme="light"]) .container { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .breadcrumb { color: #64748B; background: #F8FAFC !important; border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .fileRow, :global([data-theme="light"]) .folderRow { border-color: #F1F5F9 !important; }
+:global([data-theme="light"]) .fileRow:hover, :global([data-theme="light"]) .folderRow:hover { background: #F8FAFC !important; }
+:global([data-theme="light"]) .fileName, :global([data-theme="light"]) .folderName { color: #0F172A !important; }
+:global([data-theme="light"]) .fileMeta { color: #64748B !important; }
+:global([data-theme="light"]) .searchInput { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
+:global([data-theme="light"]) .toolbar { background: #F8FAFC !important; border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .modal { background: #FFFFFF !important; border-color: #E2E8F0 !important; }

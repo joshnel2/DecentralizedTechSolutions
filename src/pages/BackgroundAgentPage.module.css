@@ -3286,3 +3286,14 @@
   font-size: 12px;
   margin: 0;
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .header h1 { color: #0F172A; }
+:global([data-theme="light"]) .card, :global([data-theme="light"]) .section, :global([data-theme="light"]) .taskCard, :global([data-theme="light"]) .panel { background: #FFFFFF !important; border-color: #E2E8F0 !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
+:global([data-theme="light"]) .taskCard:hover { border-color: #CBD5E1 !important; }
+:global([data-theme="light"]) .taskTitle { color: #0F172A !important; }
+:global([data-theme="light"]) .taskMeta, :global([data-theme="light"]) .taskDesc { color: #64748B !important; }
+:global([data-theme="light"]) .input, :global([data-theme="light"]) .textarea { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
+:global([data-theme="light"]) .tab, :global([data-theme="light"]) .tabBtn { color: #64748B !important; }
+:global([data-theme="light"]) .tab.active, :global([data-theme="light"]) .tabBtn.active { color: #B45309 !important; border-color: #B45309 !important; }
+:global([data-theme="light"]) .modal { background: #FFFFFF !important; border-color: #E2E8F0 !important; }

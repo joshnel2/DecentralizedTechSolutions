@@ -1260,3 +1260,11 @@
     margin-top: 0.25rem;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .header h1 { color: #0F172A; }
+:global([data-theme="light"]) .card, :global([data-theme="light"]) .integrationCard, :global([data-theme="light"]) .section { background: #FFFFFF !important; border-color: #E2E8F0 !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
+:global([data-theme="light"]) .integrationCard:hover { border-color: #CBD5E1 !important; }
+:global([data-theme="light"]) .integrationName { color: #0F172A !important; }
+:global([data-theme="light"]) .integrationDesc { color: #64748B !important; }
+:global([data-theme="light"]) .modal { background: #FFFFFF !important; border-color: #E2E8F0 !important; }

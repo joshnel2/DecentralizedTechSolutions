@@ -207,3 +207,13 @@
     justify-content: center;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container, :global([data-theme="light"]) .panel, :global([data-theme="light"]) .wrapper, :global([data-theme="light"]) .card, :global([data-theme="light"]) .modal { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .overlay { background: rgba(0, 0, 0, 0.3) !important; }
+:global([data-theme="light"]) .header, :global([data-theme="light"]) .footer, :global([data-theme="light"]) .toolbar { border-color: #E2E8F0 !important; }
+:global([data-theme="light"]) .title, :global([data-theme="light"]) .heading { color: #0F172A !important; }
+:global([data-theme="light"]) .item, :global([data-theme="light"]) .row { border-color: #F1F5F9 !important; }
+:global([data-theme="light"]) .item:hover, :global([data-theme="light"]) .row:hover { background: #F8FAFC !important; }
+:global([data-theme="light"]) input, :global([data-theme="light"]) textarea, :global([data-theme="light"]) select { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
+:global([data-theme="light"]) .cancelBtn, :global([data-theme="light"]) .secondaryBtn { border-color: #D1D5DB !important; color: #475569 !important; }

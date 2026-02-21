@@ -620,3 +620,58 @@
     margin-top: var(--space-lg);
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .authPage {
+  background: #FFFFFF;
+}
+
+:global([data-theme="light"]) .authCard,
+:global([data-theme="light"]) .formSection {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .authTitle,
+:global([data-theme="light"]) .title {
+  color: #0F172A !important;
+}
+
+:global([data-theme="light"]) .authSubtitle,
+:global([data-theme="light"]) .subtitle {
+  color: #64748B !important;
+}
+
+:global([data-theme="light"]) .formGroup input {
+  background: #FFFFFF !important;
+  border-color: #D1D5DB !important;
+  color: #1E293B !important;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569 !important;
+}
+
+:global([data-theme="light"]) .divider {
+  background: #E2E8F0 !important;
+}
+
+:global([data-theme="light"]) .divider span {
+  background: #FFFFFF !important;
+  color: #94A3B8 !important;
+}
+
+:global([data-theme="light"]) .signupPrompt {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .brandPanel,
+:global([data-theme="light"]) .heroSection {
+  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%) !important;
+  color: #FFFFFF !important;
+}
+
+:global([data-theme="light"]) .gradientOrb1,
+:global([data-theme="light"]) .gradientOrb2 {
+  opacity: 0.4;
+}

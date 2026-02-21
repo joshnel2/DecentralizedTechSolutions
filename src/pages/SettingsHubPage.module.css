@@ -263,3 +263,28 @@
     align-items: center;
   }
 }
+
+/* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .page h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .card,
+:global([data-theme="light"]) .settingCard {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .card:hover,
+:global([data-theme="light"]) .settingCard:hover {
+  border-color: #CBD5E1 !important;
+}
+
+:global([data-theme="light"]) .cardTitle {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .cardDesc {
+  color: #64748B;
+}
