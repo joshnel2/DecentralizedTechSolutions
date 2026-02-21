@@ -7,7 +7,7 @@
 
 -- Firm-specific roles (seeded with defaults, fully customizable)
 CREATE TABLE IF NOT EXISTS firm_roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
     name VARCHAR(50) NOT NULL,              -- slug: 'attorney', 'senior_associate'
     display_name VARCHAR(100) NOT NULL,     -- 'Attorney', 'Senior Associate'
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS firm_roles (
 
 -- Per-user permission overrides (grant or revoke on top of role)
 CREATE TABLE IF NOT EXISTS user_permission_overrides (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     firm_id UUID NOT NULL REFERENCES firms(id) ON DELETE CASCADE,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     permission VARCHAR(100) NOT NULL,
