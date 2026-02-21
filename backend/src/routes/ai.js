@@ -369,8 +369,8 @@ ${clients.rows.map(c => `- ${c.display_name} (${c.type})
         
         const [clientRes, mattersRes, invoicesRes] = await Promise.all([
           query(`SELECT * FROM clients WHERE id = $1 AND firm_id = $2`, [additionalContext.clientId, firmId]),
-          query(`SELECT name, number, status, type FROM matters WHERE client_id = $1 ORDER BY created_at DESC LIMIT 10`, [additionalContext.clientId]),
-          query(`SELECT number, status, total, amount_due, due_date FROM invoices WHERE client_id = $1 ORDER BY created_at DESC LIMIT 10`, [additionalContext.clientId]),
+          query(`SELECT name, number, status, type FROM matters WHERE client_id = $1 AND firm_id = $2 ORDER BY created_at DESC LIMIT 10`, [additionalContext.clientId, firmId]),
+          query(`SELECT number, status, total, amount_due, due_date FROM invoices WHERE client_id = $1 AND firm_id = $2 ORDER BY created_at DESC LIMIT 10`, [additionalContext.clientId, firmId]),
         ]);
 
         const c = clientRes.rows[0];
