@@ -499,6 +499,33 @@ export const timeEntriesApi = {
 };
 
 // ============================================
+// EXPENSES API
+// ============================================
+
+export const expensesApi = {
+  async getAll(params?: { matterId?: string; status?: string; billable?: string; limit?: number }) {
+    const searchParams = new URLSearchParams();
+    if (params?.matterId) searchParams.set('matterId', params.matterId);
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.billable) searchParams.set('billable', params.billable);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    return fetchWithAuth(`/expenses?${searchParams}`);
+  },
+
+  async create(data: { matterId?: string; date: string; description: string; amount: number; category?: string; expenseType?: string; billable?: boolean; reimbursable?: boolean }) {
+    return fetchWithAuth('/expenses', { method: 'POST', body: JSON.stringify(data) });
+  },
+
+  async update(id: string, data: Partial<{ date: string; description: string; amount: number; category: string; expenseType: string; billable: boolean; reimbursable: boolean; status: string }>) {
+    return fetchWithAuth(`/expenses/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+
+  async delete(id: string) {
+    return fetchWithAuth(`/expenses/${id}`, { method: 'DELETE' });
+  },
+};
+
+// ============================================
 // INVOICES API
 // ============================================
 

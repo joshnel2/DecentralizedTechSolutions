@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useDataStore } from '../stores/dataStore'
+import { fetchWithAuth } from '../services/api'
 import {
   Landmark, Search, Download, ArrowUpRight, ArrowDownLeft,
   AlertTriangle, CheckCircle2, Clock, ChevronDown,
@@ -41,6 +42,45 @@ export function TrustAccountingPage() {
   const [lastReconcileDate, setLastReconcileDate] = useState<string | null>(null)
 
   const totalBalance = useMemo(() => clientBalances.reduce((sum, c) => sum + c.balance, 0), [clientBalances])
+
+  const loadTrustData = useCallback(async () => {
+    try {
+      const [accountsRes, transactionsRes] = await Promise.all([
+        fetchWithAuth('/billing-data/trust-accounts'),
+        fetchWithAuth('/billing-data/trust-transactions'),
+      ])
+      if (accountsRes.trustAccounts) {
+        setClientBalances(accountsRes.trustAccounts.map((a: any) => ({
+          clientId: a.clientId || a.id,
+          clientName: a.accountName || a.bankName || 'Trust Account',
+          balance: a.balance || 0,
+          lastActivity: a.updatedAt || a.createdAt || new Date().toISOString(),
+        })))
+      }
+      if (transactionsRes.transactions) {
+        setTransactions(transactionsRes.transactions.map((t: any) => ({
+          id: t.id,
+          clientId: t.clientId || '',
+          clientName: t.clientName || '',
+          matterId: t.matterId,
+          matterName: t.matterName,
+          type: t.type || 'deposit',
+          amount: t.amount || 0,
+          balance: t.balanceAfter || 0,
+          description: t.description || '',
+          reference: t.reference || t.checkNumber,
+          method: t.method || 'check',
+          date: t.date || t.createdAt,
+          status: t.status || 'cleared',
+          createdBy: t.createdBy || '',
+        })))
+      }
+    } catch (err) {
+      console.error('Failed to load trust data:', err)
+    }
+  }, [])
+
+  useEffect(() => { loadTrustData() }, [loadTrustData])
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {

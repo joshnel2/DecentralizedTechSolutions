@@ -140,27 +140,27 @@ router.post('/', authenticate, requirePermission('billing:create'), async (req, 
     const entryHours = hours || 0.01;
     const entryDescription = description || '';
 
-    // Get rate from matter if not provided
+    // Rate priority: explicit rate > matter-specific rate for this user > matter default rate > user default rate
     let entryRate = rate;
+    if (!entryRate && matterId) {
+      // Check for matter-specific rate for this user (from team assignments)
+      const assignmentRate = await query(
+        'SELECT billing_rate FROM matter_assignments WHERE matter_id = $1 AND user_id = $2 AND billing_rate IS NOT NULL',
+        [matterId, req.user.id]
+      );
+      if (assignmentRate.rows.length > 0 && assignmentRate.rows[0].billing_rate) {
+        entryRate = assignmentRate.rows[0].billing_rate;
+      }
+    }
+    if (!entryRate && matterId) {
+      const matterResult = await query('SELECT billing_rate FROM matters WHERE id = $1', [matterId]);
+      if (matterResult.rows[0]?.billing_rate) {
+        entryRate = matterResult.rows[0].billing_rate;
+      }
+    }
     if (!entryRate) {
-      if (matterId) {
-        const matterResult = await query(
-          'SELECT billing_rate FROM matters WHERE id = $1',
-          [matterId]
-        );
-        if (matterResult.rows.length > 0 && matterResult.rows[0].billing_rate) {
-          entryRate = matterResult.rows[0].billing_rate;
-        }
-      }
-      
-      if (!entryRate) {
-        // Get user's rate
-        const userResult = await query(
-          'SELECT hourly_rate FROM users WHERE id = $1',
-          [req.user.id]
-        );
-        entryRate = userResult.rows[0]?.hourly_rate || 350;
-      }
+      const userResult = await query('SELECT hourly_rate FROM users WHERE id = $1', [req.user.id]);
+      entryRate = userResult.rows[0]?.hourly_rate || 350;
     }
 
     const result = await query(

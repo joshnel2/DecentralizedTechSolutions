@@ -852,6 +852,42 @@ router.delete('/:id', authenticate, requirePermission('matters:delete'), async (
 });
 
 // ============================================
+// ACTIVITY / AUDIT TRAIL
+// ============================================
+
+router.get('/:id/activity', authenticate, requirePermission('matters:view'), async (req, res) => {
+  try {
+    const access = await canAccessMatter(req.user.id, req.user.role, req.params.id, req.user.firmId);
+    if (!access.hasAccess) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await query(`
+      SELECT al.id, al.action, al.details, al.created_at,
+             u.first_name || ' ' || u.last_name as user_name
+      FROM audit_logs al
+      LEFT JOIN users u ON al.user_id = u.id
+      WHERE al.resource_id = $1 AND al.firm_id = $2
+      ORDER BY al.created_at DESC
+      LIMIT 100
+    `, [req.params.id, req.user.firmId]);
+
+    res.json({
+      activities: result.rows.map(a => ({
+        id: a.id,
+        action: a.action,
+        details: a.details,
+        userName: a.user_name,
+        createdAt: a.created_at,
+      }))
+    });
+  } catch (error) {
+    console.error('Get matter activity error:', error);
+    res.status(500).json({ error: 'Failed to get activity' });
+  }
+});
+
+// ============================================
 // TEAM MEMBER ASSIGNMENTS
 // ============================================
 

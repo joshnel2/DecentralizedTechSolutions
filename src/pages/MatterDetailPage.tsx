@@ -1223,7 +1223,7 @@ Only analyze documents actually associated with this matter.`
 
       {/* Tabs */}
       <div className={styles.tabs}>
-        {['overview', 'notes', 'updates', 'tasks', 'time', 'billing', 'documents', 'calendar', 'contacts'].map(tab => (
+        {['overview', 'notes', 'updates', 'tasks', 'time', 'expenses', 'billing', 'documents', 'calendar', 'contacts', 'activity'].map(tab => (
           <button
             key={tab}
             className={clsx(styles.tab, activeTab === tab && styles.active)}
@@ -2663,6 +2663,16 @@ Only analyze documents actually associated with this matter.`
         </div>
       )}
       
+        {/* Expenses Tab */}
+        {activeTab === 'expenses' && (
+          <ExpensesTab matterId={id!} firmId={user?.firmId || ''} />
+        )}
+
+        {/* Activity Tab */}
+        {activeTab === 'activity' && (
+          <ActivityTab matterId={id!} firmId={user?.firmId || ''} />
+        )}
+
       {/* Edit Matter Modal */}
       {showEditMatterModal && matter && (
         <div className={styles.modalOverlay} onClick={() => setShowEditMatterModal(false)}>
@@ -4543,6 +4553,143 @@ function NotesSection({
               {legacyNotes}
             </p>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Expenses Tab Component
+function ExpensesTab({ matterId }: { matterId: string; firmId: string }) {
+  const [expenses, setExpenses] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [formData, setFormData] = useState({ date: new Date().toISOString().split('T')[0], description: '', amount: '', category: 'filing_fee', billable: true })
+  const toast = useToast()
+
+  const loadExpenses = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+      const response = await fetch(`/api/expenses?matterId=${matterId}`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        setExpenses(data.expenses || [])
+      }
+    } catch (err) {
+      console.error('Failed to load expenses:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [matterId])
+
+  useEffect(() => { loadExpenses() }, [loadExpenses])
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+      const response = await fetch('/api/expenses', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, amount: parseFloat(formData.amount as string), matterId })
+      })
+      if (response.ok) {
+        setShowNewModal(false)
+        setFormData({ date: new Date().toISOString().split('T')[0], description: '', amount: '', category: 'filing_fee', billable: true })
+        loadExpenses()
+        toast.success('Expense added')
+      }
+    } catch (err) {
+      toast.error('Failed to add expense')
+    }
+  }
+
+  const categories = ['filing_fee','court_costs','service_fees','copying','postage','courier','travel','mileage','meals','lodging','expert_fees','witness_fees','deposition_costs','transcripts','research','phone','supplies','other']
+
+  return (
+    <div className={styles.timeTab}>
+      <div className={styles.tabHeader}>
+        <h2>Expenses & Disbursements</h2>
+        <div className={styles.tabActions}>
+          <button className={styles.primaryBtn} onClick={() => setShowNewModal(true)}>
+            <Plus size={18} /> Add Expense
+          </button>
+        </div>
+      </div>
+      {loading ? <p className={styles.noData}>Loading...</p> : expenses.length === 0 ? (
+        <p className={styles.noData}>No expenses recorded</p>
+      ) : (
+        <div className={styles.timeList}>
+          {expenses.map((exp: any) => (
+            <div key={exp.id} className={styles.timeItem}>
+              <div style={{ flex: 1 }}>
+                <span className={styles.timeDesc}>{exp.description}</span>
+                <span className={styles.timeDate}>{exp.date ? format(parseISO(typeof exp.date === 'string' ? exp.date : new Date(exp.date).toISOString()), 'MMM d, yyyy') : '—'} · {(exp.category || '').replace(/_/g, ' ')}</span>
+              </div>
+              <div className={styles.timeHours}>
+                <span className={styles.timeAmount}>${(exp.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                <span style={{ fontSize: '0.75rem', color: exp.billable ? '#10B981' : '#94A3B8' }}>{exp.billable ? 'Billable' : 'Non-billable'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {showNewModal && (
+        <div className={styles.modalOverlay} onClick={() => setShowNewModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className={styles.modalHeader}><h2>Add Expense</h2><button onClick={() => setShowNewModal(false)} className={styles.closeBtn}>×</button></div>
+            <form onSubmit={handleCreate} className={styles.modalForm}>
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}><label>Date</label><input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required /></div>
+                <div className={styles.formGroup}><label>Amount ($)</label><input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} required placeholder="0.00" /></div>
+              </div>
+              <div className={styles.formGroup}><label>Description</label><input type="text" value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} required placeholder="Filing fee, courier, etc." /></div>
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}><label>Category</label><select value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>{categories.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}</select></div>
+                <div className={styles.formGroup}><label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={formData.billable} onChange={e => setFormData({...formData, billable: e.target.checked})} style={{ width: 'auto' }} /> Billable</label></div>
+              </div>
+              <div className={styles.modalActions}><button type="button" onClick={() => setShowNewModal(false)} className={styles.cancelBtn}>Cancel</button><button type="submit" className={styles.saveBtn}>Add Expense</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Activity/Audit Trail Tab Component
+function ActivityTab({ matterId }: { matterId: string; firmId: string }) {
+  const [activities, setActivities] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const token = localStorage.getItem('token') || localStorage.getItem('accessToken')
+    fetch(`/api/matters/${matterId}/activity`, {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+    }).then(r => r.ok ? r.json() : { activities: [] })
+      .then(data => setActivities(data.activities || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [matterId])
+
+  return (
+    <div className={styles.timeTab}>
+      <div className={styles.tabHeader}><h2>Activity History</h2></div>
+      {loading ? <p className={styles.noData}>Loading...</p> : activities.length === 0 ? (
+        <p className={styles.noData}>No activity recorded yet</p>
+      ) : (
+        <div className={styles.timeList}>
+          {activities.map((act: any, idx: number) => (
+            <div key={act.id || idx} className={styles.timeItem}>
+              <div style={{ flex: 1 }}>
+                <span className={styles.timeDesc}>{act.action?.replace(/\./g, ' › ') || 'Action'}</span>
+                <span className={styles.timeDate}>{act.userName || 'System'} · {act.createdAt ? format(parseISO(act.createdAt), 'MMM d, yyyy h:mm a') : ''}</span>
+              </div>
+              {act.details && <span style={{ fontSize: '0.75rem', color: '#94A3B8' }}>{typeof act.details === 'string' ? act.details.substring(0, 80) : ''}</span>}
+            </div>
+          ))}
         </div>
       )}
     </div>
