@@ -4968,7 +4968,6 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             } else {
               // Log Azure config and firmId for debugging
               const azConfig = await getAzureConfig();
-              // Use custom folder if specified, otherwise use default firm-{firmId}
               const targetFirmFolder = customFirmFolder || `firm-${firmId}`;
               console.log(`[CLIO IMPORT] *** Documents will be stored in: ${targetFirmFolder} ***`);
               console.log(`[CLIO IMPORT] *** Firm name: ${actualFirmName}, Firm ID: ${firmId} ***`);
@@ -4977,6 +4976,17 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               }
               console.log(`[CLIO IMPORT] Azure configured: account=${azConfig?.accountName}, share=${azConfig?.shareName}`);
               addLog(`📁 Target folder: ${targetFirmFolder} (${actualFirmName})`);
+              
+              // Store the Azure folder on the firm record so scans know where to look
+              try {
+                await query(
+                  `UPDATE firms SET azure_folder = $1 WHERE id = $2`,
+                  [targetFirmFolder, firmId]
+                );
+                console.log(`[CLIO IMPORT] Stored azure_folder='${targetFirmFolder}' on firm ${firmId}`);
+              } catch (e) {
+                console.log(`[CLIO IMPORT] Could not store azure_folder: ${e.message}`);
+              }
               if (customFirmFolder) {
                 addLog(`📁 Using custom folder: ${customFirmFolder}`);
               }
@@ -6951,16 +6961,33 @@ router.post('/documents/scan-azure', requireSecureAdmin, async (req, res) => {
         
         if (existing.rows.length > 0) {
           const doc = existing.rows[0];
-          // Update if matter changed or file changed
-          if ((!doc.matter_id && matterId) || file.etag !== doc.external_etag) {
+          const needsMatterUpdate = matterId && !doc.matter_id;
+          const needsEtagUpdate = file.etag && file.etag !== doc.external_etag;
+          const needsRematch = !doc.matter_id && matterId;
+          
+          if (needsMatterUpdate || needsEtagUpdate || needsRematch) {
+            // Get owner from matter's responsible attorney
+            let ownerId = null;
+            if (matterId) {
+              try {
+                const ownerResult = await query(
+                  'SELECT responsible_attorney FROM matters WHERE id = $1',
+                  [matterId]
+                );
+                ownerId = ownerResult.rows[0]?.responsible_attorney || null;
+              } catch (e) { /* ignore */ }
+            }
+            
             await query(
               `UPDATE documents SET 
                 matter_id = COALESCE($1, matter_id),
-                size = $2,
-                external_etag = $3,
+                owner_id = COALESCE($2, owner_id),
+                size = $3,
+                external_etag = $4,
+                privacy_level = CASE WHEN $1 IS NOT NULL THEN 'team' ELSE privacy_level END,
                 updated_at = NOW()
-               WHERE id = $4`,
-              [matterId, file.size, file.etag, doc.id]
+               WHERE id = $5`,
+              [matterId, ownerId, file.size, file.etag, doc.id]
             );
             results.updated++;
           }

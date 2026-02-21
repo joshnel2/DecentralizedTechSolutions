@@ -2228,6 +2228,8 @@ async function runFolderBasedScan(firmId, dryRun, job) {
                   ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
                   ON CONFLICT (firm_id, path) DO UPDATE SET
                     matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
+                    owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
+                    privacy_level = CASE WHEN EXCLUDED.matter_id IS NOT NULL THEN 'team' ELSE documents.privacy_level END,
                     folder_path = EXCLUDED.folder_path,
                     updated_at = NOW()
                   RETURNING (xmax = 0) as was_inserted
