@@ -2864,15 +2864,15 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             for (const matter of existingMatters.rows) {
               if (matter.number) {
                 matterIdMap.set(matter.number, matter.id);
-                // The number format from Clio import is: {display_number}-{clio_id}
-                // Extract Clio ID from the end if present
                 const match = matter.number.match(/-(\d+)$/);
                 if (match) {
-                  matterIdMap.set(`clio:${match[1]}`, matter.id);
+                  const clioId = parseInt(match[1]);
+                  matterIdMap.set(`clio:${clioId}`, matter.id);
+                  importedClioMatterIds.add(clioId);
                 }
               }
             }
-            console.log(`[CLIO IMPORT] Pre-loaded ${existingMatters.rows.length} existing matters into map`);
+            console.log(`[CLIO IMPORT] Pre-loaded ${existingMatters.rows.length} existing matters into map (${importedClioMatterIds.size} Clio IDs)`);
             addLog(`📋 Loaded ${existingMatters.rows.length} existing matters for linking`);
           } catch (err) {
             console.log(`[CLIO IMPORT] Could not pre-load matters: ${err.message}`);
@@ -3482,9 +3482,9 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   `INSERT INTO matters (firm_id, client_id, number, name, description, type, status, responsible_attorney, originating_attorney, open_date, close_date, pending_date, billing_type, billing_rate, billable, statute_of_limitations, jurisdiction, practice_area, location, client_reference_number, maildrop_address, custom_fields, visibility)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
                    ON CONFLICT (number) DO UPDATE SET
-                     client_id = COALESCE(EXCLUDED.client_id, matters.client_id),
-                     responsible_attorney = COALESCE(EXCLUDED.responsible_attorney, matters.responsible_attorney),
-                     originating_attorney = COALESCE(EXCLUDED.originating_attorney, matters.originating_attorney),
+                     client_id = COALESCE(matters.client_id, EXCLUDED.client_id),
+                     practice_area = COALESCE(matters.practice_area, EXCLUDED.practice_area),
+                     visibility = 'firm_wide',
                      updated_at = NOW()
                    RETURNING id`,
                   [
@@ -3544,8 +3544,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   }
                 }
                 
-                // Additional team members are derived from time entries after activity import
-                // (see "Derive matter_assignments from time entries" step below)
+                // If this is a user-specific migration, ensure the filtered user
+                // is assigned to every matter that gets imported for them
+                if (filterClioUserId) {
+                  const filteredUserId = userIdMap.get(`clio:${filterClioUserId}`);
+                  if (filteredUserId && filteredUserId !== responsibleId && filteredUserId !== originatingId) {
+                    try {
+                      await query(
+                        `INSERT INTO matter_assignments (matter_id, user_id, role)
+                         VALUES ($1, $2, 'team_member')
+                         ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                        [matterId, filteredUserId]
+                      );
+                    } catch (e) { /* ignore */ }
+                  }
+                }
                 
                 counts.matters++;
                 
