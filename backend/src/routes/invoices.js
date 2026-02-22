@@ -12,7 +12,9 @@ const FULL_ACCESS_ROLES = ['owner', 'admin', 'billing'];
 
 /**
  * Helper: check if a non-privileged user has access to a specific invoice.
- * Returns true if the user created the invoice or is associated with its matter.
+ * Mirrors Clio's model: only the responsible attorney (billing attorney),
+ * originating attorney, or invoice creator can see/edit it.
+ * Team members assigned to the matter do NOT automatically see its invoices.
  */
 async function canAccessInvoice(userId, userRole, invoice) {
   if (FULL_ACCESS_ROLES.includes(userRole)) return true;
@@ -21,7 +23,6 @@ async function canAccessInvoice(userId, userRole, invoice) {
     const matterCheck = await query(
       `SELECT 1 FROM matters m WHERE m.id = $1 AND (
         m.responsible_attorney = $2 OR m.originating_attorney = $2 OR m.created_by = $2
-        OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m.id AND ma.user_id = $2)
       )`,
       [invoice.matter_id, userId]
     );
@@ -53,8 +54,9 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
     const params = [req.user.firmId];
     let paramIndex = 2;
 
-    // "My Invoices" filter - only show invoices user created or for their matters
-    // This is enforced for non-privileged roles regardless of the view parameter
+    // "My Invoices" filter (Clio model) - non-admins only see invoices they
+    // created or for matters where they're the responsible/originating attorney.
+    // Team members assigned to a matter do NOT automatically see its invoices.
     if (effectiveView === 'my') {
       sql += ` AND (
         i.created_by = $${paramIndex}
@@ -63,8 +65,7 @@ router.get('/', authenticate, requirePermission('billing:view'), async (req, res
           WHERE m2.id = i.matter_id 
           AND (m2.responsible_attorney = $${paramIndex} 
                OR m2.originating_attorney = $${paramIndex}
-               OR m2.created_by = $${paramIndex}
-               OR EXISTS (SELECT 1 FROM matter_assignments ma WHERE ma.matter_id = m2.id AND ma.user_id = $${paramIndex}))
+               OR m2.created_by = $${paramIndex})
         )
       )`;
       params.push(req.user.id);
