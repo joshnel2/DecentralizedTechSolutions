@@ -1213,8 +1213,11 @@ html, body {
 
 [data-theme="light"] p,
 [data-theme="light"] span,
-[data-theme="light"] div:not([class*="bg-"]):not([class*="background"]),
 [data-theme="light"] li {
+  color: #334155;
+}
+
+[data-theme="light"] div:not([class*="bg-"]):not([class*="background"]):not([class*="icon"]):not([class*="Icon"]) {
   color: #334155;
 }
 
@@ -1249,4 +1252,25 @@ html, body {
 
 [data-theme="light"] [class*="placeholder"] {
   color: #94A3B8;
+}
+
+/* Override any hardcoded white/dark text that should be light in dark mode */
+:root {
+  --light-text: #334155;
+  --light-heading: #0F172A;
+  --light-muted: #64748B;
+  --light-border: #E2E8F0;
+  --light-bg: #F8FAFC;
+}
+
+/* Ensure buttons with white text get proper colors */
+[data-theme="light"] [class*="btn"]:not([class*="primary"]):not([class*="save"]):not([class*="gold"]),
+[data-theme="light"] button:not([class*="primary"]):not([class*="save"]) {
+  color: #475569;
+}
+
+/* Fix icons that might have wrong colors */
+[data-theme="light"] [class*="icon"] svg,
+[data-theme="light"] svg[class*="icon"] {
+  color: #64748B;
 }

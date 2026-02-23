@@ -1253,6 +1253,23 @@
 }
 
 /* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .header {
+  background: #FFFFFF;
+  border-bottom-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .greeting {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .date {
+  color: #64748B;
+}
+
 :global([data-theme="light"]) .statCard {
   background: #FFFFFF;
   border: 1px solid #E2E8F0;
@@ -1263,6 +1280,14 @@
   border-color: #CBD5E1;
 }
 
+:global([data-theme="light"]) .statValue {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .statLabel {
+  color: #64748B;
+}
+
 :global([data-theme="light"]) .chartCard,
 :global([data-theme="light"]) .listCard {
   background: #FFFFFF;
@@ -1270,9 +1295,21 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
+:global([data-theme="light"]) .cardHeader h3 {
+  color: #0F172A;
+}
+
 :global([data-theme="light"]) .timerSection {
   background: #FFFFFF;
   border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .timerMatterName {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .quickTimerHeader h3 {
+  color: #64748B;
 }
 
 :global([data-theme="light"]) .listItem {
@@ -1283,6 +1320,14 @@
   background: #F8FAFC;
 }
 
+:global([data-theme="light"]) .listItemTitle {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .listItemMeta {
+  color: #64748B;
+}
+
 :global([data-theme="light"]) .listItemIcon {
   background: #F1F5F9;
 }
@@ -1291,12 +1336,25 @@
   border-color: #F1F5F9;
 }
 
+:global([data-theme="light"]) .eventDay {
+  color: #64748B;
+}
+
 :global([data-theme="light"]) .eventDate {
   background: #F1F5F9;
+  color: #64748B;
 }
 
 :global([data-theme="light"]) .invoiceItem {
   border-color: #F1F5F9;
+}
+
+:global([data-theme="light"]) .invoiceAmount {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .invoiceStatus {
+  color: #64748B;
 }
 
 :global([data-theme="light"]) .modal {
@@ -1304,8 +1362,16 @@
   border-color: #E2E8F0;
 }
 
+:global([data-theme="light"]) .modalHeader h2 {
+  color: #0F172A;
+}
+
 :global([data-theme="light"]) .modalOverlay {
   background: rgba(0, 0, 0, 0.3);
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569;
 }
 
 :global([data-theme="light"]) .formGroup input,
