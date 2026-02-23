@@ -193,13 +193,16 @@ export function PermissionsSettingsPage() {
       if (res.ok) {
         const perms = await res.json()
         // Convert API format to UI format
-        const formattedPerms: RolePermission[] = perms.map((p: any) => ({
-          key: p.permission_key,
-          value: p.permission_value,
-          source: 'custom',
-          conditions: p.conditions
-        }))
-        setRolePermissions(formattedPerms)
+        const formattedPermsObj: Record<string, RolePermission> = {}
+        perms.forEach((p: any) => {
+          formattedPermsObj[p.permission_key] = {
+            key: p.permission_key,
+            value: p.permission_value,
+            source: 'custom',
+            conditions: p.conditions
+          }
+        })
+        setRolePermissions(formattedPermsObj)
       } else {
         setRolePermissions(getDefaultRolePermissions(roleSlug))
       }
