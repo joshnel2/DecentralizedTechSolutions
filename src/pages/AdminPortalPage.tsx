@@ -29,8 +29,14 @@ const fetchSecureAdmin = async (endpoint: string, options: RequestInit = {}) => 
     },
   })
   if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.error || 'Request failed')
+    let errorMessage = 'Request failed'
+    try {
+      const error = await response.json()
+      errorMessage = error.error || error.message || 'Request failed'
+    } catch {
+      errorMessage = `Request failed (${response.status})`
+    }
+    throw new Error(errorMessage)
   }
   return response.json()
 }
@@ -143,30 +149,50 @@ export function AdminPortalPage() {
   const pollScanStatus = useCallback(async (firmId: string) => {
     try {
       const status = await fetchSecureAdmin(`/firms/${firmId}/scan-status`)
+      console.log('[SCAN] Status poll:', status)
       setScanProgress(status)
-      
+
       // If scan is complete or errored, stop polling
       if (status.status === 'completed' || status.status === 'error' || status.status === 'cancelled') {
         if (scanPollRef.current) {
           clearInterval(scanPollRef.current)
           scanPollRef.current = null
         }
-        setScanningFirmId(null)
-        
+
+        // Only clear scanningFirmId if it's for the same firm
+        // (defensive: don't clear if a new scan started for different firm)
+        setScanningFirmId(current => current === firmId ? null : current)
+
         // Update scan result for message display
-        setScanResult({
-          firmId,
-          message: status.status === 'completed' 
-            ? `Scan completed: ${status.progress?.created || 0} files created, ${status.progress?.matched || 0} matched`
-            : status.error || 'Scan failed',
-          success: status.status === 'completed'
-        })
-        
+        if (status.status === 'completed') {
+          const results = status.results || {}
+          setScanResult({
+            firmId,
+            message: results.message || `Scan completed: ${status.progress?.created || 0} files created, ${status.progress?.matched || 0} matched`,
+            success: true
+          })
+        } else {
+          setScanResult({
+            firmId,
+            message: status.error || `Scan ${status.status}`,
+            success: false
+          })
+        }
+
         // Refresh firm data
         loadData()
+      } else if (status.status === 'idle') {
+        // Scan job was reset or never started - stop polling
+        if (scanPollRef.current) {
+          clearInterval(scanPollRef.current)
+          scanPollRef.current = null
+        }
+        setScanningFirmId(current => current === firmId ? null : current)
       }
     } catch (err) {
-      console.error('Failed to poll scan status:', err)
+      console.error('[SCAN] Failed to poll scan status:', err)
+      // Don't leave stuck - if polling fails, clear the scan state
+      setScanningFirmId(current => current === firmId ? null : current)
     }
   }, [])
   
@@ -1295,6 +1321,19 @@ export function AdminPortalPage() {
   }
 
   async function handleScanDocuments(firmId: string) {
+    // Defensive: prevent clicking if already scanning this firm
+    if (scanningFirmId === firmId) {
+      console.log('[SCAN] Already scanning this firm, ignoring click')
+      return
+    }
+
+    // Defensive: clear any existing polling first
+    if (scanPollRef.current) {
+      clearInterval(scanPollRef.current)
+      scanPollRef.current = null
+    }
+
+    console.log('[SCAN] Starting document scan for firm:', firmId)
     setScanningFirmId(firmId)
     setScanResult(null)
     setShowScanModal(true)
@@ -1306,7 +1345,7 @@ export function AdminPortalPage() {
       error: null,
       startedAt: new Date().toISOString()
     })
-    
+
     try {
       const result = await fetchSecureAdmin(`/firms/${firmId}/scan-documents`, {
         method: 'POST',
@@ -1315,15 +1354,41 @@ export function AdminPortalPage() {
           mode: 'auto'
         })
       })
-      
+
+      console.log('[SCAN] Initial response:', result)
+
+      // Handle already running scan
+      if (result.status === 'already_running') {
+        setScanResult({
+          firmId,
+          message: 'A scan is already running. If stuck, click Reset Scan below.',
+          success: false
+        })
+        // Start polling anyway to track the existing scan
+        scanPollRef.current = setInterval(() => pollScanStatus(firmId), 1000)
+        pollScanStatus(firmId)
+        return
+      }
+
       // Start polling for progress
-      if (result.status === 'started' || result.status === 'already_running') {
+      if (result.status === 'started') {
         // Poll every second
         scanPollRef.current = setInterval(() => pollScanStatus(firmId), 1000)
         // Also poll immediately
         pollScanStatus(firmId)
+      } else {
+        // Unexpected response - show error but don't leave stuck
+        console.warn('[SCAN] Unexpected response status:', result.status)
+        setScanProgress(prev => prev ? {
+          ...prev,
+          status: 'error',
+          error: result.error || 'Unexpected response from server'
+        } : null)
+        setScanResult({ firmId, message: result.error || 'Unexpected response from server', success: false })
+        setScanningFirmId(null)
       }
     } catch (err: any) {
+      console.error('[SCAN] Error starting scan:', err)
       setScanProgress(prev => prev ? {
         ...prev,
         status: 'error',

@@ -1055,9 +1055,15 @@ export default function SecureAdminDashboard() {
 
   // Scan documents for a firm (background job with polling)
   const handleScanDocuments = async (firmId: string) => {
+    // Defensive: prevent clicking if already scanning this firm
+    if (scanningFirmId === firmId) {
+      console.log('[SCAN] Already scanning this firm, ignoring click')
+      return
+    }
+
+    console.log('[SCAN] Starting document scan for firm:', firmId)
     setScanningFirmId(firmId)
     setScanResult(null)
-    console.log('[SCAN] Starting document scan for firm:', firmId)
     
     try {
       // Start the background scan
@@ -1065,6 +1071,11 @@ export default function SecureAdminDashboard() {
         method: 'POST',
         headers: getAuthHeaders()
       })
+
+      if (!res.ok) {
+        throw new Error(`Server error: ${res.status}`)
+      }
+
       const data = await res.json()
       console.log('[SCAN] Initial response:', data)
       
