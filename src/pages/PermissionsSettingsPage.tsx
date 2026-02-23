@@ -135,22 +135,51 @@ export function PermissionsSettingsPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      // Load roles
-      const rolesData = getDefaultRoles()
+      // Load roles from API
+      const rolesRes = await fetch('/api/permissions/roles', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      })
+      let rolesData = []
+      if (rolesRes.ok) {
+        rolesData = await rolesRes.json()
+      } else {
+        // Fallback to defaults if API fails
+        rolesData = getDefaultRoles()
+      }
       setRoles(rolesData)
       if (rolesData.length > 0 && !selectedRole) {
         setSelectedRole(rolesData[0].slug)
       }
 
-      // Load permission categories
-      const categoriesData = getDefaultCategories()
-      setCategories(categoriesData)
+      // Load permission definitions from API
+      const defsRes = await fetch('/api/permissions/definitions', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      })
+      if (defsRes.ok) {
+        const defs = await defsRes.json()
+        // Convert API format to UI format
+        const categoriesData = convertDefinitionsToCategories(defs)
+        setCategories(categoriesData)
+      } else {
+        setCategories(getDefaultCategories())
+      }
 
-      // Load templates
-      setTemplates(getDefaultTemplates())
+      // Load templates from API
+      const templatesRes = await fetch('/api/permissions/templates', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      })
+      if (templatesRes.ok) {
+        setTemplates(await templatesRes.json())
+      } else {
+        setTemplates(getDefaultTemplates())
+      }
     } catch (error) {
       console.error('Failed to load permissions data:', error)
       toast.error('Failed to load permissions')
+      // Fallback to defaults
+      setRoles(getDefaultRoles())
+      setCategories(getDefaultCategories())
+      setTemplates(getDefaultTemplates())
     } finally {
       setLoading(false)
     }
@@ -158,13 +187,46 @@ export function PermissionsSettingsPage() {
 
   const loadRolePermissions = async (roleSlug: string) => {
     try {
-      const perms = getDefaultRolePermissions(roleSlug)
-      setRolePermissions(perms)
+      const res = await fetch(`/api/permissions/roles/${roleSlug}/permissions`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      })
+      if (res.ok) {
+        const perms = await res.json()
+        // Convert API format to UI format
+        const formattedPerms: RolePermission[] = perms.map((p: any) => ({
+          key: p.permission_key,
+          value: p.permission_value,
+          source: 'custom',
+          conditions: p.conditions
+        }))
+        setRolePermissions(formattedPerms)
+      } else {
+        setRolePermissions(getDefaultRolePermissions(roleSlug))
+      }
       setPendingChanges({})
       setHasUnsavedChanges(false)
     } catch (error) {
       console.error('Failed to load role permissions:', error)
+      setRolePermissions(getDefaultRolePermissions(roleSlug))
     }
+  }
+
+  // Helper to convert API definitions to UI categories format
+  const convertDefinitionsToCategories = (defs: any[]): PermissionCategory[] => {
+    const categories: Record<string, PermissionCategory> = {}
+    for (const def of defs || []) {
+      const [category] = def.key.split(':')
+      if (!categories[category]) {
+        categories[category] = { id: category, name: category.charAt(0).toUpperCase() + category.slice(1), permissions: [] }
+      }
+      categories[category].permissions.push({
+        key: def.key,
+        name: def.name || def.key,
+        description: def.description || '',
+        isSensitive: def.is_sensitive || false
+      })
+    }
+    return Object.values(categories)
   }
 
   // Default data functions (would be API calls in production)
@@ -432,13 +494,30 @@ export function PermissionsSettingsPage() {
     
     setSaving(true)
     try {
-      // In production, this would be an API call
-      // await api.put(`/permissions/roles/${selectedRole}/permissions`, { permissions: ... })
+      // Convert pending changes to API format
+      const permissionsToSave = Object.entries(pendingChanges).map(([key, value]) => ({
+        permission_key: key,
+        permission_value: value === true ? 'granted' : value === false ? 'denied' : value,
+        conditions: {}
+      }))
+      
+      const res = await fetch(`/api/permissions/roles/${selectedRole}/permissions`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ permissions: permissionsToSave })
+      })
+      
+      if (!res.ok) {
+        throw new Error('Failed to save permissions')
+      }
       
       // Apply pending changes to role permissions
       const updatedPerms = { ...rolePermissions }
       Object.entries(pendingChanges).forEach(([key, value]) => {
-        updatedPerms[key] = { key, value, source: 'custom' }
+        updatedPerms[key] = { key, value: value === true ? 'granted' : value === false ? 'denied' : value, source: 'custom' }
       })
       setRolePermissions(updatedPerms)
       setPendingChanges({})
