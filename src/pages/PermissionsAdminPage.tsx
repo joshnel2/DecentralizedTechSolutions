@@ -168,12 +168,32 @@ export default function PermissionsAdminPage() {
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      // In production, this would save to API
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Save role permission overrides to API
+      const overrides = rolePermissionOverrides[selectedRole] || {}
+      const permissionsToSave = Object.entries(overrides).map(([key, value]) => ({
+        permission_key: key,
+        permission_value: value === true ? 'granted' : value === false ? 'denied' : value,
+        conditions: {}
+      }))
+      
+      const res = await fetch(`/api/permissions/roles/${selectedRole}/permissions`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ permissions: permissionsToSave })
+      })
+      
+      if (!res.ok) {
+        throw new Error('Failed to save permissions')
+      }
+      
       loadEffectivePermissions(user?.role || 'staff')
       setHasUnsavedChanges(false)
       toast.success('Permission changes saved')
     } catch (error) {
+      console.error('Failed to save permissions:', error)
       toast.error('Failed to save permissions')
     } finally {
       setIsSaving(false)

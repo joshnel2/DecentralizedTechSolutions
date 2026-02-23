@@ -2771,40 +2771,63 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
-        // USER-SPECIFIC MIGRATION: Find Clio user ID by email
+        // USER-SPECIFIC MIGRATION: Find Clio user IDs by email(s)
         // ============================================
-        let filterClioUserId = null;
+        let filterClioUserIds = [];  // Now an array
         if (filterByUser && filterUserEmail) {
-          console.log(`[CLIO IMPORT] User-specific migration enabled. Finding Clio user with email: ${filterUserEmail}`);
-          addLog(`🔍 Looking up Clio user: ${filterUserEmail}`);
+          // Support comma-separated emails for multiple users
+          const emails = filterUserEmail.split(',').map(e => e.trim()).filter(e => e);
+          console.log(`[CLIO IMPORT] User-specific migration enabled. Finding Clio users: ${emails.join(', ')}`);
+          addLog(`🔍 Looking up Clio users: ${emails.join(', ')}`);
           
           try {
-            // Fetch all users from Clio to find the one with matching email
+            // Fetch all users from Clio to find matching emails
             const allClioUsers = await clioGetAll(accessToken, '/users.json', {
               fields: 'id,name,email'
             }, null);
             
-            const matchingUser = allClioUsers.find(u => 
-              u.email && u.email.toLowerCase() === filterUserEmail.toLowerCase()
-            );
+            const foundUsers = [];
+            const notFoundEmails = [];
             
-            if (matchingUser) {
-              filterClioUserId = matchingUser.id;
-              console.log(`[CLIO IMPORT] Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
-              addLog(`✅ Found Clio user: ${matchingUser.name} (ID: ${filterClioUserId})`);
-              addLog(`📋 Will import matters where this user is responsible/originating attorney + matters with their time entries`);
-            } else {
-              console.log(`[CLIO IMPORT] WARNING: No Clio user found with email: ${filterUserEmail}`);
-              addLog(`⚠️ No Clio user found with email: ${filterUserEmail}`);
-              addLog(`Proceeding with full import (no user filter applied)`);
-              warnings.push(`User-specific filter requested but no user found with email: ${filterUserEmail}. Importing all data.`);
+            for (const email of emails) {
+              const matchingUser = allClioUsers.find(u => 
+                u.email && u.email.toLowerCase() === email.toLowerCase()
+              );
+              
+              if (matchingUser) {
+                foundUsers.push({ id: matchingUser.id, name: matchingUser.name, email });
+                console.log(`[CLIO IMPORT] Found Clio user: ${matchingUser.name} (ID: ${matchingUser.id})`);
+              } else {
+                notFoundEmails.push(email);
+                console.log(`[CLIO IMPORT] WARNING: No Clio user found with email: ${email}`);
+              }
+            }
+            
+            filterClioUserIds = foundUsers.map(u => u.id);
+            
+            if (foundUsers.length > 0) {
+              addLog(`✅ Found ${foundUsers.length} Clio user(s): ${foundUsers.map(u => u.name).join(', ')}`);
+              addLog(`📋 Will import matters where these users are responsible/originating attorney + matters with their time entries`);
+            }
+            
+            if (notFoundEmails.length > 0) {
+              addLog(`⚠️ Users not found: ${notFoundEmails.join(', ')}`);
+              warnings.push(`Users not found in Clio: ${notFoundEmails.join(', ')}`);
+            }
+            
+            if (foundUsers.length === 0) {
+              addLog(`⚠️ No Clio users found. Proceeding with full import.`);
+              warnings.push(`No users found for emails: ${emails.join(', ')}. Importing all data.`);
             }
           } catch (err) {
-            console.error(`[CLIO IMPORT] Error looking up filter user: ${err.message}`);
-            addLog(`⚠️ Error looking up user: ${err.message}. Proceeding with full import.`);
-            warnings.push(`Could not look up filter user: ${err.message}`);
+            console.error(`[CLIO IMPORT] Error looking up filter users: ${err.message}`);
+            addLog(`⚠️ Error looking up users: ${err.message}. Proceeding with full import.`);
+            warnings.push(`Could not look up filter users: ${err.message}`);
           }
         }
+        
+        // Backward compatibility: keep single user ID for existing code
+        const filterClioUserId = filterClioUserIds.length > 0 ? filterClioUserIds[0] : null;
         
         // Track client IDs for contact filtering (populated during matters import)
         const filterClientClioIds = new Set();
@@ -2917,12 +2940,12 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             console.log(`[CLIO IMPORT] Users fetched from Clio: ${users.length}`);
             addLog(`Fetched ${users.length} users from Clio`);
             
-            // If user-specific filter is active, only import that single user
+            // If user-specific filter is active, only import the specified users
             let filteredUsers = users;
-            if (filterClioUserId) {
-              filteredUsers = users.filter(u => u.id === filterClioUserId);
-              console.log(`[CLIO IMPORT] User filter applied: importing only 1 user (${filterUserEmail})`);
-              addLog(`👤 Importing only 1 user: ${filterUserEmail}`);
+            if (filterClioUserIds.length > 0) {
+              filteredUsers = users.filter(u => filterClioUserIds.includes(u.id));
+              console.log(`[CLIO IMPORT] User filter applied: importing ${filteredUsers.length} user(s)`);
+              addLog(`👤 Importing ${filteredUsers.length} user(s): ${filterUserEmail}`);
             }
             
             let skippedNoEmail = 0;
@@ -3044,33 +3067,124 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
         }
         
         // ============================================
-        // PRE-FETCH: Get client IDs for user-specific contact filtering
+        // PRE-FETCH: Get ALL matter IDs for user-specific filtering
+        // This collects matters where ANY of the users is:
+        // - Responsible attorney
+        // - Originating attorney
+        // - Task assignee
+        // - Time entry creator
+        // This is done FIRST so we can use it for both contact filtering and matter filtering
         // ============================================
-        if (filterClioUserId && includeContacts) {
-          console.log(`[CLIO IMPORT] Pre-fetching matters to identify clients for user filter...`);
-          addLog(`🔍 Identifying which contacts to import...`);
+        let userMatterClioIds = new Set();
+        if (filterClioUserIds.length > 0) {
+          console.log(`[CLIO IMPORT] Pre-fetching all matters for ${filterClioUserIds.length} users...`);
+          addLog(`🔍 Finding all matters for ${filterClioUserIds.length} user(s)...`);
           
           try {
-            const mattersList = await clioGetPaginated(
+            // 1. Fetch all matters to get responsible/originating attorney relationships
+            console.log(`[CLIO IMPORT] Step 1: Fetching matters for attorney relationships...`);
+            const allMatters = await clioGetPaginated(
               accessToken, '/matters.json',
               { fields: 'id,client{id},responsible_attorney{id},originating_attorney{id}', limit: 200 },
               null
             );
             
-            // Collect client IDs from user's matters (responsible, originating, or any relationship)
-            for (const m of mattersList) {
-              const isUserMatter = m.responsible_attorney?.id === filterClioUserId
-                || m.originating_attorney?.id === filterClioUserId;
-              if (isUserMatter && m.client?.id) {
-                filterClientClioIds.add(m.client.id);
+            // Collect matter IDs and client IDs from attorney relationships (for ALL users)
+            for (const m of allMatters) {
+              const isUserMatter = filterClioUserIds.includes(m.responsible_attorney?.id) || 
+                                  filterClioUserIds.includes(m.originating_attorney?.id);
+              if (isUserMatter) {
+                userMatterClioIds.add(m.id);
+                if (m.client?.id) {
+                  filterClientClioIds.add(m.client.id);
+                }
               }
             }
+            console.log(`[CLIO IMPORT] Found ${userMatterClioIds.size} matters from attorney relationships, ${filterClientClioIds.size} clients`);
             
-            console.log(`[CLIO IMPORT] Found ${filterClientClioIds.size} unique clients from user's matters`);
-            addLog(`📇 Found ${filterClientClioIds.size} clients to import`);
+            // 2. Fetch tasks assigned to ANY of the users to get matter IDs and client IDs
+            console.log(`[CLIO IMPORT] Step 2: Fetching tasks for users...`);
+            try {
+              // Fetch tasks for each user and collect matter IDs
+              for (const userId of filterClioUserIds) {
+                const userTasks = await clioGetPaginated(
+                  accessToken, '/tasks.json',
+                  { fields: 'id,matter{id}', assignee: { id: userId }, limit: 200 },
+                  null
+                );
+                
+                for (const task of userTasks) {
+                  if (task.matter?.id) {
+                    userMatterClioIds.add(task.matter.id);
+                  }
+                }
+              }
+              console.log(`[CLIO IMPORT] Found ${userMatterClioIds.size} unique matters from tasks`);
+              
+              // Fetch client IDs from task-related matters (batch for efficiency)
+              const taskMatterIds = Array.from(userMatterClioIds);
+              if (taskMatterIds.length > 0) {
+                for (const matterId of taskMatterIds.slice(0, 50)) {
+                  try {
+                    const response = await clioRequest(accessToken, `/matters/${matterId}.json`, { fields: 'id,client{id}' });
+                    if (response.data?.client?.id) {
+                      filterClientClioIds.add(response.data.client.id);
+                    }
+                  } catch (e) {}
+                }
+              }
+            } catch (taskErr) {
+              console.log(`[CLIO IMPORT] Could not fetch user tasks: ${taskErr.message}`);
+            }
+            
+            // 3. Fetch time entries for users to get matter IDs and client IDs
+            console.log(`[CLIO IMPORT] Step 3: Fetching time entries for users...`);
+            try {
+              const currentYear = new Date().getFullYear();
+              
+              // Fetch time entries for each user
+              for (const userId of filterClioUserIds) {
+                const userTimeEntries = await clioGetPaginated(
+                  accessToken, '/activities.json',
+                  { 
+                    fields: 'id,matter{id}',
+                    user_id: userId,
+                    'date[]': `>=${currentYear - 10}-01-01`,
+                    limit: 500
+                  },
+                  null
+                );
+                
+                for (const entry of userTimeEntries) {
+                  if (entry.matter?.id) {
+                    userMatterClioIds.add(entry.matter.id);
+                  }
+                }
+              }
+              console.log(`[CLIO IMPORT] Found ${userMatterClioIds.size} unique matters from time entries`);
+              
+              // Fetch client IDs from time entry matters (batch)
+              const timeMatterIds = Array.from(userMatterClioIds);
+              if (timeMatterIds.length > 0) {
+                for (const matterId of timeMatterIds.slice(0, 50)) {
+                  try {
+                    const response = await clioRequest(accessToken, `/matters/${matterId}.json`, { fields: 'id,client{id}' });
+                    if (response.data?.client?.id) {
+                      filterClientClioIds.add(response.data.client.id);
+                    }
+                  } catch (e) {}
+                }
+              }
+            } catch (timeErr) {
+              console.log(`[CLIO IMPORT] Could not fetch user time entries: ${timeErr.message}`);
+            }
+            
+            console.log(`[CLIO IMPORT] Total: ${userMatterClioIds.size} matters, ${filterClientClioIds.size} clients for ${filterClioUserIds.length} user(s)`);
+            addLog(`📋 Found ${userMatterClioIds.size} matters and ${filterClientClioIds.size} clients for ${filterClioUserIds.length} user(s)`);
+            
           } catch (err) {
-            console.error(`[CLIO IMPORT] Error pre-fetching matters for client filter: ${err.message}`);
-            addLog(`⚠️ Could not identify clients, will import all contacts`);
+            console.error(`[CLIO IMPORT] Error pre-fetching user matters: ${err.message}`);
+            addLog(`⚠️ Could not identify all user matters, falling back to attorney-only filter`);
           }
         }
         
@@ -3090,7 +3204,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             let filteredContacts = [];
             
             // If user-specific filter is active, fetch only those specific contacts by ID (much faster)
-            if (filterClioUserId && filterClientClioIds.size > 0) {
+            if (filterClioUserIds.length > 0 && filterClientClioIds.size > 0) {
               console.log(`[CLIO IMPORT] Fetching ${filterClientClioIds.size} specific contacts by ID...`);
               addLog(`📇 Fetching ${filterClientClioIds.size} contacts for user's matters...`);
               
@@ -3414,19 +3528,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               (count) => updateProgress('matters', 'running', count)
             );
             
-            // If user-specific filter is active, filter matters where the user is
-            // responsible attorney or originating attorney. Additional matters where
-            // the user has time entries will be captured via the time entry import
-            // and matter_assignments derivation step.
+            // If user-specific filter is active, filter matters using the pre-fetched comprehensive list
+            // which includes: responsible attorney, originating attorney, task assignee, AND time entries
             let filteredMatters = matters;
-            if (filterClioUserId) {
+            if (filterClioUserIds.length > 0 && userMatterClioIds.size > 0) {
+              filteredMatters = matters.filter(m => userMatterClioIds.has(m.id));
+              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters (comprehensive list including tasks & time entries)`);
+              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where users work`);
+            } else if (filterClioUserIds.length > 0) {
+              // Fallback to attorney-only if comprehensive list wasn't populated
               filteredMatters = matters.filter(m => 
-                m.responsible_attorney?.id === filterClioUserId
-                || m.originating_attorney?.id === filterClioUserId
+                filterClioUserIds.includes(m.responsible_attorney?.id)
+                || filterClioUserIds.includes(m.originating_attorney?.id)
               );
-              console.log(`[CLIO IMPORT] User filter applied: ${filteredMatters.length} of ${matters.length} matters where user is responsible or originating attorney`);
-              addLog(`📋 Filtered to ${filteredMatters.length} matters (from ${matters.length} total) where user is responsible/originating attorney`);
-              addLog(`📋 Matters where user only has time entries will also appear via activity import`);
+              console.log(`[CLIO IMPORT] User filter applied (attorney-only fallback): ${filteredMatters.length} of ${matters.length} matters`);
+              addLog(`📋 Filtered to ${filteredMatters.length} matters where user is responsible/originating attorney`);
             }
             
             for (const m of filteredMatters) {
@@ -3473,7 +3589,7 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                 }
                 
                 // Set visibility: 'restricted' for user-specific migrations, 'firm_wide' otherwise
-                const matterVisibility = filterClioUserId ? 'restricted' : 'firm_wide';
+                const matterVisibility = filterClioUserIds.length > 0 ? 'restricted' : 'firm_wide';
                 
                 // Map Clio billable flag
                 const isBillable = m.billable !== false;
@@ -3544,19 +3660,21 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   }
                 }
                 
-                // If this is a user-specific migration, ensure the filtered user
-                // is assigned to every matter that gets imported for them
-                if (filterClioUserId) {
-                  const filteredUserId = userIdMap.get(`clio:${filterClioUserId}`);
-                  if (filteredUserId && filteredUserId !== responsibleId && filteredUserId !== originatingId) {
-                    try {
-                      await query(
-                        `INSERT INTO matter_assignments (matter_id, user_id, role)
-                         VALUES ($1, $2, 'team_member')
-                         ON CONFLICT (matter_id, user_id) DO NOTHING`,
-                        [matterId, filteredUserId]
-                      );
-                    } catch (e) { /* ignore */ }
+                // If this is a user-specific migration, ensure all filtered users
+                // are assigned to every matter that gets imported
+                if (filterClioUserIds.length > 0) {
+                  for (const clioUserId of filterClioUserIds) {
+                    const filteredUserId = userIdMap.get(`clio:${clioUserId}`);
+                    if (filteredUserId && filteredUserId !== responsibleId && filteredUserId !== originatingId) {
+                      try {
+                        await query(
+                          `INSERT INTO matter_assignments (matter_id, user_id, role)
+                           VALUES ($1, $2, 'team_member')
+                           ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                          [matterId, filteredUserId]
+                        );
+                      } catch (e) { /* ignore */ }
+                    }
                   }
                 }
                 
@@ -3602,22 +3720,24 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
             
             let filteredActivities = [];
             
-            // If user-specific filter, fetch activities BY USER ID (not by matter)
-            // This gets ALL time entries for this user, even on matters where they're not the responsible attorney
-            if (filterClioUserId) {
-              console.log(`[CLIO IMPORT] Fetching ALL activities for user ${filterClioUserId}...`);
-              addLog(`⏱️ Fetching all time entries for this user...`);
+            // If user-specific filter, fetch activities BY USER ID for ALL filtered users
+            // This gets ALL time entries for these users, even on matters where they're not the responsible attorney
+            if (filterClioUserIds.length > 0) {
+              console.log(`[CLIO IMPORT] Fetching ALL activities for ${filterClioUserIds.length} user(s)...`);
+              addLog(`⏱️ Fetching all time entries for ${filterClioUserIds.length} user(s)...`);
               
               try {
-                // Fetch activities by user_id - this gets ALL the user's time entries
-                const userActivities = await clioGetPaginated(
-                  accessToken, '/activities.json',
-                  { fields: activityFields, user_id: filterClioUserId, order: 'id(asc)' },
-                  (count) => updateProgress('activities', 'running', count)
-                );
-                filteredActivities.push(...userActivities);
-                console.log(`[CLIO IMPORT] Fetched ${filteredActivities.length} activities for user`);
-                addLog(`✅ Fetched ${filteredActivities.length} time entries for user`);
+                // Fetch activities for each user
+                for (const userId of filterClioUserIds) {
+                  const userActivities = await clioGetPaginated(
+                    accessToken, '/activities.json',
+                    { fields: activityFields, user_id: userId, order: 'id(asc)' },
+                    null
+                  );
+                  filteredActivities.push(...userActivities);
+                }
+                console.log(`[CLIO IMPORT] Fetched ${filteredActivities.length} activities for ${filterClioUserIds.length} user(s)`);
+                addLog(`✅ Fetched ${filteredActivities.length} time entries for ${filterClioUserIds.length} user(s)`);
               } catch (err) {
                 console.log(`[CLIO IMPORT] Could not fetch activities by user_id: ${err.message}`);
                 addLog(`⚠️ Error fetching time entries: ${err.message}`);
@@ -3675,8 +3795,8 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
               console.log(`[CLIO IMPORT] Activity breakdown: ${timeEntries} time entries, ${expenses} expenses, ${billed} billed, ${withMatter} with matter`);
             }
             
-            // Import any matters referenced by this user's time entries that weren't already imported
-            if (filterClioUserId && filteredActivities.length > 0) {
+            // Import any matters referenced by these users' time entries that weren't already imported
+            if (filterClioUserIds.length > 0 && filteredActivities.length > 0) {
               const missingClioMatterIds = new Set();
               for (const a of filteredActivities) {
                 const clioMatterId = a.matter?.id || a.matter_id || a.case?.id;
