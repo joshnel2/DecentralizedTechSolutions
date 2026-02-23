@@ -1365,8 +1365,21 @@
 }
 
 /* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .header {
+  background: #FFFFFF;
+  border-bottom-color: #E2E8F0;
+}
+
 :global([data-theme="light"]) .header h1 {
   color: #0F172A;
+}
+
+:global([data-theme="light"]) .header p {
+  color: #64748B;
 }
 
 :global([data-theme="light"]) .reportCard,
@@ -1375,61 +1388,114 @@
 :global([data-theme="light"]) .summaryCard,
 :global([data-theme="light"]) .quickReportCard,
 :global([data-theme="light"]) .metricCard {
-  background: #FFFFFF !important;
-  border-color: #E2E8F0 !important;
+  background: #FFFFFF;
+  border-color: #E2E8F0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 :global([data-theme="light"]) .reportCard:hover,
 :global([data-theme="light"]) .quickReportCard:hover {
-  border-color: #CBD5E1 !important;
+  border-color: #CBD5E1;
+}
+
+:global([data-theme="light"]) .cardHeader {
+  border-bottom-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .cardHeader h2, :global([data-theme="light"]) .cardHeader h3 {
+  color: #0F172A;
 }
 
 :global([data-theme="light"]) .metricValue,
 :global([data-theme="light"]) .statValue,
 :global([data-theme="light"]) .reportTitle {
-  color: #0F172A !important;
+  color: #0F172A;
 }
 
 :global([data-theme="light"]) .metricLabel,
 :global([data-theme="light"]) .statLabel,
 :global([data-theme="light"]) .reportDesc {
-  color: #64748B !important;
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .periodSelector {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .periodBtn {
+  color: #64748B;
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .periodBtn:hover {
+  background: #F1F5F9;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .periodBtn.active {
+  background: #F59E0B;
+  border-color: #F59E0B;
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .dateRange {
+  color: #64748B;
 }
 
 :global([data-theme="light"]) .table th {
-  background: #F8FAFC !important;
-  color: #475569 !important;
-  border-color: #E2E8F0 !important;
+  background: #F8FAFC;
+  color: #475569;
+  border-color: #E2E8F0;
 }
 
 :global([data-theme="light"]) .table td {
-  border-color: #F1F5F9 !important;
+  border-color: #F1F5F9;
   color: #334155;
 }
 
 :global([data-theme="light"]) .table tr:hover td {
-  background: #F8FAFC !important;
+  background: #F8FAFC;
 }
 
-:global([data-theme="light"]) .filterBar,
+:global([data-theme="light"]) .filterBar {
+  background: #FFFFFF;
+  border-bottom-color: #E2E8F0;
+}
+
 :global([data-theme="light"]) .filters {
+  background: #FFFFFF;
   border-color: #E2E8F0;
 }
 
 :global([data-theme="light"]) .filterSelect {
-  background: #FFFFFF !important;
-  border-color: #D1D5DB !important;
-  color: #1E293B !important;
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
 }
 
-:global([data-theme="light"]) .tab,
-:global([data-theme="light"]) .tabBtn {
-  color: #64748B !important;
+:global([data-theme="light"]) .searchInput {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
 }
 
-:global([data-theme="light"]) .tab.active,
-:global([data-theme="light"]) .tabBtn.active {
-  color: #B45309 !important;
-  border-color: #B45309 !important;
+:global([data-theme="light"]) .searchInput::placeholder {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .tab, :global([data-theme="light"]) .tabBtn {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .tab:hover, :global([data-theme="light"]) .tabBtn:hover {
+  background: #F1F5F9;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .tab.active, :global([data-theme="light"]) .tabBtn.active {
+  color: #B45309;
+  border-color: #B45309;
+  background: rgba(245, 158, 11, 0.05);
 }
