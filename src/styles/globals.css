@@ -1199,3 +1199,54 @@ html, body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ===== ADDITIONAL LIGHT MODE TEXT FIXES ===== */
+[data-theme="light"] {
+  /* Fix any remaining white text on light backgrounds */
+  color-scheme: light;
+}
+
+[data-theme="light"] * {
+  /* Ensure all text is visible */
+  border-color: #E2E8F0;
+}
+
+[data-theme="light"] p,
+[data-theme="light"] span,
+[data-theme="light"] div:not([class*="bg-"]):not([class*="background"]),
+[data-theme="light"] li {
+  color: #334155;
+}
+
+[data-theme="light"] h1,
+[data-theme="light"] h2,
+[data-theme="light"] h3,
+[data-theme="light"] h4,
+[data-theme="light"] h5,
+[data-theme="light"] h6 {
+  color: #0F172A;
+}
+
+[data-theme="light"] strong {
+  color: #1E293B;
+}
+
+[data-theme="light"] a {
+  color: #B45309;
+}
+
+[data-theme="light"] a:hover {
+  color: #92400E;
+}
+
+[data-theme="light"] button {
+  color: inherit;
+}
+
+[data-theme="light"] [class*="empty"] {
+  color: #94A3B8;
+}
+
+[data-theme="light"] [class*="placeholder"] {
+  color: #94A3B8;
+}

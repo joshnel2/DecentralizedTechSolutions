@@ -452,18 +452,260 @@
 }
 
 /* ===== LIGHT MODE ===== */
-:global([data-theme="light"]) .header h1 { color: #0F172A; }
-:global([data-theme="light"]) .card, :global([data-theme="light"]) .section, :global([data-theme="light"]) .panel, :global([data-theme="light"]) .statCard, :global([data-theme="light"]) .chartCard, :global([data-theme="light"]) .tableContainer { background: #FFFFFF !important; border-color: #E2E8F0 !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
-:global([data-theme="light"]) .card:hover { border-color: #CBD5E1 !important; }
-:global([data-theme="light"]) .statValue { color: #0F172A !important; }
-:global([data-theme="light"]) .statLabel { color: #64748B !important; }
-:global([data-theme="light"]) .table th { background: #F8FAFC !important; color: #475569 !important; border-color: #E2E8F0 !important; }
-:global([data-theme="light"]) .table td { border-color: #F1F5F9 !important; color: #334155; }
-:global([data-theme="light"]) .table tr:hover td { background: #F8FAFC !important; }
-:global([data-theme="light"]) .modal { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
-:global([data-theme="light"]) .formGroup input, :global([data-theme="light"]) .formGroup textarea, :global([data-theme="light"]) .formGroup select { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
-:global([data-theme="light"]) .formGroup label { color: #475569 !important; }
-:global([data-theme="light"]) .searchInput, :global([data-theme="light"]) .filterSelect { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
-:global([data-theme="light"]) .cancelBtn { border-color: #D1D5DB !important; color: #475569 !important; }
-:global([data-theme="light"]) .tab, :global([data-theme="light"]) .tabBtn { color: #64748B !important; }
-:global([data-theme="light"]) .tab.active, :global([data-theme="light"]) .tabBtn.active { color: #B45309 !important; border-color: #B45309 !important; }
+:global([data-theme="light"]) .container {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .header {
+  background: #FFFFFF;
+  border-bottom-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .header h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .header p {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .statsRow {
+  background: #FFFFFF;
+}
+
+:global([data-theme="light"]) .statCard {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .statValue {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .statLabel {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .card, :global([data-theme="light"]) .section, :global([data-theme="light"]) .panel, :global([data-theme="light"]) .statCard, :global([data-theme="light"]) .chartCard, :global([data-theme="light"]) .tableContainer {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:global([data-theme="light"]) .card:hover {
+  border-color: #CBD5E1;
+}
+
+:global([data-theme="light"]) .cardHeader {
+  border-bottom-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .cardHeader h2 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .queueItem {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .queueItem:hover {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+}
+
+:global([data-theme="light"]) .itemTitle {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .itemMeta {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .itemDesc {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .itemInfo {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .itemInfo span {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .itemInfo strong {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .priorityTag {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .priorityTag.high {
+  background: rgba(220, 38, 38, 0.1);
+  color: #DC2626;
+}
+
+:global([data-theme="light"]) .priorityTag.medium {
+  background: rgba(245, 158, 11, 0.1);
+  color: #D97706;
+}
+
+:global([data-theme="light"]) .priorityTag.low {
+  background: rgba(34, 197, 94, 0.1);
+  color: #059669;
+}
+
+:global([data-theme="light"]) .statusBadge {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .statusBadge.pending {
+  background: rgba(245, 158, 11, 0.1);
+  color: #D97706;
+}
+
+:global([data-theme="light"]) .statusBadge.in_review {
+  background: rgba(59, 130, 246, 0.1);
+  color: #2563EB;
+}
+
+:global([data-theme="light"]) .statusBadge.completed {
+  background: rgba(34, 197, 94, 0.1);
+  color: #059669;
+}
+
+:global([data-theme="light"]) .reviewBtn {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .dismissBtn {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .dismissBtn:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .table th {
+  background: #F8FAFC;
+  color: #475569;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .table td {
+  border-color: #F1F5F9;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .table td a {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .table tr:hover td {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .searchBox {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+}
+
+:global([data-theme="light"]) .searchBox input {
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .searchBox input::placeholder {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .searchInput {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .searchInput::placeholder {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .filterSelect {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .modal {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalHeader {
+  border-bottom-color: #E2E8F0;
+}
+
+:global([data-theme="light"]) .modalHeader h2 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .modalBody {
+  color: #334155;
+}
+
+:global([data-theme="light"]) .formGroup label {
+  color: #475569;
+}
+
+:global([data-theme="light"]) .formGroup input,
+:global([data-theme="light"]) .formGroup textarea,
+:global([data-theme="light"]) .formGroup select {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .formGroup input::placeholder {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .cancelBtn {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .cancelBtn:hover {
+  background: #F1F5F9;
+}
+
+:global([data-theme="light"]) .saveBtn {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .tab, :global([data-theme="light"]) .tabBtn {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .tab:hover, :global([data-theme="light"]) .tabBtn:hover {
+  background: #F1F5F9;
+  color: #334155;
+}
+
+:global([data-theme="light"]) .tab.active, :global([data-theme="light"]) .tabBtn.active {
+  color: #B45309;
+  border-color: #B45309;
+  background: rgba(245, 158, 11, 0.05);
+}
+
+:global([data-theme="light"]) .emptyState {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .emptyState p {
+  color: #64748B;
+}
