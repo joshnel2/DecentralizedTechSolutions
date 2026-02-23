@@ -497,7 +497,7 @@ export function PermissionsSettingsPage() {
       // Convert pending changes to API format
       const permissionsToSave = Object.entries(pendingChanges).map(([key, value]) => ({
         permission_key: key,
-        permission_value: value === true ? 'granted' : value === false ? 'denied' : value,
+        permission_value: value,
         conditions: {}
       }))
       
@@ -517,7 +517,7 @@ export function PermissionsSettingsPage() {
       // Apply pending changes to role permissions
       const updatedPerms = { ...rolePermissions }
       Object.entries(pendingChanges).forEach(([key, value]) => {
-        updatedPerms[key] = { key, value: value === true ? 'granted' : value === false ? 'denied' : value, source: 'custom' }
+        updatedPerms[key] = { key, value, source: 'custom' }
       })
       setRolePermissions(updatedPerms)
       setPendingChanges({})

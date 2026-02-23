@@ -172,7 +172,7 @@ export default function PermissionsAdminPage() {
       const overrides = rolePermissionOverrides[selectedRole] || {}
       const permissionsToSave = Object.entries(overrides).map(([key, value]) => ({
         permission_key: key,
-        permission_value: value === true ? 'granted' : value === false ? 'denied' : value,
+        permission_value: value,
         conditions: {}
       }))
       
