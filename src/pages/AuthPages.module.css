@@ -623,55 +623,120 @@
 
 /* ===== LIGHT MODE ===== */
 :global([data-theme="light"]) .authPage {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .bgEffects {
+  display: none;
+}
+
+:global([data-theme="light"]) .brandSide {
+  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+}
+
+:global([data-theme="light"]) .brandTitle {
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .brandSubtitle {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+:global([data-theme="light"]) .featureIcon {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2) 0%, rgba(245, 158, 11, 0.1) 100%);
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+:global([data-theme="light"]) .feature h3 {
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .feature p {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+:global([data-theme="light"]) .logoText {
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .formSide {
   background: #FFFFFF;
+  border-left: 1px solid #E2E8F0;
 }
 
-:global([data-theme="light"]) .authCard,
-:global([data-theme="light"]) .formSection {
-  background: #FFFFFF !important;
-  border-color: #E2E8F0 !important;
+:global([data-theme="light"]) .formHeader h2 {
+  color: #0F172A;
 }
 
-:global([data-theme="light"]) .authTitle,
-:global([data-theme="light"]) .title {
-  color: #0F172A !important;
+:global([data-theme="light"]) .formHeader p {
+  color: #64748B;
 }
 
-:global([data-theme="light"]) .authSubtitle,
-:global([data-theme="light"]) .subtitle {
-  color: #64748B !important;
+:global([data-theme="light"]) .inputGroup label {
+  color: #475569;
 }
 
-:global([data-theme="light"]) .formGroup input {
-  background: #FFFFFF !important;
-  border-color: #D1D5DB !important;
-  color: #1E293B !important;
+:global([data-theme="light"]) .inputGroup input[type="text"],
+:global([data-theme="light"]) .inputGroup input[type="email"],
+:global([data-theme="light"]) .inputGroup input[type="password"],
+:global([data-theme="light"]) .inputGroup input[type="tel"],
+:global([data-theme="light"]) .inputGroup input[type="number"],
+:global([data-theme="light"]) .inputGroup select,
+:global([data-theme="light"]) .inputGroup textarea {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
 }
 
-:global([data-theme="light"]) .formGroup label {
-  color: #475569 !important;
+:global([data-theme="light"]) .inputGroup input::placeholder,
+:global([data-theme="light"]) .inputGroup textarea::placeholder {
+  color: #94A3B8;
 }
 
-:global([data-theme="light"]) .divider {
-  background: #E2E8F0 !important;
+:global([data-theme="light"]) .inputGroup input:focus,
+:global([data-theme="light"]) .inputGroup select:focus,
+:global([data-theme="light"]) .inputGroup textarea:focus {
+  border-color: #F59E0B;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+:global([data-theme="light"]) .passwordToggle {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .rememberMe {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .forgotLink {
+  color: #B45309;
+}
+
+:global([data-theme="light"]) .divider::before,
+:global([data-theme="light"]) .divider::after {
+  background: #E2E8F0;
 }
 
 :global([data-theme="light"]) .divider span {
-  background: #FFFFFF !important;
-  color: #94A3B8 !important;
+  color: #94A3B8;
+  background: #FFFFFF;
+}
+
+:global([data-theme="light"]) .demoBtn {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: #7C3AED;
+}
+
+:global([data-theme="light"]) .demoBtn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(139, 92, 246, 0.1) 100%);
+  border-color: rgba(139, 92, 246, 0.5);
 }
 
 :global([data-theme="light"]) .signupPrompt {
   color: #64748B;
 }
 
-:global([data-theme="light"]) .brandPanel,
-:global([data-theme="light"]) .heroSection {
-  background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%) !important;
-  color: #FFFFFF !important;
-}
-
-:global([data-theme="light"]) .gradientOrb1,
-:global([data-theme="light"]) .gradientOrb2 {
-  opacity: 0.4;
+:global([data-theme="light"]) .signupPrompt a {
+  color: #B45309;
 }

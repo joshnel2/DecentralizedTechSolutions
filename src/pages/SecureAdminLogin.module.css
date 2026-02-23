@@ -238,15 +238,79 @@
 }
 
 /* ===== LIGHT MODE ===== */
-:global([data-theme="light"]) .header h1, :global([data-theme="light"]) .title { color: #0F172A; }
-:global([data-theme="light"]) .card, :global([data-theme="light"]) .section, :global([data-theme="light"]) .panel, :global([data-theme="light"]) .container, :global([data-theme="light"]) .statCard, :global([data-theme="light"]) .tableContainer { background: #FFFFFF !important; border-color: #E2E8F0 !important; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
-:global([data-theme="light"]) .card:hover { border-color: #CBD5E1 !important; }
-:global([data-theme="light"]) .table th { background: #F8FAFC !important; color: #475569 !important; border-color: #E2E8F0 !important; }
-:global([data-theme="light"]) .table td { border-color: #F1F5F9 !important; color: #334155; }
-:global([data-theme="light"]) .modal { background: #FFFFFF !important; border-color: #E2E8F0 !important; }
-:global([data-theme="light"]) .formGroup input, :global([data-theme="light"]) .formGroup textarea, :global([data-theme="light"]) .formGroup select { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
-:global([data-theme="light"]) .formGroup label { color: #475569 !important; }
-:global([data-theme="light"]) .cancelBtn { border-color: #D1D5DB !important; color: #475569 !important; }
-:global([data-theme="light"]) .searchInput, :global([data-theme="light"]) .filterSelect { background: #FFFFFF !important; border-color: #D1D5DB !important; color: #1E293B !important; }
-:global([data-theme="light"]) .tab, :global([data-theme="light"]) .tabBtn { color: #64748B !important; }
-:global([data-theme="light"]) .tab.active, :global([data-theme="light"]) .tabBtn.active { color: #B45309 !important; border-color: #B45309 !important; }
+:global([data-theme="light"]) .container {
+  background: linear-gradient(135deg, #F8FAFC 0%, #E2E8F0 100%);
+}
+
+:global([data-theme="light"]) .container::before {
+  display: none;
+}
+
+:global([data-theme="light"]) .securityBadge {
+  background: rgba(0, 200, 100, 0.1);
+  border-color: rgba(0, 200, 100, 0.3);
+  color: #059669;
+}
+
+:global([data-theme="light"]) .loginCard {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+:global([data-theme="light"]) .header h1 {
+  color: #0F172A;
+}
+
+:global([data-theme="light"]) .header p {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .lockIcon {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #D97706;
+}
+
+:global([data-theme="light"]) .inputGroup label {
+  color: #475569;
+}
+
+:global([data-theme="light"]) .inputGroup input {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .inputGroup input::placeholder {
+  color: #94A3B8;
+}
+
+:global([data-theme="light"]) .inputGroup input:focus {
+  border-color: #F59E0B;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+:global([data-theme="light"]) .submitBtn {
+  background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+  color: #FFFFFF;
+}
+
+:global([data-theme="light"]) .submitBtn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #D97706 0%, #B45309 100%);
+}
+
+:global([data-theme="light"]) .errorAlert {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #DC2626;
+}
+
+:global([data-theme="light"]) .divider {
+  background: #E2E8F0;
+}
+
+:global([data-theme="light"]) .divider span {
+  background: #FFFFFF;
+  color: #94A3B8;
+}
