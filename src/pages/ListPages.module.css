@@ -1226,8 +1226,38 @@
 }
 
 /* ===== LIGHT MODE ===== */
+:global([data-theme="light"]) .container {
+  background: #F8FAFC;
+}
+
+:global([data-theme="light"]) .header {
+  background: #FFFFFF;
+  border-bottom-color: #E2E8F0;
+}
+
 :global([data-theme="light"]) .header h1 {
   color: #0F172A;
+}
+
+:global([data-theme="light"]) .header p {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .searchBox {
+  background: #FFFFFF;
+  border-color: #D1D5DB;
+}
+
+:global([data-theme="light"]) .searchBox svg {
+  color: #64748B;
+}
+
+:global([data-theme="light"]) .searchBox input {
+  color: #1E293B;
+}
+
+:global([data-theme="light"]) .searchBox input::placeholder {
+  color: #94A3B8;
 }
 
 :global([data-theme="light"]) .searchInput {
