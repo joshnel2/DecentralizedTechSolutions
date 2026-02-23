@@ -1274,3 +1274,38 @@ html, body {
 [data-theme="light"] svg[class*="icon"] {
   color: #64748B;
 }
+
+/* ===== COMPREHENSIVE DARK BACKGROUND FIXES ===== */
+/* Force all sections, panels, cards to white in light mode */
+[data-theme="light"] [class*="section"],
+[data-theme="light"] [class*="Section"],
+[data-theme="light"] [class*="panel"],
+[data-theme="light"] [class*="Panel"],
+[data-theme="light"] [class*="card"],
+[data-theme="light"] [class*="Card"],
+[data-theme="light"] [class*="content"],
+[data-theme="light"] [class*="Content"],
+[data-theme="light"] [class*="box"],
+[data-theme="light"] [class*="Box"],
+[data-theme="light"] [class*="container"],
+[data-theme="light"] [class*="Container"] {
+  background: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* Fix any hardcoded dark backgrounds */
+[data-theme="light"] [style*="background-color: #1e293b"],
+[data-theme="light"] [style*="background-color: #0f172a"],
+[data-theme="light"] [style*="background-color: #0a0a0f"],
+[data-theme="light"] [style*="background: #1e293b"],
+[data-theme="light"] [style*="background: #0f172a"],
+[data-theme="light"] [style*="background: #0a0a0f"] {
+  background: #FFFFFF !important;
+}
+
+/* Ensure light mode text is always visible */
+[data-theme="light"] [style*="color: #ffffff"],
+[data-theme="light"] [style*="color: #fff"],
+[data-theme="light"] [style*="color: white"] {
+  color: #0F172A !important;
+}
