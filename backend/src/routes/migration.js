@@ -3660,6 +3660,45 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                   }
                 }
                 
+                // Fetch and assign all team members from Clio's matter users endpoint
+                // This gets attorneys, paralegals, and staff directly assigned to the matter
+                try {
+                  const matterUsers = await clioGetAll(
+                    accessToken,
+                    `/matters/${m.id}/users.json`,
+                    { fields: 'id,name,enabled,subscription_type' }
+                  ).catch(err => {
+                    console.log(`[CLIO IMPORT] Could not fetch matter users for matter ${m.id}: ${err.message}`);
+                    return [];
+                  });
+                  
+                  if (matterUsers && matterUsers.length > 0) {
+                    for (const clioUser of matterUsers) {
+                      // Skip if this is the responsible or originating attorney (already added above)
+                      const clioUid = String(clioUser.id);
+                      if (clioUid === String(m.responsible_attorney?.id) || 
+                          clioUid === String(m.originating_attorney?.id)) {
+                        continue;
+                      }
+                      
+                      // Look up the Apex user ID from our user map
+                      const apexUserId = userIdMap.get(`clio:${clioUid}`);
+                      if (apexUserId && apexUserId !== responsibleId && apexUserId !== originatingId) {
+                        await query(
+                          `INSERT INTO matter_assignments (matter_id, user_id, role)
+                           VALUES ($1, $2, 'team_member')
+                           ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                          [matterId, apexUserId]
+                        );
+                      }
+                    }
+                    console.log(`[CLIO IMPORT] Added ${matterUsers.length} matter users for ${m.display_number || m.id}`);
+                  }
+                } catch (userErr) {
+                  // Non-critical - matter users are optional
+                  console.log(`[CLIO IMPORT] Matter users fetch error: ${userErr.message}`);
+                }
+                
                 // If this is a user-specific migration, ensure all filtered users
                 // are assigned to every matter that gets imported
                 if (filterClioUserIds.length > 0) {
@@ -3868,6 +3907,34 @@ router.post('/clio/import', requireSecureAdmin, async (req, res) => {
                         );
                       } catch (e) { /* ignore */ }
                     }
+                    
+                    // Fetch and assign all team members from Clio's matter users endpoint
+                    try {
+                      const matterUsers = await clioGetAll(
+                        accessToken,
+                        `/matters/${m.id}/users.json`,
+                        { fields: 'id,name,enabled,subscription_type' }
+                      ).catch(err => {
+                        return [];
+                      });
+                      
+                      if (matterUsers && matterUsers.length > 0) {
+                        for (const clioUser of matterUsers) {
+                          const clioUid = String(clioUser.id);
+                          if (clioUid === String(m.responsible_attorney?.id) || 
+                              clioUid === String(m.originating_attorney?.id)) {
+                            continue;
+                          }
+                          const apexUserId = userIdMap.get(`clio:${clioUid}`);
+                          if (apexUserId && apexUserId !== responsibleId && apexUserId !== originatingId) {
+                            await query(
+                              `INSERT INTO matter_assignments (matter_id, user_id, role) VALUES ($1, $2, 'team_member') ON CONFLICT (matter_id, user_id) DO NOTHING`,
+                              [matterId, apexUserId]
+                            );
+                          }
+                        }
+                      }
+                    } catch (userErr) { /* ignore */ }
                   } catch (err) {
                     console.log(`[CLIO IMPORT] Could not import matter ${clioMatterId}: ${err.message}`);
                   }
