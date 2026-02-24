@@ -2219,17 +2219,18 @@ async function runFolderBasedScan(firmId, dryRun, job) {
             
             if (!dryRun) {
               try {
-                // Upsert document - set both owner_id AND uploaded_by to track ownership
+                // Upsert document - only set owner_id (matter's responsible attorney)
+                // Do NOT set uploaded_by - leave it null so matter-based access controls visibility
+                // This ensures anyone working on the matter can see the documents
                 const insertResult = await query(`
                   INSERT INTO documents (
-                    firm_id, matter_id, owner_id, uploaded_by, name, original_name,
+                    firm_id, matter_id, owner_id, name, original_name,
                     path, folder_path, type, size, privacy_level,
                     status, storage_location, external_path, uploaded_at
-                  ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, 'final', 'azure', $6, NOW())
+                  ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
                   ON CONFLICT (firm_id, path) DO UPDATE SET
                     matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
                     owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
-                    uploaded_by = COALESCE(EXCLUDED.uploaded_by, documents.uploaded_by),
                     privacy_level = CASE WHEN EXCLUDED.matter_id IS NOT NULL THEN 'team' ELSE documents.privacy_level END,
                     folder_path = EXCLUDED.folder_path,
                     updated_at = NOW()
@@ -2238,7 +2239,6 @@ async function runFolderBasedScan(firmId, dryRun, job) {
                   firmId,
                   matterId,
                   ownerId,
-                  ownerId, // uploaded_by - same as owner since we don't have individual user info
                   item.name,
                   fullAzurePath,
                   folderPath,
@@ -2790,24 +2790,23 @@ async function runManifestScan(firmId, dryRun, job) {
             
             const ownerId = isValidUuid(entry.owner_id) ? entry.owner_id : null;
             
-            // Upsert document - set both owner_id AND uploaded_by to track ownership
+            // Upsert document - only set owner_id (matter's responsible attorney)
+            // Do NOT set uploaded_by - leave it null so matter-based access controls visibility
             const insertResult = await query(`
               INSERT INTO documents (
-                firm_id, matter_id, owner_id, uploaded_by, name, original_name,
+                firm_id, matter_id, owner_id, name, original_name,
                 path, folder_path, type, size, privacy_level,
                 status, storage_location, external_path, uploaded_at
-              ) VALUES ($1, $2, $3, $4, $5, $5, $6, $7, $8, $9, $10, 'final', 'azure', $6, NOW())
+              ) VALUES ($1, $2, $3, $4, $4, $5, $6, $7, $8, $9, 'final', 'azure', $5, NOW())
               ON CONFLICT (firm_id, path) DO UPDATE SET
                 matter_id = COALESCE(EXCLUDED.matter_id, documents.matter_id),
                 owner_id = COALESCE(EXCLUDED.owner_id, documents.owner_id),
-                uploaded_by = COALESCE(EXCLUDED.uploaded_by, documents.uploaded_by),
                 updated_at = NOW()
               RETURNING (xmax = 0) as was_inserted
             `, [
               firmId,
               matterId,
               ownerId,
-              ownerId, // uploaded_by - same as owner since we don't have individual user info
               entry.name,
               entry.azure_path,
               folderPath,
@@ -3176,10 +3175,6 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
             updateQuery += `, owner_id = COALESCE(owner_id, $${paramIndex})`;
             updateParams.push(matter.responsible_attorney);
             paramIndex++;
-            // Also set uploaded_by to the responsible attorney if not already set
-            updateQuery += `, uploaded_by = COALESCE(uploaded_by, $${paramIndex})`;
-            updateParams.push(matter.responsible_attorney);
-            paramIndex++;
           }
           
           if (hasPrivacyLevel) {
@@ -3206,20 +3201,11 @@ router.post('/firms/:firmId/rescan-unmatched', requireSecureAdmin, async (req, r
     // Fix ownership for any docs with matter but no owner (if owner_id column exists)
     if (hasOwnerIdColumn) {
       try {
-        // Update owner_id
         await query(`
           UPDATE documents d SET owner_id = m.responsible_attorney
           FROM matters m
           WHERE d.matter_id = m.id AND d.firm_id = $1 
             AND d.owner_id IS NULL AND m.responsible_attorney IS NOT NULL
-        `, [firmId]);
-        
-        // Also fix uploaded_by for any docs without it
-        await query(`
-          UPDATE documents d SET uploaded_by = m.responsible_attorney
-          FROM matters m
-          WHERE d.matter_id = m.id AND d.firm_id = $1 
-            AND d.uploaded_by IS NULL AND m.responsible_attorney IS NOT NULL
         `, [firmId]);
       } catch (ownerError) {
         console.error('[RESCAN] Error updating ownership:', ownerError.message);
