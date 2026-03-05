@@ -804,3 +804,202 @@ export function formatConfidenceForReview(report) {
     })),
   };
 }
+
+
+// =====================================================================
+// 5. COUNTERFACTUAL ANALYSIS & CAUSAL INFERENCE
+// 
+// CUTTING-EDGE: The system doesn't just track "what happened" — it 
+// reasons about "what WOULD have happened" with different approaches.
+// This is the foundation for causal (not just correlational) learning.
+//
+// Three techniques:
+// a) Counterfactual tool chain analysis: "if we used chain B instead of A"
+// b) Rejection attribution: "which specific tool/phase caused the rejection?"
+// c) Improvement trajectory: "is the Nth task better than the 1st?"
+// =====================================================================
+
+/**
+ * Record a counterfactual: what alternative approach existed and what
+ * we chose instead. This enables offline policy evaluation.
+ * 
+ * Called at task start when a tool chain is selected.
+ */
+export async function recordCounterfactual(firmId, taskId, chosenChain, alternativeChains, context) {
+  if (!firmId || !taskId || !chosenChain) return;
+  
+  try {
+    await query(
+      `INSERT INTO matter_agent_memory 
+       (firm_id, matter_id, memory_type, content, source_task_id, confidence, importance, expires_at)
+       VALUES ($1, $1, 'counterfactual', $2, $3, 0.50, 'low', NOW() + INTERVAL '30 days')`,
+      [
+        firmId,
+        JSON.stringify({
+          chosen: chosenChain,
+          alternatives: (alternativeChains || []).slice(0, 3),
+          context: context || {},
+          timestamp: new Date().toISOString(),
+        }),
+        taskId,
+      ]
+    );
+  } catch (e) {
+    // Non-fatal: counterfactual logging is optional
+  }
+}
+
+/**
+ * After a task completes, analyze whether the alternative would have been better.
+ * This uses the outcome to update our causal model.
+ * 
+ * Returns attribution data: which tools/phases contributed most to the outcome.
+ */
+export function analyzeTaskCausality(task) {
+  if (!task?.actionsHistory || task.actionsHistory.length < 3) return null;
+  
+  const history = task.actionsHistory;
+  const isSuccess = task.status === 'completed' && task.review_status !== 'rejected';
+  
+  // Phase attribution: which phase had the most impact?
+  const phases = {
+    discovery: { tools: [], successes: 0, failures: 0, duration: 0 },
+    analysis: { tools: [], successes: 0, failures: 0, duration: 0 },
+    action: { tools: [], successes: 0, failures: 0, duration: 0 },
+    completion: { tools: [], successes: 0, failures: 0, duration: 0 },
+  };
+  
+  const discoveryTools = ['get_matter', 'search_matters', 'list_documents', 'read_document_content', 'list_clients', 'get_calendar_events'];
+  const analysisTools = ['think_and_plan', 'evaluate_progress', 'search_document_content', 'find_and_read_document'];
+  const actionTools = ['create_document', 'add_matter_note', 'create_task', 'create_calendar_event', 'update_matter'];
+  const completionTools = ['task_complete', 'log_work', 'review_created_documents'];
+  
+  for (const action of history) {
+    const tool = action.tool;
+    let phase;
+    
+    if (discoveryTools.includes(tool)) phase = 'discovery';
+    else if (analysisTools.includes(tool)) phase = 'analysis';
+    else if (actionTools.includes(tool)) phase = 'action';
+    else if (completionTools.includes(tool)) phase = 'completion';
+    else continue;
+    
+    phases[phase].tools.push(tool);
+    if (action.success !== false) phases[phase].successes++;
+    else phases[phase].failures++;
+  }
+  
+  // Calculate per-phase success rates
+  const phaseScores = {};
+  for (const [phase, data] of Object.entries(phases)) {
+    const total = data.successes + data.failures;
+    if (total === 0) continue;
+    phaseScores[phase] = {
+      successRate: data.successes / total,
+      toolCount: data.tools.length,
+      failureCount: data.failures,
+      contribution: data.tools.length / history.length, // % of total effort
+    };
+  }
+  
+  // Tool-level attribution: which specific tools correlated with outcome?
+  const toolOutcomes = {};
+  for (const action of history) {
+    if (!toolOutcomes[action.tool]) toolOutcomes[action.tool] = { successes: 0, failures: 0 };
+    if (action.success !== false) toolOutcomes[action.tool].successes++;
+    else toolOutcomes[action.tool].failures++;
+  }
+  
+  // Find the "weakest link" — the tool with highest failure rate
+  let weakestLink = null;
+  let worstRate = 1.0;
+  for (const [tool, data] of Object.entries(toolOutcomes)) {
+    const total = data.successes + data.failures;
+    if (total < 2) continue;
+    const rate = data.successes / total;
+    if (rate < worstRate) {
+      worstRate = rate;
+      weakestLink = { tool, successRate: rate, failures: data.failures };
+    }
+  }
+  
+  // Calculate improvement potential: how much better could this have been?
+  const totalActions = history.length;
+  const failedActions = history.filter(a => a.success === false).length;
+  const improvementPotential = failedActions / Math.max(totalActions, 1);
+  
+  return {
+    isSuccess,
+    phaseScores,
+    toolOutcomes,
+    weakestLink,
+    improvementPotential,
+    totalActions,
+    failedActions,
+    // The key causal insight: did discovery quality predict outcome?
+    discoveryPredictedOutcome: phaseScores.discovery?.successRate > 0.8 === isSuccess,
+  };
+}
+
+/**
+ * Track improvement trajectory across tasks for the same user + work type.
+ * Returns whether the Nth task is measurably better than the 1st.
+ */
+export async function getImprovementTrajectory(userId, firmId, workType) {
+  try {
+    const result = await query(
+      `SELECT id, status, review_status, feedback_rating, iterations,
+              EXTRACT(EPOCH FROM (completed_at - started_at)) / 60 as duration_min,
+              completed_at
+       FROM ai_background_tasks
+       WHERE user_id = $1 AND firm_id = $2
+         AND completed_at IS NOT NULL
+       ORDER BY completed_at ASC
+       LIMIT 50`,
+      [userId, firmId]
+    );
+    
+    if (result.rows.length < 3) return null;
+    
+    const tasks = result.rows;
+    const windowSize = Math.min(5, Math.floor(tasks.length / 2));
+    
+    // Compare first N tasks vs last N tasks
+    const firstN = tasks.slice(0, windowSize);
+    const lastN = tasks.slice(-windowSize);
+    
+    const avgMetric = (arr, fn) => arr.reduce((s, t) => s + fn(t), 0) / arr.length;
+    
+    const earlyApprovalRate = avgMetric(firstN, t => t.review_status === 'approved' ? 1 : 0);
+    const recentApprovalRate = avgMetric(lastN, t => t.review_status === 'approved' ? 1 : 0);
+    
+    const earlyRating = avgMetric(firstN.filter(t => t.feedback_rating), t => t.feedback_rating) || 0;
+    const recentRating = avgMetric(lastN.filter(t => t.feedback_rating), t => t.feedback_rating) || 0;
+    
+    const earlyIterations = avgMetric(firstN, t => t.iterations || 0);
+    const recentIterations = avgMetric(lastN, t => t.iterations || 0);
+    
+    const earlyDuration = avgMetric(firstN.filter(t => t.duration_min), t => parseFloat(t.duration_min) || 0);
+    const recentDuration = avgMetric(lastN.filter(t => t.duration_min), t => parseFloat(t.duration_min) || 0);
+    
+    return {
+      totalTasks: tasks.length,
+      windowSize,
+      trajectory: {
+        approvalRate: { early: earlyApprovalRate, recent: recentApprovalRate, improved: recentApprovalRate > earlyApprovalRate },
+        avgRating: { early: earlyRating, recent: recentRating, improved: recentRating > earlyRating },
+        avgIterations: { early: earlyIterations, recent: recentIterations, improved: recentIterations < earlyIterations },
+        avgDuration: { early: Math.round(earlyDuration), recent: Math.round(recentDuration), improved: recentDuration < earlyDuration },
+      },
+      overallImproving: (
+        (recentApprovalRate >= earlyApprovalRate ? 1 : 0) +
+        (recentRating >= earlyRating ? 1 : 0) +
+        (recentIterations <= earlyIterations ? 1 : 0) +
+        (recentDuration <= earlyDuration ? 1 : 0)
+      ) >= 3, // Improving if 3+ metrics are better
+      summary: `Over ${tasks.length} tasks: approval ${(earlyApprovalRate * 100).toFixed(0)}%→${(recentApprovalRate * 100).toFixed(0)}%, iterations ${earlyIterations.toFixed(1)}→${recentIterations.toFixed(1)}, duration ${Math.round(earlyDuration)}→${Math.round(recentDuration)}min`,
+    };
+  } catch (e) {
+    return null;
+  }
+}
