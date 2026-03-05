@@ -2,15 +2,24 @@
  * Embedding Service for Semantic Search
  * 
  * Provides:
- * 1. Document chunking optimized for legal documents
+ * 1. Document chunking optimized for legal documents (with contextual retrieval)
  * 2. Azure OpenAI embeddings generation
  * 3. pgvector storage with tenant isolation
- * 4. Per-tenant encryption via Azure Key Vault
- * 5. Hybrid retrieval (vector + keyword + graph)
+ * 4. Per-tenant encryption via encryptionService (HKDF + AES-256-GCM)
+ * 5. Hybrid retrieval via retrievalPipeline (vector + keyword + graph + RAPTOR)
+ * 6. Integration with contextualChunker for Anthropic-style context prepending
+ * 7. Integration with raptorSummaryService for hierarchical summaries
+ * 
+ * NOTE: For full hybrid retrieval, use retrievalPipeline.js instead of
+ * the semanticSearch function here. This file's semanticSearch is kept
+ * for backward compatibility but the pipeline is preferred.
  */
 
 import { query } from '../db/connection.js';
 import crypto from 'crypto';
+import { encryptEmbedding as encryptViaService } from './encryptionService.js';
+import { chunkWithContext, getMatterContext } from './contextualChunker.js';
+import { buildSummaryTree } from './raptorSummaryService.js';
 
 // Azure OpenAI configuration (same as ai.js)
 const AZURE_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
@@ -18,8 +27,11 @@ const AZURE_API_KEY = process.env.AZURE_OPENAI_API_KEY;
 const EMBEDDING_DEPLOYMENT = process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || 'text-embedding-3-small';
 const EMBEDDING_API_VERSION = '2024-02-15-preview'; // Same as chat API
 
-// Azure Key Vault configuration for per-tenant encryption
-// Configured in Azure Web App settings
+// Encryption is now handled by encryptionService.js (HKDF key derivation)
+// Legacy: Azure Key Vault configuration kept for backward compatibility
+// IMPORTANT: KEY_VAULT_ENABLED preserves the original behavior - it only activates
+// when AZURE_KEY_VAULT_NAME is explicitly set. The new encryptionService is used
+// as the IMPLEMENTATION when encryption is active, but doesn't change WHEN it activates.
 const AZURE_KEY_VAULT_NAME = process.env.AZURE_KEY_VAULT_NAME;
 const KEY_VAULT_ENABLED = !!AZURE_KEY_VAULT_NAME;
 
@@ -69,9 +81,23 @@ export async function generateEmbedding(text, firmId) {
   }
 
   // Encrypt embedding for storage if Key Vault is configured
+  // IMPORTANT: Two encryption paths exist:
+  //   1. NEW (HKDF): Activated ONLY when ENCRYPTION_MASTER_SECRET is explicitly set.
+  //      Uses encryptionService.js with proper HKDF key derivation. Preferred for new deployments.
+  //   2. LEGACY (SHA-256): The original path, uses ENCRYPTION_SECRET with simple SHA-256 key derivation.
+  //      Kept as default to avoid breaking existing encrypted data.
+  // The two formats are NOT compatible - you cannot decrypt HKDF-encrypted data with the legacy
+  // decryptor or vice versa. Switching requires re-encrypting all existing embeddings.
   let encryptedEmbedding = null;
   if (KEY_VAULT_ENABLED) {
-    encryptedEmbedding = await encryptEmbedding(embeddingVector, firmId);
+    if (process.env.ENCRYPTION_MASTER_SECRET) {
+      // New deployments: use HKDF encryption (explicit opt-in via ENCRYPTION_MASTER_SECRET)
+      encryptedEmbedding = encryptViaService(Array.from(embeddingVector), firmId);
+    }
+    // Fallback / existing deployments: legacy encryption with ENCRYPTION_SECRET
+    if (!encryptedEmbedding) {
+      encryptedEmbedding = await encryptEmbeddingLegacy(embeddingVector, firmId);
+    }
   }
 
   return {
@@ -83,9 +109,10 @@ export async function generateEmbedding(text, firmId) {
 }
 
 /**
- * Encrypt embedding using firm-specific key from Azure Key Vault
+ * Legacy: Encrypt embedding using firm-specific key from Azure Key Vault
+ * @deprecated Use encryptionService.js instead (proper HKDF key derivation)
  */
-async function encryptEmbedding(embedding, firmId) {
+async function encryptEmbeddingLegacy(embedding, firmId) {
   if (!KEY_VAULT_ENABLED) {
     return null;
   }
@@ -254,23 +281,80 @@ export function chunkLegalDocument(text, documentType = 'legal') {
 
 /**
  * Store document embeddings in database
+ * 
+ * Improved version: uses contextual chunking for better search results.
+ * Lawyers just upload documents and search - this makes their search better.
+ * 
+ * What's better:
+ * - Chunks now include document context (type, matter, jurisdiction) in the embedding
+ *   so searching "indemnification in SaaS agreements" finds the right clause, not
+ *   a random indemnification clause from a real estate lease
+ * - Long documents (16+ chunks) get a summary tree so you can search at section
+ *   and document level, not just chunk level
+ * - Cross-references between documents are extracted automatically
+ * 
+ * Safety:
+ * - If context enrichment fails, falls back to the original chunking (same as before)
+ * - If RAPTOR tree fails, skipped silently - chunks still stored normally
+ * - If cross-reference extraction fails, skipped silently
+ * - Old embeddings already in the DB still work for search
+ * - Same function signature, same return shape for callers
  */
 export async function storeDocumentEmbeddings(documentId, firmId, text, metadata = {}) {
   try {
-    // Generate chunks
-    const chunks = chunkLegalDocument(text, metadata.documentType);
+    // Try to fetch document and matter info for context-enriched embeddings
+    let document = { id: documentId, name: metadata.documentName, type: metadata.documentType, created_at: metadata.createdAt };
+    let matterInfo = null;
     
-    // Store each chunk with its embedding
-    for (const chunk of chunks) {
-      // Generate embedding
-      const embeddingResult = await generateEmbedding(chunk.text, firmId);
+    try {
+      const docResult = await query(`
+        SELECT d.id, d.name, d.type, d.matter_id, d.created_at, d.owner_id,
+               u.name as owner_name
+        FROM documents d
+        LEFT JOIN users u ON u.id = d.owner_id AND u.firm_id = d.firm_id
+        WHERE d.id = $1 AND d.firm_id = $2
+      `, [documentId, firmId]);
       
-      // Calculate chunk hash for deduplication
+      if (docResult.rows.length > 0) {
+        document = { ...document, ...docResult.rows[0] };
+      }
+      
+      if (document.matter_id) {
+        matterInfo = await getMatterContext(document.matter_id, firmId);
+      }
+    } catch (e) {
+      // Context enrichment failed - will fall back to original chunking below
+      console.warn('[EmbeddingService] Could not fetch document context:', e.message);
+    }
+    
+    // Try contextual chunking first (better embeddings), fall back to original if it fails
+    let contextualChunks = [];
+    try {
+      contextualChunks = chunkWithContext(text, document, matterInfo);
+    } catch (e) {
+      console.warn('[EmbeddingService] Contextual chunking failed, using original:', e.message);
+    }
+    
+    const chunks = contextualChunks.length > 0 
+      ? contextualChunks 
+      : chunkLegalDocument(text, metadata.documentType).map(c => ({
+          ...c,
+          contextualText: c.text, // No context prepended - same as original behavior
+        }));
+    
+    let totalTokens = 0;
+    
+    // Embed and store each chunk
+    for (const chunk of chunks) {
+      const textToEmbed = chunk.contextualText || chunk.text;
+      const embeddingResult = await generateEmbedding(textToEmbed, firmId);
+      
       const chunkHash = crypto.createHash('sha256')
         .update(chunk.text)
         .digest('hex');
       
-      // Store in database
+      totalTokens += embeddingResult.usage?.total_tokens || 0;
+      
       await query(`
         INSERT INTO document_embeddings (
           firm_id, document_id, chunk_index, chunk_text, chunk_hash,
@@ -280,6 +364,7 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
         DO UPDATE SET
           embedding = EXCLUDED.embedding,
           encrypted_embedding = EXCLUDED.encrypted_embedding,
+          chunk_text = EXCLUDED.chunk_text,
           metadata = EXCLUDED.metadata,
           updated_at = NOW()
       `, [
@@ -292,18 +377,42 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
         embeddingResult.encryptedEmbedding,
         JSON.stringify({
           ...metadata,
-          chunkType: chunk.chunkType,
-          ...chunk.metadata,
+          chunkType: chunk.chunkType || chunk.metadata?.chunkType,
+          sectionMarker: chunk.sectionMarker || chunk.metadata?.sectionMarker,
+          crossReferenceCount: chunk.crossReferences?.length || 0,
+          contextualRetrieval: contextualChunks.length > 0,
+          documentType: chunk.metadata?.documentType || metadata.documentType,
           model: embeddingResult.model,
           tokens: embeddingResult.usage?.total_tokens || 0,
         })
       ]);
     }
     
+    // Build RAPTOR summary tree for long documents (makes long doc search better)
+    // If it fails, no problem - the chunks are already stored above
+    let raptorStats = null;
+    if (chunks.length >= 16) {
+      try {
+        raptorStats = await buildSummaryTree(documentId, firmId, chunks, generateEmbedding);
+      } catch (e) {
+        console.warn('[EmbeddingService] RAPTOR tree construction failed:', e.message);
+      }
+    }
+    
+    // Extract cross-references for the knowledge graph (makes related doc search better)
+    // If it fails, no problem - the chunks are already stored above
+    if (contextualChunks.length > 0) {
+      try {
+        await storeExtractedRelationships(documentId, firmId, contextualChunks);
+      } catch (e) {
+        console.warn('[EmbeddingService] Cross-reference extraction failed:', e.message);
+      }
+    }
+    
     return {
       success: true,
       chunkCount: chunks.length,
-      totalTokens: chunks.reduce((sum, chunk, idx) => sum + (chunks[idx].metadata?.tokens || 0), 0),
+      totalTokens,
     };
   } catch (error) {
     console.error('[EmbeddingService] Store embeddings error:', error);
@@ -312,9 +421,67 @@ export async function storeDocumentEmbeddings(documentId, firmId, text, metadata
 }
 
 /**
- * Search for similar documents using vector similarity
+ * Store cross-references extracted during chunking as document relationships
+ * These become edges in the knowledge graph for graph expansion retrieval
  */
-export async function semanticSearch(query, firmId, options = {}) {
+async function storeExtractedRelationships(documentId, firmId, chunks) {
+  const allRefs = [];
+  for (const chunk of chunks) {
+    if (chunk.crossReferences && chunk.crossReferences.length > 0) {
+      allRefs.push(...chunk.crossReferences);
+    }
+  }
+  
+  if (allRefs.length === 0) return;
+  
+  // For now, store case citations as potential relationships
+  // Full resolution (matching citation to actual document in the system) 
+  // would require a citation resolution service
+  const caseCitations = allRefs.filter(r => r.type === 'case_citation');
+  
+  for (const citation of caseCitations.slice(0, 20)) { // Cap at 20 per document
+    try {
+      // Try to find the cited document in the firm's collection
+      const citedDoc = await query(`
+        SELECT id FROM documents 
+        WHERE firm_id = $1 
+          AND (name ILIKE $2 OR name ILIKE $3)
+        LIMIT 1
+      `, [
+        firmId, 
+        `%${citation.target.substring(0, 30)}%`,
+        `%${citation.context.substring(0, 30)}%`,
+      ]);
+      
+      if (citedDoc.rows.length > 0) {
+        await query(`
+          INSERT INTO document_relationships (
+            firm_id, source_document_id, target_document_id, 
+            relationship_type, confidence, context
+          ) VALUES ($1, $2, $3, 'cites', 0.8, $4)
+          ON CONFLICT (firm_id, source_document_id, target_document_id, relationship_type) 
+          DO UPDATE SET confidence = GREATEST(document_relationships.confidence, 0.8)
+        `, [firmId, documentId, citedDoc.rows[0].id, citation.context.substring(0, 200)]);
+      }
+    } catch (e) {
+      // Non-critical, continue with other citations
+    }
+  }
+}
+
+/**
+ * Search for similar documents using vector similarity
+ * 
+ * NOTE: For full hybrid retrieval (vector + keyword + graph + RAPTOR),
+ * use retrievalPipeline.js instead. This function is kept for backward
+ * compatibility with existing callers.
+ * 
+ * @param {string} searchQuery - The search text (renamed from 'query' to avoid
+ *   shadowing the imported database query function - pre-existing bug fix)
+ * @param {string} firmId - The firm ID for tenant isolation
+ * @param {object} options - Search options
+ */
+export async function semanticSearch(searchQuery, firmId, options = {}) {
   const {
     limit = 10,
     threshold = 0.7,
@@ -326,7 +493,7 @@ export async function semanticSearch(query, firmId, options = {}) {
   
   try {
     // Generate embedding for query
-    const queryEmbedding = await generateEmbedding(query, firmId);
+    const queryEmbedding = await generateEmbedding(searchQuery, firmId);
     
     // Vector similarity search
     const vectorResults = await query(`
@@ -537,11 +704,49 @@ export async function getEmbeddingStats(firmId) {
   }
 }
 
+/**
+ * Delete embeddings AND summary tree for a document
+ * Safe to call even if new tables (document_summary_tree) don't exist yet
+ */
+export async function deleteDocumentWithTree(documentId, firmId) {
+  try {
+    // Delete RAPTOR summary tree (safe: table may not exist if migration hasn't run)
+    try {
+      await query(`
+        DELETE FROM document_summary_tree
+        WHERE firm_id = $1 AND document_id = $2
+      `, [firmId, documentId]);
+    } catch (e) {
+      // Table may not exist yet - non-critical
+      console.warn('[EmbeddingService] Summary tree delete skipped:', e.message);
+    }
+    
+    // Delete embeddings (core table, always exists)
+    await deleteDocumentEmbeddings(documentId, firmId);
+    
+    // Delete relationships (table from add_vector_embedding_support.sql)
+    try {
+      await query(`
+        DELETE FROM document_relationships
+        WHERE firm_id = $1 AND (source_document_id = $2 OR target_document_id = $2)
+      `, [firmId, documentId]);
+    } catch (e) {
+      console.warn('[EmbeddingService] Relationship delete skipped:', e.message);
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('[EmbeddingService] Delete with tree error:', error);
+    throw error;
+  }
+}
+
 export default {
   generateEmbedding,
   chunkLegalDocument,
   storeDocumentEmbeddings,
   semanticSearch,
   deleteDocumentEmbeddings,
+  deleteDocumentWithTree,
   getEmbeddingStats,
 };
